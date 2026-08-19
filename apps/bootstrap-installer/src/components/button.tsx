@@ -5,7 +5,7 @@ import * as React from 'react'
 import { cn } from '../lib/utils'
 
 /*
- * Button — copied verbatim from apps/desktop/src/components/ui/button.tsx.
+ * Button — copied verbatim from the former apps/desktop/src/components/ui/button.tsx.
  *
  * We import the desktop's local shadcn-style Button rather than
  * @nous-research/ui's <Button>, because the DS Button uses bg-midground /

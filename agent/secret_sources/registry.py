@@ -116,7 +116,7 @@ def register_source(source: SecretSource, *, replace: bool = False) -> bool:
     if getattr(source, "api_version", None) != SECRET_SOURCE_API_VERSION:
         logger.warning(
             "Ignoring secret source '%s': built against secret-source API v%s, "
-            "this Hermes speaks v%s",
+            "this Allr speaks v%s",
             name, getattr(source, "api_version", "?"), SECRET_SOURCE_API_VERSION,
         )
         return False
@@ -296,14 +296,14 @@ def _ordered_enabled_sources(secrets_cfg: dict) -> List[SecretSource]:
 def _active_profile_name(home_path: Optional[Path]) -> str:
     """Best-effort active profile name for profile-scoped secret aliases.
 
-    A named profile's HERMES_HOME is ``~/.hermes/profiles/<name>``; the
-    default profile (``~/.hermes``) returns "".
+    A named profile's ALLR_HOME is ``~/.allr/profiles/<name>``; the
+    default profile (``~/.allr``) returns "".
     """
     if home_path is not None:
         resolved = Path(home_path)
         if resolved.parent.name == "profiles" and resolved.name:
             return resolved.name
-    for env_name in ("HERMES_PROFILE_NAME", "HERMES_PROFILE"):
+    for env_name in ("ALLR_PROFILE_NAME", "ALLR_PROFILE"):
         value = os.environ.get(env_name, "").strip()
         if value and value != "default":
             return value

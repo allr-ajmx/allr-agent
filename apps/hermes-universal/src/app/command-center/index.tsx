@@ -255,7 +255,7 @@ export function CommandCenterView({
 
   const sessionListHasResults = filteredSessions.length > 0
 
-  // Client-side substring filter over the fetched tail (matches `hermes logs --search`).
+  // Client-side substring filter over the fetched tail (matches `allr logs --search`).
   const visibleLogs = useMemo(() => {
     const needle = logQuery.trim().toLowerCase()
 

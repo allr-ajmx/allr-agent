@@ -1,5 +1,5 @@
 /**
- * Shared ESLint flat config for all Hermes TS workspaces.
+ * Shared ESLint flat config for all Allr TS workspaces.
  *
  * Usage in a workspace's eslint.config.mjs:
  *
@@ -31,8 +31,7 @@ export default [
     // ESLint's flat-config default for this is `warn`, and no workspace here
     // passes --max-warnings, so a stale directive was invisible in every one.
     // `error` makes it fail the workspace's `lint` script instead. Audited when
-    // this landed: 0 unused directives across every workspace on this config,
-    // including apps/desktop's `src/ electron/`.
+    // this landed: 0 unused directives across every workspace on this config.
     linterOptions: { reportUnusedDisableDirectives: 'error' }
   },
   js.configs.recommended,

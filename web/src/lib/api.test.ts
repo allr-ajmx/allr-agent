@@ -13,19 +13,22 @@ vi.mock("./dashboard-auth-reload", () => ({
   clearDashboardTokenReloadAttempt: reloadMocks.clearDashboardTokenReloadAttempt,
 }));
 
-const SESSION_HEADER = "X-Hermes-Session-Token";
+const SESSION_HEADER = "X-Allr-Session-Token";
+// The pre-rename spelling, sent alongside. A dashboard bundle can be cached or
+// proxied ahead of a server downgrade, and an unknown header costs nothing.
+const LEGACY_SESSION_HEADER = "X-Hermes-Session-Token"; // rebrand:keep
 
 beforeEach(() => {
   reloadMocks.attemptDashboardTokenReloadOnce.mockReset();
   reloadMocks.attemptDashboardTokenReloadOnce.mockReturnValue(false);
   reloadMocks.clearDashboardTokenReloadAttempt.mockReset();
 
-  Object.defineProperty(window, "__HERMES_SESSION_TOKEN__", {
+  Object.defineProperty(window, "__ALLR_SESSION_TOKEN__", {
     configurable: true,
     value: "stale-token",
     writable: true,
   });
-  Object.defineProperty(window, "__HERMES_AUTH_REQUIRED__", {
+  Object.defineProperty(window, "__ALLR_AUTH_REQUIRED__", {
     configurable: true,
     value: false,
     writable: true,
@@ -120,7 +123,7 @@ describe("api.getModelOptions", () => {
 
 describe("api OAuth helpers", () => {
   it("starts OAuth login in gated mode without requiring an injected session token", async () => {
-    vi.stubGlobal("window", { __HERMES_AUTH_REQUIRED__: true });
+    vi.stubGlobal("window", { __ALLR_AUTH_REQUIRED__: true });
     const fetchMock = jsonFetchMock({
       flow: "device_code",
       session_id: "oauth-session",
@@ -140,10 +143,11 @@ describe("api OAuth helpers", () => {
     const headers = fetchMock.mock.calls[0][1]?.headers as Headers;
     expect(headers.get("Content-Type")).toBe("application/json");
     expect(headers.has(SESSION_HEADER)).toBe(false);
+    expect(headers.has(LEGACY_SESSION_HEADER)).toBe(false);
   });
 
   it("still sends the injected session token for OAuth login in loopback mode", async () => {
-    vi.stubGlobal("window", { __HERMES_SESSION_TOKEN__: "loopback-token" });
+    vi.stubGlobal("window", { __ALLR_SESSION_TOKEN__: "loopback-token" });
     const fetchMock = jsonFetchMock({
       flow: "device_code",
       session_id: "oauth-session",
@@ -154,10 +158,11 @@ describe("api OAuth helpers", () => {
 
     const headers = fetchMock.mock.calls[0][1]?.headers as Headers;
     expect(headers.get(SESSION_HEADER)).toBe("loopback-token");
+    expect(headers.get(LEGACY_SESSION_HEADER)).toBe("loopback-token");
   });
 
   it("runs provider auth mutations in gated mode via cookie auth", async () => {
-    vi.stubGlobal("window", { __HERMES_AUTH_REQUIRED__: true });
+    vi.stubGlobal("window", { __ALLR_AUTH_REQUIRED__: true });
     const fetchMock = jsonFetchMock({ ok: true });
     vi.stubGlobal("fetch", fetchMock);
 
@@ -170,6 +175,7 @@ describe("api OAuth helpers", () => {
       const init = call[1] as RequestInit;
       expect(init.credentials).toBe("include");
       expect((init.headers as Headers).has(SESSION_HEADER)).toBe(false);
+      expect((init.headers as Headers).has(LEGACY_SESSION_HEADER)).toBe(false);
     }
   });
 });

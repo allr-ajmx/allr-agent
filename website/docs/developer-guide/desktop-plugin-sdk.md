@@ -1,35 +1,35 @@
 ---
-sidebar_label: "Desktop Plugin SDK"
-title: "Desktop Plugin SDK (@hermes/plugin-sdk)"
-description: "Extend the native Hermes Desktop app — panes, pages, sidebar nav, status bar, palette commands, keybinds, themes, and a scoped backend namespace, with one import and no build step."
+sidebar_label: "App Plugin SDK"
+title: "Allr App Plugin SDK (@hermes/plugin-sdk)"
+description: "Extend the Allr app — panes, pages, sidebar nav, status bar, palette commands, keybinds, themes, and a scoped backend namespace, with one import and no build step."
 ---
 
-# Desktop Plugin SDK
+# Allr App Plugin SDK
 
-The native [Hermes Desktop](/user-guide/desktop) app is contribution-driven: every
+The [Allr app](/user-guide/desktop) (`apps/hermes-universal`) is contribution-driven: every
 surface in the window — panes, routes, sidebar nav, status-bar items, palette
 entries, keybinds, themes — registers into one central registry. Core registers
 its surfaces exactly the way a plugin does, so the plugin story is the real one,
 not a bolted-on afterthought.
 
-A **desktop plugin** is a single ESM file that default-exports a `HermesPlugin`.
+An **app plugin** is a single ESM file that default-exports a `HermesPlugin`.
 It imports one module — `@hermes/plugin-sdk` — and gets everything: the app's
 live state, the gateway JSON-RPC door, a scoped REST/socket backend namespace,
 React Query, and the app's own UI kit so plugin UI looks native by default. No
 repo clone, no `npm run build`, no patching app source. Drop the file in
-`$HERMES_HOME/desktop-plugins/<id>/plugin.js` and the app loads it within seconds
+`$ALLR_HOME/desktop-plugins/<id>/plugin.js` and the app loads it within seconds
 and hot-reloads every save.
 
 :::warning This is not the web-dashboard plugin SDK
-"Plugin" means several unrelated things across Hermes. This page is the **native
-desktop app** (`hermes desktop`) SDK — the `@hermes/plugin-sdk` module and
-`$HERMES_HOME/desktop-plugins/`. The **web dashboard** (`hermes dashboard`) has
-its own, unrelated plugin system on `window.__HERMES_PLUGIN_SDK__` with a
+"Plugin" means several unrelated things across Allr. This page is the **Allr
+app** (`apps/hermes-universal`) SDK — the `@hermes/plugin-sdk` module and
+`$ALLR_HOME/desktop-plugins/`. The **web dashboard** (`allr dashboard`) has
+its own, unrelated plugin system on `window.__ALLR_PLUGIN_SDK__` with a
 `manifest.json` — documented at
 [Extending the Dashboard](/user-guide/features/extending-the-dashboard). Python
-CLI/gateway plugins are documented at [Build a Hermes Plugin](/developer-guide/plugins).
+CLI/gateway plugins are documented at [Build an Allr Plugin](/developer-guide/plugins).
 The three do not share code, APIs, or delivery. Only the backend `plugin_api.py`
-namespace (`/api/plugins/<id>`) is shared between the desktop and dashboard SDKs.
+namespace (`/api/plugins/<id>`) is shared between the app and dashboard SDKs.
 :::
 
 ## Mental model
@@ -53,8 +53,8 @@ plugin, and fail to resolve in a disk plugin). Capability comes in tiers:
 
 | Mode | Where | Who | Build step |
 |------|-------|-----|------------|
-| **Disk** (recommended) | `$HERMES_HOME/desktop-plugins/<id>/plugin.js` | users, agents | none — plain ESM, loaded uncompiled |
-| **Bundled** | `apps/desktop/src/plugins/<id>/plugin.tsx` | in-tree, shipped with the app | the app's own Vite build |
+| **Disk** (recommended) | `$ALLR_HOME/desktop-plugins/<id>/plugin.js` | users, agents | none — plain ESM, loaded uncompiled |
+| **Bundled** | `apps/hermes-universal/src/plugins/<id>/plugin.tsx` | in-tree, shipped with the app | the app's own Vite build |
 
 Both take the same `HermesPlugin` contract, appear in **Settings → Plugins**, and
 enable/disable live. Everything on this page is written against the disk door
@@ -66,12 +66,12 @@ repo.
 
 ## Quick start — your first plugin
 
-Create `$HERMES_HOME/desktop-plugins/hello/plugin.js` (that's `~/.hermes/...`
-by default, or `~/.hermes/profiles/<name>/...` under a named profile). The folder
+Create `$ALLR_HOME/desktop-plugins/hello/plugin.js` (that's `~/.allr/...`
+by default, or `~/.allr/profiles/<name>/...` under a named profile). The folder
 name must equal the plugin `id`.
 
 ```javascript
-// ~/.hermes/desktop-plugins/hello/plugin.js
+// ~/.allr/desktop-plugins/hello/plugin.js
 import { host, haptic, useValue } from '@hermes/plugin-sdk'
 import { jsx, jsxs } from 'react/jsx-runtime'
 
@@ -81,7 +81,7 @@ function HelloPane() {
   return jsxs('div', {
     className: 'flex h-full flex-col gap-2 p-3 text-sm',
     children: [
-      jsx('div', { className: 'font-medium', children: 'Hello, Hermes' }),
+      jsx('div', { className: 'font-medium', children: 'Hello, Allr' }),
       jsx('div', {
         className: 'text-(--ui-text-tertiary)',
         children: `gateway: ${gateway}`
@@ -202,7 +202,7 @@ Import the area constants from the SDK; each area has its own `data` payload.
 | Full page | `ROUTES_AREA` | `data: { path }` + `render` |
 | Sidebar nav | `SIDEBAR_NAV_AREA` | `data: { path, label, codicon }` |
 | Status bar | `STATUSBAR_AREAS.left` / `.right` | `render` (or `data` as `StatusbarItem`) |
-| Title bar | `TITLEBAR_AREAS.left` / `.center` / `.right` | `data` as `TitlebarTool`, or a mount-scoped `<Contribute>` |
+| Title bar | `TITLEBAR_AREAS.left` / `.center` / `.right` | `render` (or a mount-scoped `<Contribute>`) |
 | ⌘K palette | `PALETTE_AREA` | `data: PaletteContribution` |
 | Keybind | `KEYBINDS_AREA` | `data: KeybindContribution` |
 | Theme | `THEMES_AREA` | `data` as a `DesktopTheme` |
@@ -285,8 +285,9 @@ ctx.register({
 })
 ```
 
-Title-bar tools live in `TITLEBAR_AREAS.left | .center | .right` as `TitlebarTool`
-data (`{ id, label, icon, active?, onSelect? }`).
+Title-bar slots live in `TITLEBAR_AREAS.left | .center | .right`. The app's
+titlebar is composed of JSX rather than descriptors, so contribute a `render()`
+— the same mechanism reaches the mobile top bar.
 
 ### Palette commands and keybinds
 
@@ -392,9 +393,10 @@ from an internal helper (e.g. no desktop bridge in a plain browser) becomes a
 rejection your `.catch()` sees, never an error-boundary crash.
 
 `ctx.os` is the curated OS door — every way a plugin reaches outside the app
-window, in one namespace attributed to your plugin. `ctx.os.notify` posts a
-**native OS notification** — the same Electron pipeline the app's own
-approval/turn alerts use. It fires only while the user is away from Hermes
+window, in one namespace attributed to your plugin. It sits over Tauri, so some
+members resolve `false` on mobile and in a plain-browser dev run. `ctx.os.notify` posts a
+**native OS notification** — the same Tauri pipeline the app's own
+approval/turn alerts use. It fires only while the user is away from Allr
 (backgrounded / unfocused); use `host.notify` for the in-app toast when
 they're looking at the app. Users can silence it per device under Settings ▸
 Notifications ▸ "Plugin notifications", and repeats from the same plugin are
@@ -467,11 +469,11 @@ construction**.
 ### The Python side
 
 Desktop plugins reuse the dashboard plugin backend mount. Put the backend in a
-`dashboard/` subfolder of a regular Hermes plugin and declare it in a
+`dashboard/` subfolder of a regular Allr plugin and declare it in a
 `manifest.json`:
 
 ```
-~/.hermes/plugins/<id>/
+~/.allr/plugins/<id>/
 └── dashboard/
     ├── manifest.json      # { "name": "<id>", "api": "plugin_api.py" }
     └── plugin_api.py      # exports `router = APIRouter()`
@@ -494,7 +496,7 @@ async def action(body: dict):
 
 Routes mount under `/api/plugins/<id>/` (`GET /api/plugins/<id>/board`, …).
 Backend code runs inside the gateway process, so it can import from the
-hermes-agent codebase directly (`hermes_state`, `hermes_cli.config`, …). See
+allr-agent codebase directly (`hermes_state`, `hermes_cli.config`, …). See
 [Extending the Dashboard → Backend API routes](/user-guide/features/extending-the-dashboard#backend-api-routes)
 for the full backend reference — the mount is identical.
 
@@ -502,7 +504,7 @@ for the full backend reference — the mount is identical.
 Enabling a plugin in the desktop **Settings → Plugins** panel is a renderer-side
 choice; it does **not** import Python. A user plugin's `plugin_api.py` is
 imported only when the plugin is in the `plugins.enabled` allow-list in
-`config.yaml` (and not in `plugins.disabled`). Project plugins (`./.hermes/`)
+`config.yaml` (and not in `plugins.disabled`). Project plugins (`./.allr/`)
 never auto-import Python. This is a security boundary, not an oversight
 (GHSA-mcfc-hp25-cjv7).
 :::
@@ -526,10 +528,11 @@ register(ctx) {
 address another plugin's API or a core route through it. `PluginRestOptions` is
 `{ method?, body?, upload?: { filename, contentType?, bytes }, timeoutMs? }`.
 
-`ctx.socket` auto-reconnects with backoff until disposed. **It resolves to a no-op
-on OAuth remotes** (single-use WS tickets are core-managed) — treat the socket as
-an accelerator over polling, never a replacement. Every consumer needs a polling
-fallback anyway, since any socket can drop.
+`ctx.socket` auto-reconnects with backoff until disposed. It authenticates on
+**every** gateway mode, including OAuth remotes (core mints a single-use WS ticket
+where there is no static token). Still treat the socket as an accelerator over
+polling, never a replacement — every consumer needs a polling fallback anyway,
+since any socket can drop.
 
 For gateway-wide data (not your own namespace), use `host.request` (JSON-RPC) and
 `host.onEvent` (the gateway event stream) instead.
@@ -557,7 +560,7 @@ ctx.storage.remove('lastTab')
 
 ## Bundled plugins
 
-A plugin can ship in-tree at `apps/desktop/src/plugins/<id>/plugin.tsx` (default
+A plugin can ship in-tree at `apps/hermes-universal/src/plugins/<id>/plugin.tsx` (default
 export a `HermesPlugin`). It's discovered by `discoverBundledPlugins()` at boot —
 no import, no registry edit — and shares the exact inventory + live
 enable/disable contract as a disk plugin. The two differences:
@@ -567,7 +570,7 @@ enable/disable contract as a disk plugin. The two differences:
 2. It's still lint-fenced to `@hermes/plugin-sdk` + `react` only — no `@/…` app
    internals.
 
-No desktop plugins ship in the core tree today; the shipped app stays uncluttered
+No app plugins ship in the core tree today; the shipped app stays uncluttered
 and demos live in the
 [`hermes-example-plugins`](https://github.com/NousResearch/hermes-example-plugins)
 companion repo.
@@ -617,26 +620,19 @@ not treat this pipeline as a trust boundary.
 | Host | `host` (`.state.*`, `.notify`, `.notifyError`, `.navigate`, `.onEvent`, `.logs`, `.status`, `.restartGateway`, `.request`) |
 | Plugin contract | `HermesPlugin`, `PluginContext`, `PluginContribution`, `PluginStorage`, `PluginOs`, `PluginRestOptions`, `PluginNativeNotificationInput`, `Contribution` |
 | Area constants | `PANES_AREA`, `ROUTES_AREA`, `SIDEBAR_NAV_AREA`, `STATUSBAR_AREAS`, `TITLEBAR_AREAS`, `PALETTE_AREA`, `KEYBINDS_AREA`, `THEMES_AREA`, `COMPOSER_AREAS` |
-| Area payloads | `RouteContribution`, `SidebarNavContribution`, `StatusbarItem`, `TitlebarTool`, `PaletteContribution`, `KeybindContribution`, `ComposerMiddleware`, `ComposerAttachmentProvider` |
+| Area payloads | `RouteContribution`, `SidebarNavContribution`, `StatusbarItem`, `PaletteContribution`, `KeybindContribution`, `ComposerMiddleware`, `ComposerAttachmentProvider` |
 | React / state | `useValue`, `atom`, `computed`, `useQuery`, `useMutation`, `useQueryClient`, `queryClient`, `Contribute` |
 | UI kit | `Button`, `Input`, `Textarea`, `Select*`, `Switch`, `Checkbox`, `SegmentedControl`, `Tabs*`, `Dialog*`, `ConfirmDialog`, `DropdownMenu*`, `ContextMenu*`, `Popover*`, `Tip`/`Tooltip*`, `Badge`, `Kbd`/`KbdGroup`, `SearchField`, `ScrollArea`, `Separator`, `Skeleton`, `GlyphSpinner`, `Loader`, `EmptyState`, `ErrorState`, `CopyButton`, `StatusDot`, `LogView`, `Codicon`, `DecodeText` |
 | Helpers | `cn`, `icons`, `haptic`, `useI18n`, `profileColor`, `profileColorSoft`, `relativeTime`, `fmtDateTime`, `fmtDayTime`, `coarseElapsed`, `evaluateRuntimeReadiness` |
 
-The canonical, always-current export list is `apps/desktop/src/sdk/index.ts`.
-
-### Agents: the `hermes-desktop-plugins` skill
-
-When an agent writes a desktop plugin, it should load the bundled
-**`hermes-desktop-plugins`** skill — it carries the same contract as this page in
-agent-facing form, with a ready-to-copy `templates/plugin.js`. This page is the
-human/developer reference; the skill is the working checklist.
+The canonical, always-current export list is `apps/hermes-universal/src/sdk/index.ts`.
 
 ## Troubleshooting
 
 **My plugin doesn't appear.** Confirm the file is at
-`$HERMES_HOME/desktop-plugins/<id>/plugin.js` and the folder name matches the
+`$ALLR_HOME/desktop-plugins/<id>/plugin.js` and the folder name matches the
 export `id`. Run ⌘K → **Reload desktop plugins**. Check the app for an error
-toast naming the failure, and tail `hermes logs gui -f`.
+toast naming the failure, and tail `allr logs gui -f`.
 
 **"unsupported import" on load.** A disk plugin may only import
 `@hermes/plugin-sdk`, `react`, and `react/jsx-runtime`. Remove any other import.
@@ -645,14 +641,13 @@ toast naming the failure, and tail `hermes logs gui -f`.
 in a `jsx()` call isn't imported. Add it to the import line.
 
 **`ctx.rest` returns 404.** The backend isn't mounted: confirm
-`~/.hermes/plugins/<id>/dashboard/manifest.json` has `"api": "plugin_api.py"`,
+`~/.allr/plugins/<id>/dashboard/manifest.json` has `"api": "plugin_api.py"`,
 that the plugin is in `plugins.enabled` in `config.yaml`, and restart the gateway
-(backend routes mount at startup). Tail `~/.hermes/logs/errors.log` for
+(backend routes mount at startup). Tail `~/.allr/logs/errors.log` for
 `Failed to load plugin <id> API routes`.
 
-**`ctx.socket` never fires.** On an OAuth remote it's a no-op by design — use your
-polling fallback. Otherwise verify the backend exposes the matching
-`@router.websocket(...)` route under its namespace.
+**`ctx.socket` never fires.** Verify the backend exposes the matching
+`@router.websocket(...)` route under its namespace, and fall back to polling.
 
 **Colors look wrong after a theme switch.** You hardcoded a color. Replace it with
 a `var(--ui-*)` theme variable.

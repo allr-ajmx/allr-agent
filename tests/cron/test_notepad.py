@@ -2,7 +2,7 @@
 
 Covers CRUD on the SQLite-backed store, size-cap enforcement, prompt
 injection of non-empty notepads, byte-stable prompts for jobs that don't
-use the notepad, and the `hermes cron notepad` CLI handler.
+use the notepad, and the `allr cron notepad` CLI handler.
 """
 
 from __future__ import annotations
@@ -28,16 +28,16 @@ def notepad(monkeypatch, tmp_path):
 
 @pytest.fixture
 def cron_env(tmp_path, monkeypatch, notepad):
-    """Isolated cron environment with temp HERMES_HOME (mirrors test_cron_context_from)."""
-    hermes_home = tmp_path / ".hermes"
+    """Isolated cron environment with temp ALLR_HOME (mirrors test_cron_context_from)."""
+    hermes_home = tmp_path / ".allr"
     hermes_home.mkdir()
     (hermes_home / "cron").mkdir()
     (hermes_home / "cron" / "output").mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    monkeypatch.setenv("ALLR_HOME", str(hermes_home))
 
     import cron.jobs as jobs_mod
 
-    monkeypatch.setattr(jobs_mod, "HERMES_DIR", hermes_home)
+    monkeypatch.setattr(jobs_mod, "ALLR_DIR", hermes_home)
     monkeypatch.setattr(jobs_mod, "CRON_DIR", hermes_home / "cron")
     monkeypatch.setattr(jobs_mod, "JOBS_FILE", hermes_home / "cron" / "jobs.json")
     monkeypatch.setattr(jobs_mod, "OUTPUT_DIR", hermes_home / "cron" / "output")
@@ -186,7 +186,7 @@ class TestPromptInjection:
         assert "8842" in prompt
         assert "watchlist" in prompt
         # The injected section documents the CLI write path for this job.
-        assert f"hermes cron notepad {job['id']} set" in prompt
+        assert f"allr cron notepad {job['id']} set" in prompt
 
     def test_empty_notepad_prompt_byte_stable(self, cron_env, notepad):
         from cron.jobs import create_job

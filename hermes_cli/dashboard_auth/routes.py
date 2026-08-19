@@ -41,6 +41,7 @@ from hermes_cli.dashboard_auth.cookies import (
     clear_session_cookies,
     clear_sso_attempt_cookie,
     detect_https,
+    pkce_payload_from,
     read_pkce_cookie,
     read_session_cookies,
     set_pkce_cookie,
@@ -58,7 +59,7 @@ def _redirect_uri(request: Request) -> str:
 
     Three resolution tiers:
 
-      1. ``HERMES_DASHBOARD_PUBLIC_URL`` env var or
+      1. ``ALLR_DASHBOARD_PUBLIC_URL`` env var or
          ``dashboard.public_url`` in config.yaml — when set, this is
          the complete authority (scheme + host + optional path prefix)
          and we append ``/auth/callback`` verbatim. ``X-Forwarded-Prefix``
@@ -225,7 +226,7 @@ async def auth_login(request: Request, provider: str, next: str = ""):
     # Pack the provider name into the PKCE cookie so the callback can
     # find it without a separate cookie. Provider may or may not have
     # already included a ``provider=`` segment.
-    pkce = ls.cookie_payload.get("hermes_session_pkce", "")
+    pkce = pkce_payload_from(ls.cookie_payload)
     if "provider=" not in pkce:
         pkce = f"provider={provider};{pkce}" if pkce else f"provider={provider}"
     # Carry ``next=`` through the round trip in the PKCE cookie. Real
@@ -365,7 +366,7 @@ async def auth_native_authorize(
     # cookie so the callback can (a) dispatch to the right provider and (b)
     # find the pending native authorization. The desktop's challenge/state
     # never touch this cookie — only our opaque broker_state does.
-    pkce = ls.cookie_payload.get("hermes_session_pkce", "")
+    pkce = pkce_payload_from(ls.cookie_payload)
     if "provider=" not in pkce:
         pkce = f"provider={p.name};{pkce}" if pkce else f"provider={p.name}"
     pkce = f"{pkce};broker={broker_state}"

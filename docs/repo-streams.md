@@ -40,7 +40,7 @@ clobbered by the next refresh.
 Branch naming and Conventional Commits carry over unchanged from
 `CONTRIBUTING.md` (`### Branch naming`, `### Commit messages`).
 
-This formalises what the fork already did informally: `mjx-hermes-agent` carried a
+This formalises what the fork already did informally: `mjx-allr-agent` carried a
 long-lived `main-sync` branch that merged `upstream/main` and then PR'd into
 `main` — 35 such merges in history, and this repository's root commit
 `7d6bcd62c` is one of them. `stream/*` plus `ingest/*` is that same pattern made
@@ -85,8 +85,20 @@ Then ingest, deliberately, on a branch — **never straight to `main`**:
 git fetch origin
 git switch -c ingest/support-$(date +%F) origin/main
 git merge origin/stream/support
-# resolve conflicts, run the test suite, open a PR into main
+# resolve conflicts, run the test suite
+
+# Both lanes still carry the old Allr naming, so every merge drags it back
+# in. Re-apply the rename before the PR:
+python scripts/rebrand/rebrand.py
+git commit -am "chore(rebrand): re-apply Allr naming after ingest"
+python scripts/rebrand/rebrand.py --check   # must exit 0 — then open the PR
 ```
+
+`--check` is the gate: non-zero means Allr naming survived the merge, and it
+prints the files. `--stat` shows which rule fired how often. The script is
+idempotent by construction, so re-running it is always safe; what it
+deliberately leaves alone (module names, class names, crate names, `@hermes/*`,
+localStorage keys, upstream links) is listed in its module docstring.
 
 The merge is **expected** to conflict, and increasingly so as this repository
 diverges. That is the point: each ingest is a reviewed decision, not an automatic
@@ -104,8 +116,8 @@ the Python agent core at root (`run_agent.py`, `cli.py`, `hermes_state*.py`,
 `toolsets.py`, `hermes_constants.py`), `agent/`, `hermes_cli/`, `tools/`,
 `gateway/`, `ui-tui/`, `tui_gateway/`, `acp_adapter/`, `cron/`, `plugins/`,
 `skills/`, `optional-skills/`, `web/`, `website/`, `docs/`, `locales/`,
-`native/`, and — this surprises people — `apps/desktop/`,
-`apps/bootstrap-installer/`, `apps/shared/` **and the npm workspace itself**, all
+`native/`, and — this surprises people — `apps/bootstrap-installer/`,
+`apps/shared/` **and the npm workspace itself**, all
 of which predate the fork.
 
 **This project's own work** — arrives via `stream/support`; conflicts here are
@@ -125,10 +137,10 @@ fork is **public** and `allr-agent` is **private**, and the boundary is hard.
 
 | What you are building | Author it in |
 |---|---|
-| Generic fix or feature, happy to be public, possibly upstreamable to Nous | `mjx-hermes-agent` → reaches here on the next ingest |
+| Generic fix or feature, happy to be public, possibly upstreamable to Nous | `mjx-allr-agent` → reaches here on the next ingest |
 | allr-proprietary or confidential — brand assets, org config, customer features, credentials | `allr-agent` only. Putting it in the fork **publishes it**. |
 | Anything touching files `allr-agent` has already rebranded | `allr-agent`, else the same change is fought twice |
-| A PR to `NousResearch/hermes-agent` | `mjx-hermes-agent` — this repository never pushes back |
+| A PR to `NousResearch/hermes-agent` | `mjx-allr-agent` — this repository never pushes back |
 
 Two things that are easy to forget:
 

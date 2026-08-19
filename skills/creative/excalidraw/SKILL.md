@@ -2,7 +2,7 @@
 name: excalidraw
 description: "Hand-drawn Excalidraw JSON diagrams (arch, flow, seq)."
 version: 1.0.1
-author: Hermes Agent
+author: Allr
 license: MIT
 dependencies: []
 platforms: [linux, macos, windows]
@@ -36,7 +36,7 @@ Wrap your elements array in the standard `.excalidraw` envelope and save with `w
 {
   "type": "excalidraw",
   "version": 2,
-  "source": "hermes-agent",
+  "source": "allr-agent",
   "elements": [ ...your elements array here... ],
   "appState": {
     "viewBackgroundColor": "#ffffff"

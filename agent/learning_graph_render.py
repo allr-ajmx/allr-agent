@@ -1,6 +1,6 @@
 """Terminal renderer for the learning timeline (learned skills + memories).
 
-The desktop app (``apps/desktop/src/app/starmap``) paints a GPU radial
+The desktop app (``apps/hermes-universal/src/app/starmap``) paints a GPU radial
 constellation; a terminal can't, so this is a *rendition* of the same data as a
 timeline bar chart — date rows, proportional skill/memory bars colored by the
 day's dominant category, and a cumulative trajectory sparkline — plus per-slice
@@ -463,7 +463,7 @@ def render_graph(payload: dict[str, Any], *, cols: int = 80, rows: int = 16, rev
     rows = max(14, rows)
     nodes = list(payload.get("nodes", []))
     if not nodes:
-        placeholder = [["no learning yet — keep using Hermes and it maps out here", STYLE_DIM, 0.7]]
+        placeholder = [["no learning yet — keep using Allr and it maps out here", STYLE_DIM, 0.7]]
         return {"grid": [placeholder], "date": "", "reveal": reveal, "visible": 0}
 
     rec = compute_recency(nodes)

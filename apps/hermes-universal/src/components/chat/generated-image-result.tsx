@@ -10,7 +10,7 @@ import { cn } from '@/lib/utils'
 
 // Ported (simplified) from apps/desktop/src/components/chat/generated-image-result.tsx.
 //
-// A generated image is written on the GATEWAY (~/.hermes/cache/images/…), so the
+// A generated image is written on the GATEWAY (~/.allr/cache/images/…), so the
 // source is resolved through `resolveMediaDisplaySrc` — the authenticated Rust
 // transport — exactly like every other piece of gateway media. Pointing `<img>`
 // at the raw /api/files/download URL instead is what made a successful

@@ -441,7 +441,7 @@ def _path_resolution_warning(filepath: str, resolved: Path, task_id: str = "defa
 
 
 def _file_ops_uses_host_paths(file_ops) -> bool:
-    """Return True when *file_ops* targets the same host filesystem as Hermes.
+    """Return True when *file_ops* targets the same host filesystem as Allr.
 
     Only then may we rewrite V4A header paths to resolved host-absolute
     paths: a container/remote backend has its own filesystem namespace where
@@ -657,7 +657,7 @@ _hermes_config_resolved_loaded = False
 
 
 def _get_hermes_config_resolved() -> str | None:
-    """Return the resolved absolute path of the Hermes config file (cached)."""
+    """Return the resolved absolute path of the Allr config file (cached)."""
     global _hermes_config_resolved, _hermes_config_resolved_loaded
     if _hermes_config_resolved_loaded:
         return _hermes_config_resolved
@@ -667,7 +667,7 @@ def _get_hermes_config_resolved() -> str | None:
         _hermes_config_resolved = str(get_config_path().resolve())
     except Exception:
         try:
-            _hermes_config_resolved = str(Path(_expand_tilde("~/.hermes/config.yaml")).resolve())
+            _hermes_config_resolved = str(Path(_expand_tilde("~/.allr/config.yaml")).resolve())
         except Exception:
             _hermes_config_resolved = None
     return _hermes_config_resolved
@@ -689,16 +689,16 @@ def _check_sensitive_path(filepath: str, task_id: str = "default") -> str | None
             return _err
     if resolved in _SENSITIVE_EXACT_PATHS or normalized in _SENSITIVE_EXACT_PATHS:
         return _err
-    # Prevent agents from modifying the Hermes config file directly.
+    # Prevent agents from modifying the Allr config file directly.
     # approvals.mode and other security settings live here; a malicious or
     # prompt-injected agent could silently disable exec approval by writing to
     # this file.
     hermes_config = _get_hermes_config_resolved()
     if hermes_config and (resolved == hermes_config or normalized == hermes_config):
         return (
-            f"Refusing to write to Hermes config file: {filepath}\n"
+            f"Refusing to write to Allr config file: {filepath}\n"
             "Agent cannot modify security-sensitive configuration. "
-            "Edit ~/.hermes/config.yaml directly or use 'hermes config' instead."
+            "Edit ~/.allr/config.yaml directly or use 'allr config' instead."
         )
     return None
 
@@ -708,7 +708,7 @@ def _check_sensitive_path(filepath: str, task_id: str = "default") -> str | None
 # ---------------------------------------------------------------------------
 # Files that steer FUTURE agent behavior are a prompt-injection persistence
 # vector: an injected instruction that edits AGENTS.md / CLAUDE.md / SOUL.md /
-# .cursorrules (or a project-local .hermes config tree) outlives the current
+# .cursorrules (or a project-local .allr config tree) outlives the current
 # turn and poisons every later session that loads it. Writes to these files
 # therefore ALWAYS require human approval — even under --yolo / auto-approve —
 # and fail closed when no human channel exists.
@@ -734,7 +734,7 @@ _real_hermes_home_loaded = False
 
 
 def _get_real_hermes_home() -> str | None:
-    """Return the realpath of the authoritative Hermes home (cached)."""
+    """Return the realpath of the authoritative Allr home (cached)."""
     global _real_hermes_home_cached, _real_hermes_home_loaded
     if _real_hermes_home_loaded:
         return _real_hermes_home_cached
@@ -744,7 +744,7 @@ def _get_real_hermes_home() -> str | None:
         _real_hermes_home_cached = os.path.realpath(str(get_hermes_home()))
     except Exception:
         try:
-            _real_hermes_home_cached = os.path.realpath(_expand_tilde("~/.hermes"))
+            _real_hermes_home_cached = os.path.realpath(_expand_tilde("~/.allr"))
         except Exception:
             _real_hermes_home_cached = None
     return _real_hermes_home_cached
@@ -801,10 +801,10 @@ def _protected_instruction_reason(filepath: str, task_id: str = "default",
     except (OSError, ValueError, RuntimeError):
         resolved = os.path.realpath(normalized)
 
-    # The authoritative ~/.hermes home is governed by its own guards
+    # The authoritative ~/.allr home is governed by its own guards
     # (config.yaml hard-block, cross-profile guard, write_approval); this
     # gate targets PROJECT-LOCAL instruction files only. Checked before the
-    # ``.hermes`` component rule below, which would otherwise match the
+    # ``.allr`` component rule below, which would otherwise match the
     # home directory itself.
     real_home = _get_real_hermes_home()
     if real_home and (resolved == real_home
@@ -820,14 +820,14 @@ def _protected_instruction_reason(filepath: str, task_id: str = "default",
         for pattern in extra_patterns:
             if fnmatch.fnmatch(base_lower, pattern.lower()):
                 return base
-        # Project-local .hermes config dirs (e.g. <repo>/.hermes/config.yaml)
+        # Project-local .allr config dirs (e.g. <repo>/.allr/config.yaml)
         # are loaded as project context and steer behavior the same way.
-        # Scope: the file's IMMEDIATE parent must be ``.hermes`` — matching
-        # any ancestor named .hermes would gate every write inside a
-        # checkout that happens to live under ~/.hermes (e.g. the
-        # hermes-agent repo itself at ~/.hermes/hermes-agent).
+        # Scope: the file's IMMEDIATE parent must be ``.allr`` — matching
+        # any ancestor named .allr would gate every write inside a
+        # checkout that happens to live under ~/.allr (e.g. the
+        # allr-agent repo itself at ~/.allr/allr-agent).
         parts = candidate.replace("\\", "/").rstrip("/").split("/")
-        if len(parts) >= 2 and parts[-2] == ".hermes":
+        if len(parts) >= 2 and parts[-2] == ".allr":
             return candidate
     return None
 
@@ -956,7 +956,7 @@ def _check_protected_instruction_write(paths: list[str],
 
 
 def _get_container_mirror_prefix_for_task(task_id: str = "default") -> str | None:
-    """Return the container-side Hermes mirror prefix for Docker file tools."""
+    """Return the container-side Allr mirror prefix for Docker file tools."""
     try:
         from tools.terminal_tool import (
             _active_environments,
@@ -977,7 +977,7 @@ def _get_container_mirror_prefix_for_task(task_id: str = "default") -> str | Non
             if env.__class__.__name__ == "DockerEnvironment" and bool(
                 getattr(env, "_persistent", False)
             ):
-                return "/root/.hermes"
+                return "/root/.allr"
             return None
 
         config = _get_env_config()
@@ -985,29 +985,29 @@ def _get_container_mirror_prefix_for_task(task_id: str = "default") -> str | Non
         return None
 
     if config.get("env_type") == "docker" and config.get("container_persistent", True):
-        return "/root/.hermes"
+        return "/root/.allr"
     return None
 
 
 def _check_cross_profile_path(filepath: str, task_id: str = "default") -> str | None:
-    """Return a soft-guard warning when ``filepath`` lands in another Hermes
+    """Return a soft-guard warning when ``filepath`` lands in another Allr
     profile's scoped area, a host-side sandbox-mirror of authoritative profile
-    state, or the Docker container's sandbox mirror of Hermes state.
+    state, or the Docker container's sandbox mirror of Allr state.
 
     Three detectors run in order:
 
     * cross-profile — writes that hit another profile's
       ``skills/plugins/cron/memories`` directory.
     * sandbox-mirror (#32049) — writes that hit the
-      ``…/sandboxes/<backend>/<task>/home/.hermes/…`` mirror created by a
+      ``…/sandboxes/<backend>/<task>/home/.allr/…`` mirror created by a
       non-local terminal backend (Docker, Daytona, etc.), where the host
-      Hermes process never reads the mirror and the authoritative file is
+      Allr process never reads the mirror and the authoritative file is
       left untouched.
     * container-mirror (#32049 follow-up) — writes from inside a Docker
       container whose bind-mounted home strips the ``sandboxes/`` prefix, so
-      the agent sees a plain ``/root/.hermes/…`` path.
+      the agent sees a plain ``/root/.allr/…`` path.
 
-    Returns ``None`` when the write is in-scope or outside Hermes scope.
+    Returns ``None`` when the write is in-scope or outside Allr scope.
     All detectors are soft guards — the agent can override any by
     passing ``cross_profile=True`` to its write tool after explicit user
     direction. Defense-in-depth, NOT a security boundary — the terminal
@@ -1028,7 +1028,7 @@ def _check_cross_profile_path(filepath: str, task_id: str = "default") -> str | 
         return None
 
     # Resolve via the task's cwd so a relative ``skills/foo/SKILL.md``
-    # in a session that cd'd into ``~/.hermes/profiles/other/`` is
+    # in a session that cd'd into ``~/.allr/profiles/other/`` is
     # classified against the right base.
     try:
         resolved = str(_resolve_path_for_task(filepath, task_id))
@@ -1639,11 +1639,11 @@ def read_file_tool(path: str, offset: int = 1, limit: int = 2000, task_id: str =
                 "Use vision_analyze for images, or terminal to inspect binary files."
             )
 
-        # ── Hermes internal path guard ────────────────────────────────
+        # ── Allr internal path guard ────────────────────────────────
         # Prevent prompt injection via catalog or hub metadata files,
-        # and block credential stores under HERMES_HOME.  Pass the
+        # and block credential stores under ALLR_HOME.  Pass the
         # already-resolved path so a relative-path read against
-        # TERMINAL_CWD == HERMES_HOME (e.g. "auth.json") still hits the
+        # TERMINAL_CWD == ALLR_HOME (e.g. "auth.json") still hits the
         # denylist — get_read_block_error's own resolve() runs against
         # the Python process cwd, which can differ.
         block_error = get_read_block_error(str(_resolved))
@@ -2052,7 +2052,7 @@ def write_file_tool(path: str, content: str, task_id: str = "default",
                     session_id: str | None = None) -> str:
     """Write content to a file.
 
-    ``cross_profile`` opts out of the soft cross-Hermes-profile guard. The
+    ``cross_profile`` opts out of the soft cross-Allr-profile guard. The
     guard fires only on writes that land in another profile's
     skills/plugins/cron/memories directory; everything else is unaffected.
     Pass ``True`` after explicit user direction — same shape as ``force``
@@ -2139,7 +2139,7 @@ def patch_tool(mode: str = "replace", path: str = None, old_string: str = None,
                session_id: str | None = None) -> str:
     """Patch a file using replace mode or V4A patch format.
 
-    ``cross_profile`` opts out of the soft cross-Hermes-profile guard for
+    ``cross_profile`` opts out of the soft cross-Allr-profile guard for
     targets under another profile's skills/plugins/cron/memories
     directory. Same shape as ``write_file``'s flag.
     """
@@ -2481,7 +2481,7 @@ WRITE_FILE_SCHEMA = {
             "content": {"type": "string", "description": "Complete content to write to the file"},
             "cross_profile": {
                 "type": "boolean",
-                "description": "Opt out of the cross-profile soft guard. Defaults to false. Set true ONLY after explicit user direction to edit another Hermes profile's skills/plugins/cron/memories — by default these writes are blocked with a warning because they affect a different profile than the one this session is running under.",
+                "description": "Opt out of the cross-profile soft guard. Defaults to false. Set true ONLY after explicit user direction to edit another Allr profile's skills/plugins/cron/memories — by default these writes are blocked with a warning because they affect a different profile than the one this session is running under.",
                 "default": False,
             },
         },
@@ -2532,7 +2532,7 @@ PATCH_SCHEMA = {
             },
             "cross_profile": {
                 "type": "boolean",
-                "description": "Opt out of the cross-profile soft guard. Defaults to false. Set true ONLY after explicit user direction to edit another Hermes profile's skills/plugins/cron/memories.",
+                "description": "Opt out of the cross-profile soft guard. Defaults to false. Set true ONLY after explicit user direction to edit another Allr profile's skills/plugins/cron/memories.",
                 "default": False,
             },
         },

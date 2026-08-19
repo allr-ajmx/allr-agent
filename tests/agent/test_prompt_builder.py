@@ -284,7 +284,7 @@ class TestBuildSkillsSystemPrompt:
 
 
     def test_deduplicates_skills(self, monkeypatch, tmp_path):
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("ALLR_HOME", str(tmp_path))
         cat_dir = tmp_path / "skills" / "tools"
         for subdir in ["search", "search"]:
             d = cat_dir / subdir
@@ -298,7 +298,7 @@ class TestBuildSkillsSystemPrompt:
     def test_compact_categories_demote_nested_and_miss_cache_separately(
         self, monkeypatch, tmp_path
     ):
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("ALLR_HOME", str(tmp_path))
         d = tmp_path / "skills" / "social-media" / "twitter" / "thread-writer"
         d.mkdir(parents=True)
         (d / "SKILL.md").write_text(
@@ -319,7 +319,7 @@ class TestBuildSkillsSystemPrompt:
 
     def test_excludes_disabled_skills(self, monkeypatch, tmp_path):
         """Skills in the user's disabled list should not appear in the system prompt."""
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("ALLR_HOME", str(tmp_path))
         skills_dir = tmp_path / "skills" / "tools"
         skills_dir.mkdir(parents=True)
 
@@ -347,7 +347,7 @@ class TestBuildSkillsSystemPrompt:
         assert "old-tool" not in result
 
     def test_rebuilds_prompt_when_disabled_skills_change(self, monkeypatch, tmp_path):
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("ALLR_HOME", str(tmp_path))
         skill_dir = tmp_path / "skills" / "tools" / "cached-skill"
         skill_dir.mkdir(parents=True)
         (skill_dir / "SKILL.md").write_text(
@@ -442,7 +442,7 @@ class TestBuildContextFilesPrompt:
         with patch("pathlib.Path.home", return_value=fake_home):
             result = build_context_files_prompt(cwd=str(tmp_path))
         assert "Project Context" in result
-        assert "Hermes Agent" in result
+        assert "Allr" in result
 
     def test_loads_agents_md(self, tmp_path):
         (tmp_path / "AGENTS.md").write_text("Use Ruff for linting.")
@@ -535,7 +535,7 @@ class TestBuildContextFilesPrompt:
 
 
     def test_empty_soul_md_adds_nothing(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes_home"))
+        monkeypatch.setenv("ALLR_HOME", str(tmp_path / "hermes_home"))
         hermes_home = tmp_path / "hermes_home"
         hermes_home.mkdir()
         (hermes_home / "SOUL.md").write_text("\n\n", encoding="utf-8")
@@ -593,6 +593,15 @@ class TestFindHermesMd:
     def test_finds_in_cwd(self, tmp_path):
         (tmp_path / ".hermes.md").write_text("rules")
         assert _find_hermes_md(tmp_path) == tmp_path / ".hermes.md"
+
+    def test_finds_allr_md(self, tmp_path):
+        (tmp_path / ".allr.md").write_text("rules")
+        assert _find_hermes_md(tmp_path) == tmp_path / ".allr.md"
+
+    def test_allr_md_wins_over_legacy_hermes_md(self, tmp_path):
+        (tmp_path / ".allr.md").write_text("new")
+        (tmp_path / ".hermes.md").write_text("legacy")
+        assert _find_hermes_md(tmp_path) == tmp_path / ".allr.md"
 
 
 
@@ -834,11 +843,11 @@ class TestEnvironmentHints:
 
 
     def test_environment_hint_from_env_var_is_appended(self, monkeypatch):
-        """HERMES_ENVIRONMENT_HINT lets an embedder describe the runtime env."""
+        """ALLR_ENVIRONMENT_HINT lets an embedder describe the runtime env."""
         import agent.prompt_builder as _pb
         monkeypatch.setattr(_pb, "is_wsl", lambda: False)
         monkeypatch.delenv("TERMINAL_ENV", raising=False)
-        monkeypatch.setenv("HERMES_ENVIRONMENT_HINT", "Running inside an OpenShell sandbox.")
+        monkeypatch.setenv("ALLR_ENVIRONMENT_HINT", "Running inside an OpenShell sandbox.")
         _pb._clear_backend_probe_cache()
         result = _pb.build_environment_hints()
         assert "Running inside an OpenShell sandbox." in result
@@ -896,7 +905,7 @@ class TestBuildSkillsSystemPromptConditional:
 
 
     def test_requires_skill_hidden_when_toolset_missing(self, monkeypatch, tmp_path):
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("ALLR_HOME", str(tmp_path))
         skill_dir = tmp_path / "skills" / "iot" / "openhue"
         skill_dir.mkdir(parents=True)
         (skill_dir / "SKILL.md").write_text(
@@ -912,7 +921,7 @@ class TestBuildSkillsSystemPromptConditional:
 
     def test_no_args_shows_all_skills(self, monkeypatch, tmp_path):
         """Backward compat: calling with no args shows everything."""
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("ALLR_HOME", str(tmp_path))
         skill_dir = tmp_path / "skills" / "search" / "duckduckgo"
         skill_dir.mkdir(parents=True)
         (skill_dir / "SKILL.md").write_text(

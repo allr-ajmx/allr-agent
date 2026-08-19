@@ -15,9 +15,9 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.0.1</string>
+	<string>0.0.2</string>
 	<key>CFBundleVersion</key>
-	<string>0.0.1</string>
+	<string>0.0.2</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>
@@ -41,9 +41,9 @@
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Hermes uses the microphone for voice conversations.</string>
+	<string>Allr uses the microphone for voice conversations.</string>
 	<key>NSFaceIDUsageDescription</key>
-	<string>Hermes uses Face ID to unlock your saved gateway and SSH credentials.</string>
+	<string>Allr uses Face ID to unlock your saved gateway and SSH credentials.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
@@ -56,5 +56,9 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Allr connects to the gateways you run on your local network.</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 </dict>
 </plist>

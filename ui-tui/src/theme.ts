@@ -250,11 +250,11 @@ export function themeToneHex(tone: string): string {
 // ── Defaults ─────────────────────────────────────────────────────────
 
 const BRAND: ThemeBrand = {
-  name: 'Hermes Agent',
+  name: 'Allr',
   icon: '⚕',
   prompt: '❯',
   welcome: 'Type your message or /help for commands.',
-  goodbye: 'Goodbye! ⚕',
+  goodbye: 'Goodbye!',
   tool: '┊',
   helpHeader: '(^_^)? Commands'
 }
@@ -369,7 +369,7 @@ export function buildPalette(seeds: ThemeSeeds, isLight: boolean): ThemeColors {
 
 export const DARK_SEEDS: ThemeSeeds = {
   accent: '#FFBF00',
-  // The classic Hermes navy surfaces are IDENTITY, not derivation drift —
+  // The classic Allr navy surfaces are IDENTITY, not derivation drift —
   // keep them as explicit fill seeds (the ladder derives them for skins
   // that don't care).
   activeRow: '#333355',
@@ -391,7 +391,7 @@ export const DARK_SEEDS: ThemeSeeds = {
 }
 
 // Light-terminal seeds: darker golds/ambers that stay legible on white.
-// The classic light-mode Hermes look was never hand-authored: for years the
+// The classic light-mode Allr look was never hand-authored: for years the
 // TUI emitted the DARK golds and hosts with xterm's minimumContrastRatio
 // (Cursor defaults to 4.5) lifted them against white — hue and saturation
 // kept, luminance clamped. These seeds are those exact lifts
@@ -431,7 +431,7 @@ export const LIGHT_THEME: Theme = {
 
 // ── Background-aware readability adaptation ─────────────────────────
 //
-// Mirrors the desktop app's theme contract (apps/desktop/src/themes): skins
+// Mirrors the desktop app's theme contract (apps/hermes-universal/src/themes): skins
 // contribute accent IDENTITY; readability against the actual background is
 // the theme engine's job, enforced in one place. Two guards, in the desktop's
 // vocabulary:
@@ -541,10 +541,10 @@ function adaptColorsToBackground(colors: ThemeColors, isLight: boolean, base: Th
 }
 
 /** The background hex adaptation measures contrast against: the OSC-11
- *  answer when known (cached in HERMES_TUI_BACKGROUND), else the mode's
+ *  answer when known (cached in ALLR_TUI_BACKGROUND), else the mode's
  *  assumed pole. */
 function referenceBackground(isLight: boolean, env: NodeJS.ProcessEnv = process.env): string {
-  const cached = (env.HERMES_TUI_BACKGROUND ?? '').trim()
+  const cached = (env.ALLR_TUI_BACKGROUND ?? '').trim()
 
   if (cached && backgroundLuminance(cached) !== null) {
     return cached.startsWith('#') ? cached : `#${cached}`
@@ -559,7 +559,7 @@ function referenceBackground(isLight: boolean, env: NodeJS.ProcessEnv = process.
 // every secondary tone — muted text, labels, surfaces, selection chips — is a
 // color-mix derivative of those seeds against the real terminal background,
 // exactly like the desktop's `--theme-*` seeds → `--ui-*` color-mix ladder in
-// apps/desktop/src/styles.css. Skins therefore cannot ship an incoherent
+// apps/hermes-universal/src/styles.css. Skins therefore cannot ship an incoherent
 // "dim": if they don't author a tone, it is DERIVED from their own identity,
 // never inherited from another skin's palette.
 //
@@ -641,13 +641,13 @@ const FALSE_RE = /^(?:0|false|no|off)$/
 
 // TERM_PROGRAM fallback allow-list for terminals whose default profile is
 // light and which may not expose COLORFGBG. This currently includes Apple
-// Terminal. Explicit HERMES_TUI_THEME / COLORFGBG signals above still win,
+// Terminal. Explicit ALLR_TUI_THEME / COLORFGBG signals above still win,
 // so dark Apple Terminal profiles that advertise a dark background stay dark.
 const LIGHT_DEFAULT_TERM_PROGRAMS = new Set<string>(['Apple_Terminal'])
 
 // Best-effort RGB → luminance check.  Currently only accepts a 3- or
 // 6-digit hex value (with or without a leading `#`); the env var name
-// `HERMES_TUI_BACKGROUND` is intentionally generic so a future OSC11
+// `ALLR_TUI_BACKGROUND` is intentionally generic so a future OSC11
 // query helper can cache its answer there too, but additional formats
 // (rgb()/hsl()/named colours) would need explicit parsing here first.
 const LUMA_LIGHT_THRESHOLD = 0.6
@@ -684,12 +684,12 @@ function backgroundLuminance(raw: string): null | number {
 
 // Pick light vs dark with ordered, explainable signals (#11300):
 //
-//   1. `HERMES_TUI_LIGHT` boolean — `1`/`true`/`yes`/`on` → light;
+//   1. `ALLR_TUI_LIGHT` boolean — `1`/`true`/`yes`/`on` → light;
 //      `0`/`false`/`no`/`off` → dark.  Either explicit value wins
 //      regardless of any later signal.
-//   2. `HERMES_TUI_THEME` named override — `light` / `dark` win over
+//   2. `ALLR_TUI_THEME` named override — `light` / `dark` win over
 //      every signal below.
-//   3. `HERMES_TUI_BACKGROUND` hex hint (3- or 6-digit) — luminance
+//   3. `ALLR_TUI_BACKGROUND` hex hint (3- or 6-digit) — luminance
 //      ≥ LUMA_LIGHT_THRESHOLD → light.
 //   4. `COLORFGBG` last field — XFCE / rxvt / Terminal.app emit
 //      slot 7 or 15 on light profiles; 0–15 ranges are otherwise
@@ -697,7 +697,7 @@ function backgroundLuminance(raw: string): null | number {
 //      allow-list below cannot override an explicit dark profile.
 //   5. `TERM_PROGRAM` light-default allow-list.
 //
-// Anything we can't decide stays dark — the default Hermes palette
+// Anything we can't decide stays dark — the default Allr palette
 // is the dark one.
 export function detectLightMode(
   env: NodeJS.ProcessEnv = process.env,
@@ -705,7 +705,7 @@ export function detectLightMode(
   // precedence rule even though the production allow-list is empty.
   lightDefaultTermPrograms: ReadonlySet<string> = LIGHT_DEFAULT_TERM_PROGRAMS
 ): boolean {
-  const lightFlag = (env.HERMES_TUI_LIGHT ?? '').trim().toLowerCase()
+  const lightFlag = (env.ALLR_TUI_LIGHT ?? '').trim().toLowerCase()
 
   if (TRUE_RE.test(lightFlag)) {
     return true
@@ -715,7 +715,7 @@ export function detectLightMode(
     return false
   }
 
-  const themeFlag = (env.HERMES_TUI_THEME ?? '').trim().toLowerCase()
+  const themeFlag = (env.ALLR_TUI_THEME ?? '').trim().toLowerCase()
 
   if (themeFlag === 'light') {
     return true
@@ -725,7 +725,7 @@ export function detectLightMode(
     return false
   }
 
-  const bgHint = backgroundLuminance(env.HERMES_TUI_BACKGROUND ?? '')
+  const bgHint = backgroundLuminance(env.ALLR_TUI_BACKGROUND ?? '')
 
   if (bgHint !== null) {
     return bgHint >= LUMA_LIGHT_THRESHOLD
@@ -801,7 +801,7 @@ export const DEFAULT_THEME: Theme = normalizeThemeForAnsiLightTerminal(
 /**
  * The skinless theme for the CURRENT light-mode signals. Unlike the frozen
  * module-load DEFAULT_THEME, this re-reads the environment — so it picks up
- * the OSC-11 background answer cached into HERMES_TUI_BACKGROUND after
+ * the OSC-11 background answer cached into ALLR_TUI_BACKGROUND after
  * startup. Used when the terminal background arrives before (or without) a
  * gateway skin.
  */
@@ -846,7 +846,7 @@ export function fromSkin(
   // Polarity: the skin's own canvas when it authors one (see skinIsLight);
   // otherwise live host detection (not the module-load snapshot — by the time
   // the gateway skin arrives, the OSC-11 probe has usually answered and cached
-  // itself into HERMES_TUI_BACKGROUND. See #applySkin / syncThemeToTerminalBackground).
+  // itself into ALLR_TUI_BACKGROUND. See #applySkin / syncThemeToTerminalBackground).
   const skinBg = authoredBackground(colors['background'])
   const isLight = skinIsLight(colors)
   const bg = skinBg ?? referenceBackground(isLight)
@@ -857,7 +857,7 @@ export function fromSkin(
   const hasSkinColors = Object.keys(colors).length > 0
 
   // 1. Seeds: the skin's identity. Anything it doesn't define comes from the
-  //    base seeds for this polarity. The base's IDENTITY FILLS (Hermes navy
+  //    base seeds for this polarity. The base's IDENTITY FILLS (Allr navy
   //    surfaces, gold muted) only carry over for the skinless default — a
   //    skin with its own identity derives its fills from its own seeds.
   const identityFills: Partial<ThemeSeeds> = hasSkinColors
@@ -895,7 +895,7 @@ export function fromSkin(
   const surface = c('completion_menu_bg') ?? c('background') ?? derived.completionBg
 
   // Re-mix the chip only when the skin authored its own surface; otherwise
-  // the derived value already carries the identity seeds (e.g. Hermes navy).
+  // the derived value already carries the identity seeds (e.g. Allr navy).
   const activeRow =
     c('completion_menu_current_bg') ??
     (c('completion_menu_bg') ? mix(surface, seeds.accent, 0.22) : derived.completionCurrentBg)

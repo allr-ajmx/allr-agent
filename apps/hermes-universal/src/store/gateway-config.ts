@@ -2,7 +2,7 @@ import { buildHermesWebSocketUrl, type GatewayWsConnection, resolveGatewayWsUrl 
 import { type AuthProvider, mintWsTicket } from '@/lib/auth'
 
 // Reconciled gateway model (D5.a) — the single source of truth for how the app
-// reaches a Hermes backend. It unifies two enums that had drifted: this app's
+// reaches an Allr backend. It unifies two enums that had drifted: this app's
 // original `none|token|ticket` (store/connection.ts) and the vendored gateway's
 // `oauth|token` (gateway/websocket-url.ts), and adds the desktop-style gateway
 // `mode` (local/remote/cloud) that Track E switches between.
@@ -14,7 +14,7 @@ import { type AuthProvider, mintWsTicket } from '@/lib/auth'
  *  - `cloud` is a `remote`-shaped OAuth connection whose baseUrl was discovered
  *    via the portal (see modeIsRemoteLike).
  *  - `ssh` is a token-authed backend on 127.0.0.1 reached through an SSH tunnel.
- *    Rust spawns (or reattaches to) `hermes serve` on the remote host and
+ *    Rust spawns (or reattaches to) `allr serve` on the remote host and
  *    forwards a loopback port to it, so from here it behaves like `local`, not
  *    like `remote`. */
 export type GatewayMode = 'local' | 'remote' | 'cloud' | 'ssh'

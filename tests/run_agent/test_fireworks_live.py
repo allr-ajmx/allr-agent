@@ -1,10 +1,10 @@
-"""Live Fireworks smoke test — exercises the Hermes runtime, not a raw SDK client.
+"""Live Fireworks smoke test — exercises the Allr runtime, not a raw SDK client.
 
 Opt-in only:
-    HERMES_LIVE_TESTS=1 FIREWORKS_API_KEY=fw_... \\
+    ALLR_LIVE_TESTS=1 FIREWORKS_API_KEY=fw_... \\
         pytest tests/run_agent/test_fireworks_live.py -q
 
-Unlike a bare OpenAI() client pointed at the endpoint, this drives Hermes'
+Unlike a bare OpenAI() client pointed at the endpoint, this drives Allr'
 own provider resolution — ``resolve_provider_client('fireworks')`` — so it
 verifies the auth/config/base-URL/aux-model wiring that the
 bundled provider actually ships, then makes a real call through that client.
@@ -16,22 +16,22 @@ import os
 
 import pytest
 
-LIVE = os.environ.get("HERMES_LIVE_TESTS") == "1"
+LIVE = os.environ.get("ALLR_LIVE_TESTS") == "1"
 FIREWORKS_KEY = os.environ.get("FIREWORKS_API_KEY", "")
 
 pytestmark = [
-    pytest.mark.skipif(not LIVE, reason="live-only: set HERMES_LIVE_TESTS=1"),
+    pytest.mark.skipif(not LIVE, reason="live-only: set ALLR_LIVE_TESTS=1"),
     pytest.mark.skipif(not FIREWORKS_KEY, reason="FIREWORKS_API_KEY not configured"),
     pytest.mark.integration,
 ]
 
 
 def _resolve_runtime_client(provider="fireworks"):
-    """Build the Fireworks client the way the Hermes runtime does."""
+    """Build the Fireworks client the way the Allr runtime does."""
     from agent.auxiliary_client import resolve_provider_client
 
     client, model = resolve_provider_client(provider)
-    assert client is not None, "Hermes failed to build a Fireworks client"
+    assert client is not None, "Allr failed to build a Fireworks client"
     return client, model
 
 
@@ -45,7 +45,7 @@ def test_hermes_wires_fireworks_client():
 
 
 def test_fireworks_basic_chat_through_runtime():
-    """A single-turn completion via the Hermes-resolved client returns text."""
+    """A single-turn completion via the Allr-resolved client returns text."""
     client, model = _resolve_runtime_client()
 
     response = client.chat.completions.create(

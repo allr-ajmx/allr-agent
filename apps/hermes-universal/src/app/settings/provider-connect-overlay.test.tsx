@@ -121,7 +121,7 @@ describe('ProviderConnectOverlay', () => {
     const qwen: OAuthProvider = {
       id: 'qwen-oauth',
       name: 'Qwen',
-      cli_command: 'hermes auth add qwen-oauth',
+      cli_command: 'allr auth add qwen-oauth',
       docs_url: 'https://github.com/QwenLM/qwen-code',
       flow: 'external',
       status: { logged_in: false }
@@ -140,7 +140,7 @@ describe('ProviderConnectOverlay', () => {
 
     renderOverlay()
     // The command to run + the "I've signed in" recheck, not a browser flow.
-    expect(screen.getByText('hermes auth add qwen-oauth')).toBeInTheDocument()
+    expect(screen.getByText('allr auth add qwen-oauth')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: "I've signed in" })).toBeInTheDocument()
     expect(screen.queryByPlaceholderText(/Paste authorization code/)).not.toBeInTheDocument()
   })

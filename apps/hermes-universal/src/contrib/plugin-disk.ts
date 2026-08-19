@@ -4,9 +4,9 @@
  * knows which it is talking to.
  *
  *  LOCAL  (`kind: 'local'`) — this device's
- *         `$HERMES_HOME[/profiles/<p>]/desktop-plugins/<name>/plugin.js`, read
+ *         `$ALLR_HOME[/profiles/<p>]/desktop-plugins/<name>/plugin.js`, read
  *         through the narrow Rust commands in src-tauri/src/plugins.rs. Resolved
- *         from THIS machine's HERMES_HOME, never the connected backend's
+ *         from THIS machine's ALLR_HOME, never the connected backend's
  *         `hermes_home` (desktop bug #66899) — a remote backend must not be able
  *         to point the local loader at its own files.
  *  REST   (`kind: 'rest'`) — the same tree on the machine running the GATEWAY,

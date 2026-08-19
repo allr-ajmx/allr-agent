@@ -615,7 +615,7 @@ export function SidebarScrollBody({
 
   // Worktree lanes are git-driven, not session-derived: probe `git worktree
   // list` per repo of the entered project so linked worktrees appear even
-  // before they hold any Hermes session. Only while drilled in — the overview
+  // before they hold any Allr session. Only while drilled in — the overview
   // shows no lanes, so probing there would be pure cost.
   const scopedRepoPaths = useMemo(
     () => (enteredProject?.repos ?? []).map(repo => repo.path).filter((path): path is string => Boolean(path?.trim())),

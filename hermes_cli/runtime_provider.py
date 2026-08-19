@@ -389,7 +389,7 @@ _VALID_API_MODES = {
     "bedrock_converse",
     # Optional opt-in: hand the entire turn to a `codex app-server` subprocess
     # so terminal/file-ops/patching/sandboxing run inside Codex's own runtime
-    # instead of Hermes' tool dispatch. Gated behind config key
+    # instead of Allr' tool dispatch. Gated behind config key
     # `model.openai_runtime == "codex_app_server"` AND provider in
     # {"openai", "openai-codex"}. Default is unchanged.
     "codex_app_server",
@@ -601,7 +601,7 @@ def resolve_requested_provider(requested: Optional[str] = None) -> str:
 
     # Prefer the persisted config selection over any stale shell/.env
     # provider override so chat uses the endpoint the user last saved.
-    env_provider = _getenv("HERMES_INFERENCE_PROVIDER", "").strip().lower()
+    env_provider = _getenv("ALLR_INFERENCE_PROVIDER", "").strip().lower()
     if env_provider:
         return env_provider
 
@@ -764,7 +764,7 @@ def _get_named_custom_provider(requested_provider: str) -> Optional[Dict[str, An
         logger.warning(
             "custom_providers in config.yaml is a dict, not a list. "
             "Each entry must be prefixed with '-' in YAML. "
-            "Run 'hermes doctor' for details."
+            "Run 'allr doctor' for details."
         )
         return None
 
@@ -976,7 +976,7 @@ def canonical_custom_identity(
        config fallback below it stays correct after the user points their
        global default at a different provider.
     3. ``config_provider`` — the active ``config.model.provider`` (or its
-       ``provider``/``HERMES_INFERENCE_PROVIDER`` equivalent). When neither
+       ``provider``/``ALLR_INFERENCE_PROVIDER`` equivalent). When neither
        a base_url nor a model recovered the entry, the configured provider
        is the only durable identity left, so fall back to it when it names
        a real entry.
@@ -1005,7 +1005,7 @@ def canonical_custom_identity(
         except Exception:
             candidate = ""
     if not candidate:
-        candidate = os.environ.get("HERMES_INFERENCE_PROVIDER", "").strip()
+        candidate = os.environ.get("ALLR_INFERENCE_PROVIDER", "").strip()
 
     candidate_norm = _normalize_custom_provider_name(candidate)
     # A bare/non-routable candidate cannot heal a bare custom override.
@@ -1382,7 +1382,7 @@ def _resolve_azure_foundry_runtime(
     base_url = explicit_base_url_clean or cfg_base_url or env_base_url
     if not base_url:
         raise AuthError(
-            "Azure Foundry requires a base URL. Set it via 'hermes model' or "
+            "Azure Foundry requires a base URL. Set it via 'allr model' or "
             "the AZURE_FOUNDRY_BASE_URL environment variable."
         )
 
@@ -1471,10 +1471,10 @@ def _resolve_azure_foundry_runtime(
     if not api_key:
         raise AuthError(
             "Azure Foundry requires an API key. Set AZURE_FOUNDRY_API_KEY in "
-            "~/.hermes/.env or run 'hermes model' to configure. To use "
+            "~/.allr/.env or run 'allr model' to configure. To use "
             "keyless Microsoft Entra ID auth instead, set "
             "model.auth_mode: entra_id in config.yaml (or pick "
-            "'Microsoft Entra ID' in 'hermes model')."
+            "'Microsoft Entra ID' in 'allr model')."
         )
 
     source = "explicit" if (explicit_api_key or explicit_base_url) else "config"
@@ -1566,14 +1566,14 @@ def _resolve_explicit_runtime(
             str(state.get("agent_key") or "").strip()
             if _agent_key_is_usable(
                 state,
-                max(60, env_int("HERMES_NOUS_MIN_KEY_TTL_SECONDS", 1800)),
+                max(60, env_int("ALLR_NOUS_MIN_KEY_TTL_SECONDS", 1800)),
             )
             else ""
         )
         expires_at = state.get("agent_key_expires_at") or state.get("expires_at")
         if not api_key:
             creds = resolve_nous_runtime_credentials(
-                timeout_seconds=float(_getenv("HERMES_NOUS_TIMEOUT_SECONDS", "15")),
+                timeout_seconds=float(_getenv("ALLR_NOUS_TIMEOUT_SECONDS", "15")),
             )
             api_key = creds.get("api_key", "")
             expires_at = creds.get("expires_at")
@@ -1766,10 +1766,10 @@ def resolve_runtime_provider(
                 "Vertex AI credentials could not be resolved. Vertex uses "
                 "OAuth2 (not a static API key): provide a service-account JSON "
                 "via GOOGLE_APPLICATION_CREDENTIALS (or VERTEX_CREDENTIALS_PATH) "
-                "in ~/.hermes/.env, or run 'gcloud auth application-default "
+                "in ~/.allr/.env, or run 'gcloud auth application-default "
                 "login' for ADC. Set the GCP project/region under vertex: in "
                 "config.yaml if they aren't embedded in the credentials. "
-                "Run `hermes setup` to install Vertex support."
+                "Run `allr setup` to install Vertex support."
             )
         return {
             "provider": "vertex",
@@ -1878,11 +1878,11 @@ def resolve_runtime_provider(
         # For Nous, the pool entry's runtime_api_key is the agent_key
         # compatibility field. It must be an invoke JWT. The pool doesn't
         # refresh it during selection (that would trigger network calls in
-        # non-runtime contexts like `hermes auth list`). If the key is
+        # non-runtime contexts like `allr auth list`). If the key is
         # expired/missing, refresh the selected pool entry before falling back
         # to singleton auth resolution.
         if provider == "nous" and entry is not None:
-            min_ttl = max(60, env_int("HERMES_NOUS_MIN_KEY_TTL_SECONDS", 1800))
+            min_ttl = max(60, env_int("ALLR_NOUS_MIN_KEY_TTL_SECONDS", 1800))
             nous_state = {
                 "agent_key": getattr(entry, "agent_key", None),
                 "agent_key_expires_at": getattr(entry, "agent_key_expires_at", None),
@@ -1936,7 +1936,7 @@ def resolve_runtime_provider(
             from hermes_cli.providers import nous_api_mode
 
             creds = resolve_nous_runtime_credentials(
-                timeout_seconds=float(_getenv("HERMES_NOUS_TIMEOUT_SECONDS", "15")),
+                timeout_seconds=float(_getenv("ALLR_NOUS_TIMEOUT_SECONDS", "15")),
             )
             return {
                 "provider": "nous",
@@ -2063,9 +2063,9 @@ def resolve_runtime_provider(
         if _is_azure_endpoint:
             # Honor user-specified env var hints on the model config before
             # falling back to the built-in AZURE_ANTHROPIC_KEY / ANTHROPIC_API_KEY
-            # chain.  Accept both `key_env` (Hermes canonical — matches the
+            # chain.  Accept both `key_env` (Allr canonical — matches the
             # custom_providers field name) and `api_key_env` (documented in the
-            # Azure Foundry guide and read by most Hermes-compatible importers).
+            # Azure Foundry guide and read by most Allr-compatible importers).
             # Matches the config.yaml examples in website/docs/guides/azure-foundry.md.
             token = ""
             for hint_key in ("key_env", "api_key_env"):

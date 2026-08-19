@@ -58,7 +58,7 @@ export interface PluginStorage {
 export interface PluginOs {
   /** Native OS notification, attributed to this plugin. Gated by Settings ▸
    *  Notifications ▸ "Plugin notifications" and fires only while the user is
-   *  away from Hermes — use `host.notify` for the in-app toast. Throttled per
+   *  away from Allr — use `host.notify` for the in-app toast. Throttled per
    *  plugin; reserve it for genuinely notable events. */
   notify: (input: PluginNativeNotificationInput) => void
   /** Open a URL with the OS default handler (browser, mail client, custom

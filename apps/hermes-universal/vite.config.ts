@@ -40,7 +40,7 @@ const tauriCoreEsm = join(dirname(require.resolve('@tauri-apps/api/package.json'
  * from. `__hermesTrace.run(...)` overrides it at runtime — see
  * src/observability/run.ts.
  *
- * `HERMES_TRACE_RUN` names BOTH halves of a full-stack trace from one variable.
+ * `ALLR_TRACE_RUN` names BOTH halves of a full-stack trace from one variable.
  * The Rust backend reads it from the real environment at startup; a webview has
  * no environment, so the same name has to be baked in at build time here.
  * Without this the two halves would need separate labels for the same run, and
@@ -49,7 +49,7 @@ const tauriCoreEsm = join(dirname(require.resolve('@tauri-apps/api/package.json'
  * correlate them.
  */
 function traceRunDefault(): string {
-  return process.env.HERMES_TRACE_RUN || gitBranch()
+  return process.env.ALLR_TRACE_RUN || gitBranch()
 }
 
 /**

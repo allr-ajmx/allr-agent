@@ -4,8 +4,8 @@
 //
 //   node scripts/build-sample-plugins.mjs [--out <dir>] [--profile <name>]
 //
-// Default output is `$HERMES_HOME/desktop-plugins/<name>/plugin.js` (HERMES_HOME
-// defaults to ~/.hermes), which is where the runtime loader watches.
+// Default output is `$ALLR_HOME/desktop-plugins/<name>/plugin.js` (ALLR_HOME
+// defaults to ~/.allr), which is where the runtime loader watches.
 //
 // Why this exists alongside the vite glob that already bundles these: a bundled
 // plugin is compiled with the app and never touches the runtime pipeline —
@@ -73,7 +73,7 @@ function outRoot() {
     return resolve(explicit)
   }
 
-  const home = process.env.HERMES_HOME || join(homedir(), '.hermes')
+  const home = process.env.ALLR_HOME || join(homedir(), '.allr')
   const profile = flag('profile')
 
   return join(profile ? join(home, 'profiles', profile) : home, 'desktop-plugins')

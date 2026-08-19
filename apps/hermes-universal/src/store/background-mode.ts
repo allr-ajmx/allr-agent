@@ -4,7 +4,7 @@ import { IS_DESKTOP } from '@/lib/platform'
 import { atom } from '@/store/atom'
 import { notifyError } from '@/store/notifications'
 
-// Background mode — keep Hermes running with its window put away.
+// Background mode — keep Allr running with its window put away.
 //
 // A device-local preference (each computer keeps its own), UNANSWERED by
 // default — the first close asks. The webview owns the value and persists it;
@@ -64,7 +64,7 @@ export const $backgroundMode = persistentAtom<BackgroundMode>('hermes.background
  * to know how a window closes.
  */
 export interface BackgroundClosePrompt {
-  /** "Close Hermes" — tear down for real. */
+  /** "Close Allr" — tear down for real. */
   close: () => Promise<void> | void
   /** "Keep in Background" — put the window away, process stays. */
   keep: () => Promise<void> | void
@@ -170,7 +170,7 @@ export function toggleBackgroundMode(): void {
  * new state. Must match `BACKGROUND_MODE_CHANGED_EVENT` in
  * `src-tauri/src/tray.rs`.
  */
-export const BACKGROUND_MODE_CHANGED_EVENT = 'hermes://background-mode-changed'
+export const BACKGROUND_MODE_CHANGED_EVENT = 'allr://background-mode-changed'
 
 /**
  * Re-assert the persisted preference once at startup, and follow the tray.
@@ -235,14 +235,14 @@ const MAIN_WINDOW_LABEL = 'main'
  * it was the last one. Making that branch quit the APP would take any other open
  * instance window down with it, which is a thing this preference never promised
  * to do. The one place a close DOES end everything is the prompt's "Quit
- * Hermes", where the user asked for it in those words.
+ * Allr", where the user asked for it in those words.
  *
  * ONE function rather than a predicate per state, because the window test below
  * is the part that must not drift: a window asked a question its close does not
  * honour is worse than a window that never asks.
  *
  * **Only `main` gets any of this.** A hidden window is reachable through exactly
- * one affordance — the tray's Show Hermes — and that resolves to `main`, or to
+ * one affordance — the tray's Show Allr — and that resolves to `main`, or to
  * the lowest surviving instance, or to a freshly built `main`
  * (`window_to_reveal`). So a hidden `instance-2` would be a window that exists,
  * holds a session, and has nothing anywhere that can bring it back. Pop-out

@@ -1,12 +1,12 @@
 #!/bin/bash
 # ============================================================================
-# Hermes Agent Installer
+# Allr Installer
 # ============================================================================
 # Installation script for Linux, macOS, and Android/Termux.
 # Uses uv for desktop/server installs and Python's stdlib venv + pip on Termux.
 #
 # Usage:
-#   curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
+#   curl -fsSL https://allr.work/install.sh | bash
 #
 # Or with options:
 #   curl -fsSL ... | bash -s -- --no-venv --skip-setup
@@ -16,7 +16,7 @@
 set -e
 
 # Guard against environment leakage when the installer is launched from another
-# Python-driven tool session (e.g. Hermes terminal tool). A pre-set PYTHONPATH
+# Python-driven tool session (e.g. Allr terminal tool). A pre-set PYTHONPATH
 # can force pip/entrypoints to import a different checkout than the one being
 # installed, which makes fresh installs appear broken or stale.
 if [ -n "${PYTHONPATH:-}" ]; then
@@ -45,12 +45,12 @@ BOLD='\033[1m'
 # Configuration
 REPO_URL_SSH="git@github.com:NousResearch/hermes-agent.git"
 REPO_URL_HTTPS="https://github.com/NousResearch/hermes-agent.git"
-HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
+ALLR_HOME="${ALLR_HOME:-$HOME/.allr}"
 # INSTALL_DIR is resolved AFTER arg parsing and OS detection so we can pick an
 # FHS-style layout for root installs.  Track whether the user gave us an
 # explicit directory — if so we never override it.
-if [ -n "${HERMES_INSTALL_DIR:-}" ]; then
-    INSTALL_DIR="$HERMES_INSTALL_DIR"
+if [ -n "${ALLR_INSTALL_DIR:-}" ]; then
+    INSTALL_DIR="$ALLR_INSTALL_DIR"
     INSTALL_DIR_EXPLICIT=true
 else
     INSTALL_DIR=""
@@ -60,8 +60,8 @@ PYTHON_VERSION="3.11"
 NODE_VERSION="22"
 
 # FHS-style root install layout (set by resolve_install_layout when applicable):
-#   code at /usr/local/lib/hermes-agent, command at /usr/local/bin/hermes,
-#   data still at /root/.hermes (HERMES_HOME).  Matches Claude Code / Codex CLI
+#   code at /usr/local/lib/allr-agent, command at /usr/local/bin/allr,
+#   data still at /root/.allr (ALLR_HOME).  Matches Claude Code / Codex CLI
 #   and keeps Docker bind-mounted /root/ volumes lean.
 ROOT_FHS_LAYOUT=false
 DETECTED_BROWSER_EXECUTABLE=""
@@ -80,7 +80,6 @@ MANIFEST_MODE=false
 STAGE_NAME=""
 JSON_OUTPUT=false
 NON_INTERACTIVE=false
-INCLUDE_DESKTOP=false
 
 # Detect non-interactive mode (e.g. curl | bash)
 # When stdin is not a terminal, read -p will fail with EOF,
@@ -138,17 +137,13 @@ while [[ $# -gt 0 ]]; do
             NON_INTERACTIVE=true
             shift
             ;;
-        --include-desktop|-IncludeDesktop)
-            INCLUDE_DESKTOP=true
-            shift
-            ;;
         --dir)
             INSTALL_DIR="$2"
             INSTALL_DIR_EXPLICIT=true
             shift 2
             ;;
-        --hermes-home)
-            HERMES_HOME="$2"
+        --allr-home|--hermes-home)
+            ALLR_HOME="$2"
             shift 2
             ;;
         --ensure)
@@ -157,7 +152,7 @@ while [[ $# -gt 0 ]]; do
             ;;
 
         -h|--help)
-            echo "Hermes Agent Installer"
+            echo "Allr Installer"
             echo ""
             echo "Usage: install.sh [OPTIONS]"
             echo ""
@@ -166,31 +161,30 @@ while [[ $# -gt 0 ]]; do
             echo "  --skip-setup   Skip interactive setup wizard"
             echo "  --skip-browser Skip Playwright/Chromium install (browser tools won't work)"
             echo "  --no-skills    Start with a blank slate — seed no bundled skills, and"
-            echo "                   write \$HERMES_HOME/.no-bundled-skills so future"
-            echo "                   'hermes update' runs never inject bundled skills either"
+            echo "                   write \$ALLR_HOME/.no-bundled-skills so future"
+            echo "                   'allr update' runs never inject bundled skills either"
             echo "  --branch NAME  Git branch to install (default: main)"
             echo "  --commit SHA   Pin checkout to a specific commit after clone/update"
             echo "                   (ignored when it would roll an existing install back)"
             echo "  --force-commit Apply --commit even if it rolls the install backwards"
-            echo "  --manifest     Print desktop bootstrap stage manifest as JSON"
-            echo "  --stage NAME   Run one desktop bootstrap stage"
+            echo "  --manifest     Print the bootstrap stage manifest as JSON"
+            echo "  --stage NAME   Run one bootstrap stage"
             echo "  --json         Print a JSON result frame for --stage"
             echo "  --non-interactive  Skip stages that require user input"
-            echo "  --include-desktop  Also build the desktop app (apps/desktop -> Hermes.app)"
             echo "  --dir PATH     Installation directory"
-            echo "                   default (non-root):  ~/.hermes/hermes-agent"
-            echo "                   default (root, Linux): /usr/local/lib/hermes-agent"
-            echo "  --hermes-home PATH  Data directory (default: ~/.hermes, or \$HERMES_HOME)"
+            echo "                   default (non-root):  ~/.allr/allr-agent"
+            echo "                   default (root, Linux): /usr/local/lib/allr-agent"
+            echo "  --allr-home PATH  Data directory (default: ~/.allr, or \$ALLR_HOME)"
             echo "  -h, --help     Show this help"
             echo ""
             echo "Notes:"
-            echo "  When running as root on Linux, Hermes installs the code under"
-            echo "  /usr/local/lib/hermes-agent and links the command into"
-            echo "  /usr/local/bin/hermes (FHS layout — matches Claude Code / Codex CLI)."
-            echo "  Data, config, sessions, and logs still live in \$HERMES_HOME"
-            echo "  (default /root/.hermes).  This keeps Docker bind-mounted volumes"
+            echo "  When running as root on Linux, Allr installs the code under"
+            echo "  /usr/local/lib/allr-agent and links the command into"
+            echo "  /usr/local/bin/allr (FHS layout — matches Claude Code / Codex CLI)."
+            echo "  Data, config, sessions, and logs still live in \$ALLR_HOME"
+            echo "  (default /root/.allr).  This keeps Docker bind-mounted volumes"
             echo "  small and ensures the command is on PATH for all shells."
-            echo "  Existing installs at \$HERMES_HOME/hermes-agent are preserved in-place."
+            echo "  Existing installs at \$ALLR_HOME/allr-agent are preserved in-place."
             echo "  --ensure DEPS  Install only specified deps (comma-separated)"
             echo "                   Supported: node, browser, ripgrep, ffmpeg"
             echo "                   Does NOT clone repo or create venv"
@@ -212,7 +206,7 @@ print_banner() {
     echo ""
     echo -e "${MAGENTA}${BOLD}"
     echo "┌─────────────────────────────────────────────────────────┐"
-    echo "│             ⚕ Hermes Agent Installer                    │"
+    echo "│             Allr Installer                    │"
     echo "├─────────────────────────────────────────────────────────┤"
     echo "│  An open source AI agent by Nous Research.              │"
     echo "└─────────────────────────────────────────────────────────┘"
@@ -245,7 +239,7 @@ json_escape() {
 
 # npm rewrites tracked package-lock.json files non-deterministically during
 # `npm install` / `npm run pack`. On a managed install those diffs are never
-# intentional, but they leave the checkout dirty — which forces `hermes update`
+# intentional, but they leave the checkout dirty — which forces `allr update`
 # to autostash on every run and makes branch switches fragile. Restore them so
 # a fresh install ends with a clean tree. Best-effort; only touches lockfiles.
 restore_dirty_lockfiles() {
@@ -313,16 +307,7 @@ EOF
 }
 
 emit_manifest() {
-    # Stage-Desktop is included only with --include-desktop, mirroring
-    # install.ps1: the signed bootstrap installer (Hermes-Setup) passes it so
-    # a GUI install ends up with a launchable app; the Electron app's own
-    # first-launch bootstrap and the CLI one-liner omit it (building the
-    # desktop from inside the already-running app would clobber it).
-    local desktop_stage=""
-    if [ "$INCLUDE_DESKTOP" = true ]; then
-        desktop_stage='{"name":"desktop","title":"Build desktop app","category":"runtime","needs_user_input":false},'
-    fi
-    printf '%s' '{"protocol_version":1,"stages":[{"name":"prerequisites","title":"System prerequisites","category":"runtime","needs_user_input":false},{"name":"repository","title":"Download Hermes Agent","category":"runtime","needs_user_input":false},{"name":"venv","title":"Create Python virtual environment","category":"runtime","needs_user_input":false},{"name":"python-deps","title":"Install Python dependencies","category":"runtime","needs_user_input":false},{"name":"node-deps","title":"Install browser-tool dependencies","category":"runtime","needs_user_input":false},{"name":"path","title":"Install hermes command","category":"runtime","needs_user_input":false},{"name":"config","title":"Prepare config and skills","category":"configuration","needs_user_input":false},{"name":"setup","title":"Configure API keys and settings","category":"configuration","needs_user_input":true},{"name":"gateway","title":"Configure gateway service","category":"configuration","needs_user_input":true},'"$desktop_stage"'{"name":"complete","title":"Finish install","category":"runtime","needs_user_input":false}]}'
+    printf '%s' '{"protocol_version":1,"stages":[{"name":"prerequisites","title":"System prerequisites","category":"runtime","needs_user_input":false},{"name":"repository","title":"Download Allr","category":"runtime","needs_user_input":false},{"name":"venv","title":"Create Python virtual environment","category":"runtime","needs_user_input":false},{"name":"python-deps","title":"Install Python dependencies","category":"runtime","needs_user_input":false},{"name":"node-deps","title":"Install browser-tool dependencies","category":"runtime","needs_user_input":false},{"name":"path","title":"Install allr command","category":"runtime","needs_user_input":false},{"name":"config","title":"Prepare config and skills","category":"configuration","needs_user_input":false},{"name":"setup","title":"Configure API keys and settings","category":"configuration","needs_user_input":true},{"name":"gateway","title":"Configure gateway service","category":"configuration","needs_user_input":true},{"name":"complete","title":"Finish install","category":"runtime","needs_user_input":false}]}'
     printf '\n'
 }
 
@@ -390,29 +375,29 @@ is_termux() {
     [ -n "${TERMUX_VERSION:-}" ] || [[ "${PREFIX:-}" == *"com.termux/files/usr"* ]]
 }
 
-# Decide where the repo checkout + venv live, and where the `hermes` command
+# Decide where the repo checkout + venv live, and where the `allr` command
 # symlink goes.  Called after detect_os so $OS/$DISTRO are known.
 #
 # Defaults:
-#   - Non-root, any OS:       INSTALL_DIR = $HERMES_HOME/hermes-agent
+#   - Non-root, any OS:       INSTALL_DIR = $ALLR_HOME/allr-agent
 #                             command link in $HOME/.local/bin
-#   - Termux (any uid):       INSTALL_DIR = $HERMES_HOME/hermes-agent
+#   - Termux (any uid):       INSTALL_DIR = $ALLR_HOME/allr-agent
 #                             command link in $PREFIX/bin (already on PATH)
-#   - Root on Linux (new):    INSTALL_DIR = /usr/local/lib/hermes-agent
+#   - Root on Linux (new):    INSTALL_DIR = /usr/local/lib/allr-agent
 #                             command link in /usr/local/bin
 #                             (unless a legacy install already exists at
-#                              $HERMES_HOME/hermes-agent — then preserve it)
+#                              $ALLR_HOME/allr-agent — then preserve it)
 #
-# Always no-op when the user set --dir or $HERMES_INSTALL_DIR.
+# Always no-op when the user set --dir or $ALLR_INSTALL_DIR.
 resolve_install_layout() {
     if [ "$INSTALL_DIR_EXPLICIT" = true ]; then
         log_info "Install directory: $INSTALL_DIR (explicit)"
         return 0
     fi
 
-    # Termux: package manager manages /data/data/..., keep code in HERMES_HOME.
+    # Termux: package manager manages /data/data/..., keep code in ALLR_HOME.
     if is_termux; then
-        INSTALL_DIR="$HERMES_HOME/hermes-agent"
+        INSTALL_DIR="$ALLR_HOME/allr-agent"
         return 0
     fi
 
@@ -420,31 +405,31 @@ resolve_install_layout() {
     # macOS root installs keep the legacy layout because /usr/local/ on macOS
     # is Homebrew territory and we don't want to fight that.
     if [ "$OS" = "linux" ] && [ "$(id -u)" -eq 0 ]; then
-        if [ -d "$HERMES_HOME/hermes-agent/.git" ]; then
-            INSTALL_DIR="$HERMES_HOME/hermes-agent"
+        if [ -d "$ALLR_HOME/allr-agent/.git" ]; then
+            INSTALL_DIR="$ALLR_HOME/allr-agent"
             log_info "Existing install detected at $INSTALL_DIR — keeping legacy layout"
-            log_info "  (new root installs use /usr/local/lib/hermes-agent)"
+            log_info "  (new root installs use /usr/local/lib/allr-agent)"
             return 0
         fi
-        INSTALL_DIR="/usr/local/lib/hermes-agent"
+        INSTALL_DIR="/usr/local/lib/allr-agent"
         ROOT_FHS_LAYOUT=true
         # Place uv-managed Python under /usr/local/share so the venv interpreter
         # is world-readable.  Default uv paths land in /root/.local/share/uv,
         # which non-root users can't traverse — leaving the shared
-        # /usr/local/bin/hermes wrapper unable to exec the bad-interpreter venv
+        # /usr/local/bin/allr wrapper unable to exec the bad-interpreter venv
         # python.  See #21457.
         export UV_PYTHON_INSTALL_DIR="${UV_PYTHON_INSTALL_DIR:-/usr/local/share/uv/python}"
         export UV_PYTHON_BIN_DIR="${UV_PYTHON_BIN_DIR:-/usr/local/share/uv/bin}"
         log_info "Root install on Linux — using FHS layout"
         log_info "  Code:    $INSTALL_DIR"
-        log_info "  Command: /usr/local/bin/hermes"
-        log_info "  Data:    $HERMES_HOME (unchanged)"
+        log_info "  Command: /usr/local/bin/allr"
+        log_info "  Data:    $ALLR_HOME (unchanged)"
         log_info "  uv Python: $UV_PYTHON_INSTALL_DIR (world-readable)"
         return 0
     fi
 
     # Default: non-root, non-Termux → legacy user-scoped layout.
-    INSTALL_DIR="$HERMES_HOME/hermes-agent"
+    INSTALL_DIR="$ALLR_HOME/allr-agent"
 }
 
 get_command_link_dir() {
@@ -467,32 +452,32 @@ get_command_link_display_dir() {
     fi
 }
 
-# Point a Hermes-managed Node's `npm install -g` at a directory that is on
+# Point an Allr-managed Node's `npm install -g` at a directory that is on
 # PATH. npm's default global prefix for a bundled Node is the Node dir itself,
-# so global package binaries land in $HERMES_HOME/node/bin — which is NOT on
+# so global package binaries land in $ALLR_HOME/node/bin — which is NOT on
 # PATH (only the command link dir is) and is wiped on every Node upgrade.
 # Redirecting the prefix to the link dir's parent makes global bins resolve to
 # the command link dir (node/npm/npx live there too, already on PATH) and
 # survive upgrades. Scoped to the managed Node via its prefix-local global
 # npmrc, so the user's other Node installs and their ~/.npmrc are untouched.
-# Hermes's own global installs pass an explicit --prefix and are unaffected.
-# Idempotent and a no-op when there is no Hermes-managed npm, so calling it on
+# Allr's own global installs pass an explicit --prefix and are unaffected.
+# Idempotent and a no-op when there is no Allr-managed npm, so calling it on
 # every install run repairs pre-existing installs, not just fresh ones.
 configure_managed_node_npm_prefix() {
-    [ -x "$HERMES_HOME/node/bin/npm" ] || return 0
+    [ -x "$ALLR_HOME/node/bin/npm" ] || return 0
     local link_dir
     link_dir="$(get_command_link_dir)"
-    mkdir -p "$HERMES_HOME/node/etc"
-    printf 'prefix=%s\n' "$(dirname "$link_dir")" > "$HERMES_HOME/node/etc/npmrc"
+    mkdir -p "$ALLR_HOME/node/etc"
+    printf 'prefix=%s\n' "$(dirname "$link_dir")" > "$ALLR_HOME/node/etc/npmrc"
 }
 
 get_hermes_command_path() {
     local link_dir
     link_dir="$(get_command_link_dir)"
-    if [ -x "$link_dir/hermes" ]; then
-        echo "$link_dir/hermes"
+    if [ -x "$link_dir/allr" ]; then
+        echo "$link_dir/allr"
     else
-        echo "hermes"
+        echo "allr"
     fi
 }
 
@@ -529,7 +514,7 @@ detect_os() {
             OS="windows"
             DISTRO="windows"
             log_error "Windows detected. Please use the PowerShell installer:"
-            log_info "  iex (irm https://hermes-agent.nousresearch.com/install.ps1)"
+            log_info "  iex (irm https://allr.work/install.ps1)"
             exit 1
             ;;
         *)
@@ -553,11 +538,11 @@ install_uv() {
         return 0
     fi
 
-    # Hermes owns its own uv at $HERMES_HOME/bin/uv.  Always install there —
+    # Allr owns its own uv at $ALLR_HOME/bin/uv.  Always install there —
     # no PATH probing, no conda guards, no multi-location resolution chains.
     # The runtime update path (hermes_cli/managed_uv.py) looks in the same
-    # place, so install.sh and `hermes update` stay in sync.
-    local _managed_uv="$HERMES_HOME/bin/uv"
+    # place, so install.sh and `allr update` stay in sync.
+    local _managed_uv="$ALLR_HOME/bin/uv"
 
     if [ -x "$_managed_uv" ]; then
         UV_CMD="$_managed_uv"
@@ -566,8 +551,8 @@ install_uv() {
         return 0
     fi
 
-    log_info "Installing managed uv into $HERMES_HOME/bin ..."
-    mkdir -p "$HERMES_HOME/bin"
+    log_info "Installing managed uv into $ALLR_HOME/bin ..."
+    mkdir -p "$ALLR_HOME/bin"
 
     # Two-stage: download the installer, then run it.  Piping
     # `curl | sh` masks curl failures (sh exits 0 on empty stdin)
@@ -584,8 +569,8 @@ install_uv() {
         exit 1
     fi
     # UV_UNMANAGED_INSTALL tells the astral installer to place the binary
-    # directly into $HERMES_HOME/bin instead of ~/.local/bin.
-    if UV_UNMANAGED_INSTALL="$HERMES_HOME/bin" sh "$_uv_installer" >>"$_uv_install_log" 2>&1; then
+    # directly into $ALLR_HOME/bin instead of ~/.local/bin.
+    if UV_UNMANAGED_INSTALL="$ALLR_HOME/bin" sh "$_uv_installer" >>"$_uv_install_log" 2>&1; then
         rm -f "$_uv_installer"
         if [ -x "$_managed_uv" ]; then
             UV_CMD="$_managed_uv"
@@ -786,7 +771,7 @@ check_git() {
 # proceed to a `npm ci` that then dies with EBADENGINE, and a gate stricter than
 # the manifest replaces a working user toolchain for nothing. Returns 0 when the
 # given `node --version` string clears the floor; anything below it is replaced
-# with the Hermes-managed Node $NODE_VERSION.
+# with the Allr-managed Node $NODE_VERSION.
 node_satisfies_build() {
     local ver="${1#v}"
     local major="${ver%%.*}"
@@ -820,13 +805,13 @@ npm_supports_npmrc() {
 check_node() {
     log_info "Checking Node.js (for browser tools)..."
 
-    # Repair pre-existing Hermes-managed installs where `npm install -g` lands
+    # Repair pre-existing Allr-managed installs where `npm install -g` lands
     # off PATH. No-op when there's no managed Node, so this is safe to run on
     # every install — including re-runs that skip the Node (re)install below.
     configure_managed_node_npm_prefix
 
     # The system toolchain is only usable when BOTH halves work: a Node new
-    # enough for the desktop build AND an npm that can read our .npmrc. A
+    # enough for the frontend builds AND an npm that can read our .npmrc. A
     # bad-band npm (see npm_supports_npmrc) fails `npm ci` outright, and the
     # managed Node we install instead bundles one that works.
     if command -v node &> /dev/null && node_satisfies_build "$(node --version)"; then
@@ -836,21 +821,21 @@ check_node() {
             return 0
         fi
         log_warn "npm $(npm --version) cannot honor this repo's .npmrc (npm 11.10-11.16 ignore"
-        log_warn "min-release-age-exclude) — installing Hermes-managed Node $NODE_VERSION instead..."
+        log_warn "min-release-age-exclude) — installing Allr-managed Node $NODE_VERSION instead..."
         install_node
         return
     fi
 
-    # Prefer a Hermes-managed Node from a previous run over a too-old system one.
-    if [ -x "$HERMES_HOME/node/bin/node" ] && node_satisfies_build "$("$HERMES_HOME/node/bin/node" --version)"; then
-        export PATH="$HERMES_HOME/node/bin:$PATH"
-        log_success "Node.js $("$HERMES_HOME/node/bin/node" --version) found (Hermes-managed)"
+    # Prefer an Allr-managed Node from a previous run over a too-old system one.
+    if [ -x "$ALLR_HOME/node/bin/node" ] && node_satisfies_build "$("$ALLR_HOME/node/bin/node" --version)"; then
+        export PATH="$ALLR_HOME/node/bin:$PATH"
+        log_success "Node.js $("$ALLR_HOME/node/bin/node" --version) found (Allr-managed)"
         HAS_NODE=true
         return 0
     fi
 
     if command -v node &> /dev/null; then
-        log_warn "Node.js $(node --version) is too old (Hermes requires Node >=26) — installing Hermes-managed Node $NODE_VERSION..."
+        log_warn "Node.js $(node --version) is too old (Allr requires Node >=26) — installing Allr-managed Node $NODE_VERSION..."
     elif [ "$DISTRO" = "termux" ]; then
         log_info "Node.js not found — installing Node.js via pkg..."
     else
@@ -932,7 +917,7 @@ install_node() {
         return 0
     fi
 
-    log_info "Extracting to ~/.hermes/node/..."
+    log_info "Extracting to ~/.allr/node/..."
     if [[ "$tarball_name" == *.tar.xz ]]; then
         tar xf "$tmp_dir/$tarball_name" -C "$tmp_dir"
     else
@@ -949,28 +934,28 @@ install_node() {
         return 0
     fi
 
-    # Place into ~/.hermes/node/ and symlink binaries into the same bin dir
-    # the hermes command uses (get_command_link_dir): /usr/local/bin for root
+    # Place into ~/.allr/node/ and symlink binaries into the same bin dir
+    # the allr command uses (get_command_link_dir): /usr/local/bin for root
     # FHS installs, $PREFIX/bin on Termux, ~/.local/bin otherwise.
-    rm -rf "$HERMES_HOME/node"
-    mkdir -p "$HERMES_HOME"
-    mv "$extracted_dir" "$HERMES_HOME/node"
+    rm -rf "$ALLR_HOME/node"
+    mkdir -p "$ALLR_HOME"
+    mv "$extracted_dir" "$ALLR_HOME/node"
     rm -rf "$tmp_dir"
 
     local node_link_dir
     node_link_dir="$(get_command_link_dir)"
     mkdir -p "$node_link_dir"
-    ln -sf "$HERMES_HOME/node/bin/node" "$node_link_dir/node"
-    ln -sf "$HERMES_HOME/node/bin/npm"  "$node_link_dir/npm"
-    ln -sf "$HERMES_HOME/node/bin/npx"  "$node_link_dir/npx"
+    ln -sf "$ALLR_HOME/node/bin/node" "$node_link_dir/node"
+    ln -sf "$ALLR_HOME/node/bin/npm"  "$node_link_dir/npm"
+    ln -sf "$ALLR_HOME/node/bin/npx"  "$node_link_dir/npx"
 
     configure_managed_node_npm_prefix
 
-    export PATH="$HERMES_HOME/node/bin:$PATH"
+    export PATH="$ALLR_HOME/node/bin:$PATH"
 
     local installed_ver
-    installed_ver=$("$HERMES_HOME/node/bin/node" --version 2>/dev/null)
-    log_success "Node.js $installed_ver installed to ~/.hermes/node/"
+    installed_ver=$("$ALLR_HOME/node/bin/node" --version 2>/dev/null)
+    log_success "Node.js $installed_ver installed to ~/.allr/node/"
     HAS_NODE=true
 }
 
@@ -1025,7 +1010,7 @@ check_network_prerequisites() {
         log_info "If mirrors are stale: termux-change-repo"
         log_info "Then test: curl -I https://pypi.org/simple/ && curl -I https://duckduckgo.com/"
     else
-        log_warn "Network checks failed. Hermes install may complete, but web search and dependency downloads can fail."
+        log_warn "Network checks failed. Allr install may complete, but web search and dependency downloads can fail."
         log_info "Verify internet/DNS and retry if pip install fails."
     fi
 }
@@ -1149,7 +1134,7 @@ install_system_packages() {
             if [ "$IS_INTERACTIVE" = true ]; then
                 echo ""
                 log_info "sudo is needed ONLY to install optional system packages (${pkgs[*]}) via your package manager."
-                log_info "Hermes Agent itself does not require or retain root access."
+                log_info "Allr itself does not require or retain root access."
                 if prompt_yes_no "Install ${description}? (requires sudo)" "no"; then
                     if sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a $install_cmd; then
                         [ "$need_ripgrep" = true ] && HAS_RIPGREP=true && log_success "ripgrep installed"
@@ -1165,7 +1150,7 @@ install_system_packages() {
                 # but opening fails with ENXIO. See #16746.
                 echo ""
                 log_info "sudo is needed ONLY to install optional system packages (${pkgs[*]}) via your package manager."
-                log_info "Hermes Agent itself does not require or retain root access."
+                log_info "Allr itself does not require or retain root access."
                 if prompt_yes_no "Install ${description}?" "yes"; then
                     if sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a $install_cmd < /dev/tty; then
                         [ "$need_ripgrep" = true ] && HAS_RIPGREP=true && log_success "ripgrep installed"
@@ -1255,7 +1240,7 @@ clone_repo() {
                 # the whole install at the repository stage. Clear the conflict
                 # markers with `git reset` first -- this keeps working-tree
                 # changes (they're still stashed just below) and only drops the
-                # index-level conflict state. Mirrors the `hermes update` path
+                # index-level conflict state. Mirrors the `allr update` path
                 # (#4735).
                 if [ -n "$(git ls-files --unmerged)" ]; then
                     log_info "Clearing unmerged index entries from a previous conflict..."
@@ -1277,7 +1262,7 @@ clone_repo() {
             git checkout "$BRANCH"
             # Managed installs should follow origin/$BRANCH exactly. If the
             # checkout has diverged (or has local-only commits), ff-only pull
-            # cannot succeed — mirror ``hermes update`` and reset to the
+            # cannot succeed — mirror ``allr update`` and reset to the
             # fetched remote so bootstrap/install can recover.
             if ! git pull --ff-only origin "$BRANCH"; then
                 log_warn "Fast-forward not possible; resetting managed install to origin/$BRANCH..."
@@ -1312,7 +1297,7 @@ clone_repo() {
                     if [ "$restore_ok" = "yes" ] && [ -z "$conflicted_files" ]; then
                         git stash drop "$autostash_ref" >/dev/null
                         log_warn "Local changes were restored on top of the updated codebase."
-                        log_warn "Review git diff / git status if Hermes behaves unexpectedly."
+                        log_warn "Review git diff / git status if Allr behaves unexpectedly."
                     else
                         log_error "Update pulled new code, but restoring local changes hit conflicts."
                         if [ -n "$restore_output" ]; then
@@ -1370,7 +1355,7 @@ EOF
         # A commit pin must never move an existing install BACKWARDS. The
         # bootstrap installer bakes its build-time commit into the binary
         # (BUILD_PIN_COMMIT) and passes it as --commit on every install-mode
-        # run -- including the one the desktop's failure screen retries. An
+        # run -- including the one the installer's failure screen retries. An
         # installer built months ago would otherwise rewind a current checkout
         # to its build commit, stranding the user on ancient code with a
         # current venv. Only pin when the target is not already an ancestor of
@@ -1531,7 +1516,7 @@ install_deps() {
                     log_success "Build tools installed"
                 else
                     log_info "sudo is needed ONLY to install build tools (build-essential, python3-dev, libffi-dev) via apt."
-                    log_info "Hermes Agent itself does not require or retain root access."
+                    log_info "Allr itself does not require or retain root access."
                     if prompt_yes_no "Install build tools?" "yes"; then
                         sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y -qq build-essential python3-dev libffi-dev >/dev/null 2>&1 || true
                         log_success "Build tools installed"
@@ -1622,7 +1607,7 @@ try:
     specs = data["project"]["optional-dependencies"]["all"]
     extras = []
     for s in specs:
-        m = re.search(r"hermes-agent\[([\w-]+)\]", s)
+        m = re.search(r"allr-agent\[([\w-]+)\]", s)
         if m:
             extras.append(m.group(1))
     print(",".join(extras))
@@ -1695,22 +1680,22 @@ PY
 }
 
 setup_path() {
-    log_info "Setting up hermes command..."
+    log_info "Setting up allr command..."
 
     if [ "$USE_VENV" = true ]; then
-        HERMES_BIN="$INSTALL_DIR/venv/bin/python"
-        HERMES_ENTRYPOINT="$INSTALL_DIR/hermes"
+        ALLR_BIN="$INSTALL_DIR/venv/bin/python"
+        ALLR_ENTRYPOINT="$INSTALL_DIR/allr"
     else
-        HERMES_BIN="$(which hermes 2>/dev/null || echo "")"
-        if [ -z "$HERMES_BIN" ]; then
-            log_warn "hermes not found on PATH after install"
+        ALLR_BIN="$(which allr 2>/dev/null || echo "")"
+        if [ -z "$ALLR_BIN" ]; then
+            log_warn "allr not found on PATH after install"
             return 0
         fi
     fi
 
     # Verify the interpreter and the checked-in entrypoint needed by the launcher.
-    if [ ! -x "$HERMES_BIN" ] || { [ "$USE_VENV" = true ] && [ ! -f "$HERMES_ENTRYPOINT" ]; }; then
-        log_warn "Hermes launcher prerequisites not found"
+    if [ ! -x "$ALLR_BIN" ] || { [ "$USE_VENV" = true ] && [ ! -f "$ALLR_ENTRYPOINT" ]; }; then
+        log_warn "Allr launcher prerequisites not found"
         log_info "This usually means the Python package install didn't complete successfully."
         if [ "$DISTRO" = "termux" ]; then
             log_info "Try: cd $INSTALL_DIR && python -m pip install -e '.[termux-all]' -c constraints-termux.txt"
@@ -1725,88 +1710,88 @@ setup_path() {
     command_link_dir="$(get_command_link_dir)"
     command_link_display_dir="$(get_command_link_display_dir)"
 
-    # Create a user-facing shim for the hermes command.
+    # Create a user-facing shim for the allr command.
     # We intentionally clear PYTHONPATH/PYTHONHOME here so inherited env vars
     # can't make this launcher import modules from another checkout.
     mkdir -p "$command_link_dir"
-    # Older installs created this path as a symlink to $HERMES_BIN. Without
+    # Older installs created this path as a symlink to $ALLR_BIN. Without
     # the rm, `cat >` follows the symlink and overwrites the venv pip entry
-    # point with this shim — making `exec "$HERMES_BIN"` self-recurse. (#21454)
-    rm -f "$command_link_dir/hermes"
+    # point with this shim — making `exec "$ALLR_BIN"` self-recurse. (#21454)
+    rm -f "$command_link_dir/allr"
     if [ "$USE_VENV" = true ]; then
         # uv-generated console scripts resolve themselves through `realpath`,
         # which stock macOS does not provide. Run the checked-in entrypoint
         # with the venv interpreter instead, so the public launcher remains
         # independent of non-standard shell utilities.
-        cat > "$command_link_dir/hermes" <<EOF
+        cat > "$command_link_dir/allr" <<EOF
 #!/usr/bin/env bash
 unset PYTHONPATH
 unset PYTHONHOME
-exec "$HERMES_BIN" "$HERMES_ENTRYPOINT" "\$@"
+exec "$ALLR_BIN" "$ALLR_ENTRYPOINT" "\$@"
 EOF
     else
-        cat > "$command_link_dir/hermes" <<EOF
+        cat > "$command_link_dir/allr" <<EOF
 #!/usr/bin/env bash
 unset PYTHONPATH
 unset PYTHONHOME
-exec "$HERMES_BIN" "\$@"
+exec "$ALLR_BIN" "\$@"
 EOF
     fi
-    chmod +x "$command_link_dir/hermes"
-    log_success "Installed hermes launcher → $command_link_display_dir/hermes"
+    chmod +x "$command_link_dir/allr"
+    log_success "Installed allr launcher → $command_link_display_dir/allr"
 
-    # Also expose `hermes-agent`. The `hermes-agent` console script declared in
+    # Also expose `allr-agent`. The `allr-agent` console script declared in
     # pyproject.toml's [project.scripts] lives inside the venv, which is not on
     # the login-shell PATH. Without this launcher users can't invoke the agent
     # entrypoint directly from outside the venv. (#74819)
-    rm -f "$command_link_dir/hermes-agent"
+    rm -f "$command_link_dir/allr-agent"
     if [ "$USE_VENV" = true ]; then
-        cat > "$command_link_dir/hermes-agent" <<EOF
+        cat > "$command_link_dir/allr-agent" <<EOF
 #!/usr/bin/env bash
 unset PYTHONPATH
 unset PYTHONHOME
-exec "$HERMES_BIN" "$INSTALL_DIR/run_agent.py" "\$@"
+exec "$ALLR_BIN" "$INSTALL_DIR/run_agent.py" "\$@"
 EOF
     else
-        cat > "$command_link_dir/hermes-agent" <<EOF
+        cat > "$command_link_dir/allr-agent" <<EOF
 #!/usr/bin/env bash
 unset PYTHONPATH
 unset PYTHONHOME
-exec "$HERMES_BIN" run_agent.py "\$@"
+exec "$ALLR_BIN" run_agent.py "\$@"
 EOF
     fi
-    chmod +x "$command_link_dir/hermes-agent"
-    log_success "Installed hermes-agent launcher → $command_link_display_dir/hermes-agent"
+    chmod +x "$command_link_dir/allr-agent"
+    log_success "Installed allr-agent launcher → $command_link_display_dir/allr-agent"
 
-    # Also expose `hermes-acp`. ACP hosts (Zed, JetBrains, Buzz) resolve the
-    # agent by command name on the login-shell PATH, and the `hermes-acp`
+    # Also expose `allr-acp`. ACP hosts (Zed, JetBrains, Buzz) resolve the
+    # agent by command name on the login-shell PATH, and the `allr-acp`
     # console script lives inside the venv, which is not on that PATH. Without
-    # this launcher those hosts report Hermes as not installed. (#21454 applies
+    # this launcher those hosts report Allr as not installed. (#21454 applies
     # here too: clear the path first so `cat >` cannot follow an old symlink
     # into the venv and overwrite the console script.)
-    rm -f "$command_link_dir/hermes-acp"
+    rm -f "$command_link_dir/allr-acp"
     if [ "$USE_VENV" = true ]; then
-        cat > "$command_link_dir/hermes-acp" <<EOF
+        cat > "$command_link_dir/allr-acp" <<EOF
 #!/usr/bin/env bash
 unset PYTHONPATH
 unset PYTHONHOME
-exec "$HERMES_BIN" "$HERMES_ENTRYPOINT" acp "\$@"
+exec "$ALLR_BIN" "$ALLR_ENTRYPOINT" acp "\$@"
 EOF
     else
-        cat > "$command_link_dir/hermes-acp" <<EOF
+        cat > "$command_link_dir/allr-acp" <<EOF
 #!/usr/bin/env bash
 unset PYTHONPATH
 unset PYTHONHOME
-exec "$HERMES_BIN" acp "\$@"
+exec "$ALLR_BIN" acp "\$@"
 EOF
     fi
-    chmod +x "$command_link_dir/hermes-acp"
-    log_success "Installed hermes-acp launcher → $command_link_display_dir/hermes-acp"
+    chmod +x "$command_link_dir/allr-acp"
+    log_success "Installed allr-acp launcher → $command_link_display_dir/allr-acp"
 
     if [ "$DISTRO" = "termux" ]; then
         export PATH="$command_link_dir:$PATH"
         log_info "$command_link_display_dir is the native Termux command path"
-        log_success "hermes command ready"
+        log_success "allr command ready"
         return 0
     fi
 
@@ -1821,16 +1806,16 @@ EOF
         # Probe a fresh non-login interactive bash the way the user will use it.
         # `bash -i -c` sources ~/.bashrc but NOT ~/.bash_profile or /etc/profile,
         # which is the exact scenario where RHEL root loses /usr/local/bin.
-        if env -i HOME="$HOME" TERM="${TERM:-dumb}" bash -i -c 'command -v hermes' \
+        if env -i HOME="$HOME" TERM="${TERM:-dumb}" bash -i -c 'command -v allr' \
                 >/dev/null 2>&1; then
             log_info "/usr/local/bin is already on PATH for all shells"
-            log_success "hermes command ready"
+            log_success "allr command ready"
             return 0
         fi
 
-        log_info "hermes not on PATH in non-login shells (common on RHEL-family)"
+        log_info "allr not on PATH in non-login shells (common on RHEL-family)"
         PATH_LINE='export PATH="/usr/local/bin:$PATH"'
-        PATH_COMMENT='# Hermes Agent — ensure /usr/local/bin is on PATH (RHEL non-login shells)'
+        PATH_COMMENT='# Allr — ensure /usr/local/bin is on PATH (RHEL non-login shells)'
         for SHELL_CONFIG in "$HOME/.bashrc" "$HOME/.bash_profile"; do
             [ -f "$SHELL_CONFIG" ] || continue
             if ! grep -v '^[[:space:]]*#' "$SHELL_CONFIG" 2>/dev/null \
@@ -1841,7 +1826,7 @@ EOF
                 log_success "Added /usr/local/bin to PATH in $SHELL_CONFIG"
             fi
         done
-        log_success "hermes command ready"
+        log_success "allr command ready"
         return 0
     fi
 
@@ -1887,7 +1872,7 @@ EOF
         for SHELL_CONFIG in "${SHELL_CONFIGS[@]}"; do
             if ! grep -v '^[[:space:]]*#' "$SHELL_CONFIG" 2>/dev/null | grep -qE 'PATH=.*\.local/bin'; then
                 echo "" >> "$SHELL_CONFIG"
-                echo "# Hermes Agent — ensure ~/.local/bin is on PATH" >> "$SHELL_CONFIG"
+                echo "# Allr — ensure ~/.local/bin is on PATH" >> "$SHELL_CONFIG"
                 echo "$PATH_LINE" >> "$SHELL_CONFIG"
                 log_success "Added ~/.local/bin to PATH in $SHELL_CONFIG"
             fi
@@ -1897,7 +1882,7 @@ EOF
         if [ "$IS_FISH" = "true" ]; then
             if ! grep -q 'fish_add_path.*\.local/bin' "$FISH_CONFIG" 2>/dev/null; then
                 echo "" >> "$FISH_CONFIG"
-                echo "# Hermes Agent — ensure ~/.local/bin is on PATH" >> "$FISH_CONFIG"
+                echo "# Allr — ensure ~/.local/bin is on PATH" >> "$FISH_CONFIG"
                 echo 'fish_add_path "$HOME/.local/bin"' >> "$FISH_CONFIG"
                 log_success "Added ~/.local/bin to PATH in $FISH_CONFIG"
             fi
@@ -1911,44 +1896,44 @@ EOF
         log_info "~/.local/bin already on PATH"
     fi
 
-    # Export for current session so hermes works immediately
+    # Export for current session so allr works immediately
     export PATH="$command_link_dir:$PATH"
 
-    log_success "hermes command ready"
+    log_success "allr command ready"
 }
 
 copy_config_templates() {
     log_info "Setting up configuration files..."
 
-    # Create ~/.hermes directory structure (config at top level, code in subdir)
-    mkdir -p "$HERMES_HOME"/{cron,sessions,logs,pairing,hooks,image_cache,audio_cache,memories,skills}
+    # Create ~/.allr directory structure (config at top level, code in subdir)
+    mkdir -p "$ALLR_HOME"/{cron,sessions,logs,pairing,hooks,image_cache,audio_cache,memories,skills}
 
-    # Create .env at ~/.hermes/.env (top level, easy to find)
-    if [ ! -f "$HERMES_HOME/.env" ]; then
+    # Create .env at ~/.allr/.env (top level, easy to find)
+    if [ ! -f "$ALLR_HOME/.env" ]; then
         if [ -f "$INSTALL_DIR/.env.example" ]; then
-            cp "$INSTALL_DIR/.env.example" "$HERMES_HOME/.env"
-            log_success "Created ~/.hermes/.env from template"
+            cp "$INSTALL_DIR/.env.example" "$ALLR_HOME/.env"
+            log_success "Created ~/.allr/.env from template"
         else
-            touch "$HERMES_HOME/.env"
-            log_success "Created ~/.hermes/.env"
+            touch "$ALLR_HOME/.env"
+            log_success "Created ~/.allr/.env"
         fi
     else
-        log_info "~/.hermes/.env already exists, keeping it"
+        log_info "~/.allr/.env already exists, keeping it"
     fi
     # Restrict .env permissions — this file holds API keys and tokens.
     # 0600 ensures only the file owner can read/write, matching standard
     # practice for credential files (.netrc, .aws/credentials, .ssh/config).
-    chmod 600 "$HERMES_HOME/.env"
+    chmod 600 "$ALLR_HOME/.env"
     configure_browser_env_from_system_browser
 
-    # Create config.yaml at ~/.hermes/config.yaml (top level, easy to find)
-    if [ ! -f "$HERMES_HOME/config.yaml" ]; then
+    # Create config.yaml at ~/.allr/config.yaml (top level, easy to find)
+    if [ ! -f "$ALLR_HOME/config.yaml" ]; then
         if [ -f "$INSTALL_DIR/cli-config.yaml.example" ]; then
-            cp "$INSTALL_DIR/cli-config.yaml.example" "$HERMES_HOME/config.yaml"
-            log_success "Created ~/.hermes/config.yaml from template"
+            cp "$INSTALL_DIR/cli-config.yaml.example" "$ALLR_HOME/config.yaml"
+            log_success "Created ~/.allr/config.yaml from template"
         fi
     else
-        log_info "~/.hermes/config.yaml already exists, keeping it"
+        log_info "~/.allr/config.yaml already exists, keeping it"
     fi
 
     # Create SOUL.md if it doesn't exist (global persona file).
@@ -1956,35 +1941,35 @@ copy_config_templates() {
     # runtime (_ensure_default_soul_md) treats the old comment-only scaffold as
     # "never customized" and upgrades it to this text on next run, so any drift
     # here is self-healing, but keep them in sync to avoid a churn on first run.
-    if [ ! -f "$HERMES_HOME/SOUL.md" ]; then
-        cat > "$HERMES_HOME/SOUL.md" << 'SOUL_EOF'
-You are Hermes Agent, an intelligent AI assistant created by Nous Research. You are helpful, knowledgeable, and direct. You assist users with a wide range of tasks including answering questions, writing and editing code, analyzing information, creative work, and executing actions via your tools. You communicate clearly, admit uncertainty when appropriate, and prioritize being genuinely useful over being verbose unless otherwise directed below. Be targeted and efficient in your exploration and investigations.
+    if [ ! -f "$ALLR_HOME/SOUL.md" ]; then
+        cat > "$ALLR_HOME/SOUL.md" << 'SOUL_EOF'
+You are Allr, an intelligent AI assistant created by Nous Research. You are helpful, knowledgeable, and direct. You assist users with a wide range of tasks including answering questions, writing and editing code, analyzing information, creative work, and executing actions via your tools. You communicate clearly, admit uncertainty when appropriate, and prioritize being genuinely useful over being verbose unless otherwise directed below. Be targeted and efficient in your exploration and investigations.
 SOUL_EOF
-        log_success "Created ~/.hermes/SOUL.md (edit to customize personality)"
+        log_success "Created ~/.allr/SOUL.md (edit to customize personality)"
     fi
 
-    log_success "Configuration directory ready: ~/.hermes/"
+    log_success "Configuration directory ready: ~/.allr/"
 
-    # Seed bundled skills into ~/.hermes/skills/ (manifest-based, one-time per skill)
+    # Seed bundled skills into ~/.allr/skills/ (manifest-based, one-time per skill)
     if [ "$NO_SKILLS" = true ]; then
         # Blank-slate install: write the opt-out marker and skip seeding.
-        # skills_sync.py and `hermes update` both honor this marker, so the
+        # skills_sync.py and `allr update` both honor this marker, so the
         # default profile stays empty across future updates too.
         printf '%s\n' \
             "This profile opted out of bundled-skill seeding (installed with --no-skills)." \
-            "Delete this file to re-enable sync on the next 'hermes update'." \
-            > "$HERMES_HOME/.no-bundled-skills" 2>/dev/null || true
-        log_info "Skipping bundled skills (--no-skills). Wrote $HERMES_HOME/.no-bundled-skills"
-        log_info "  Future 'hermes update' runs will not inject bundled skills. Delete the marker to opt back in."
+            "Delete this file to re-enable sync on the next 'allr update'." \
+            > "$ALLR_HOME/.no-bundled-skills" 2>/dev/null || true
+        log_info "Skipping bundled skills (--no-skills). Wrote $ALLR_HOME/.no-bundled-skills"
+        log_info "  Future 'allr update' runs will not inject bundled skills. Delete the marker to opt back in."
     else
-        log_info "Syncing bundled skills to ~/.hermes/skills/ ..."
+        log_info "Syncing bundled skills to ~/.allr/skills/ ..."
         if "$INSTALL_DIR/venv/bin/python" "$INSTALL_DIR/tools/skills_sync.py" 2>/dev/null; then
-            log_success "Skills synced to ~/.hermes/skills/"
+            log_success "Skills synced to ~/.allr/skills/"
         else
             # Fallback: simple directory copy if Python sync fails
-            if [ -d "$INSTALL_DIR/skills" ] && [ ! "$(ls -A "$HERMES_HOME/skills/" 2>/dev/null | grep -v '.bundled_manifest')" ]; then
-                cp -r "$INSTALL_DIR/skills/"* "$HERMES_HOME/skills/" 2>/dev/null || true
-                log_success "Skills copied to ~/.hermes/skills/"
+            if [ -d "$INSTALL_DIR/skills" ] && [ ! "$(ls -A "$ALLR_HOME/skills/" 2>/dev/null | grep -v '.bundled_manifest')" ]; then
+                cp -r "$INSTALL_DIR/skills/"* "$ALLR_HOME/skills/" 2>/dev/null || true
+                log_success "Skills copied to ~/.allr/skills/"
             fi
         fi
     fi
@@ -2033,17 +2018,17 @@ strip_snap_browser_override() {
     # snap-pointing override here (and its auto-written comment) so the bundled
     # Chromium download runs and the agent stops using the broken binary. A
     # deliberately-set non-snap override is left untouched.
-    local env_file="$HERMES_HOME/.env"
+    local env_file="$ALLR_HOME/.env"
 
     [ -f "$env_file" ] || return 0
     grep -Eq '^AGENT_BROWSER_EXECUTABLE_PATH=/snap/' "$env_file" 2>/dev/null || return 0
 
     local tmp
     tmp="$(mktemp)" || return 0
-    if grep -Ev '^AGENT_BROWSER_EXECUTABLE_PATH=/snap/|^# Hermes Agent browser tools' "$env_file" > "$tmp"; then
+    if grep -Ev '^AGENT_BROWSER_EXECUTABLE_PATH=/snap/|^# Allr browser tools' "$env_file" > "$tmp"; then
         mv "$tmp" "$env_file"
         log_warn "Removed stale Snap browser override (AGENT_BROWSER_EXECUTABLE_PATH=/snap/...) from $env_file"
-        log_info "Hermes will use the bundled Chromium instead."
+        log_info "Allr will use the bundled Chromium instead."
         # Drop it from this process too so the rest of the run doesn't re-detect it.
         unset AGENT_BROWSER_EXECUTABLE_PATH
     else
@@ -2061,9 +2046,9 @@ run_browser_install_with_timeout() {
 # function target, which the `timeout` binary cannot exec) it uses a pure-shell
 # watchdog: launch the command in its own process group, poll until it finishes,
 # and SIGTERM (then SIGKILL) the whole group on timeout. The pure-shell path is
-# what protects the bug-#39219 case — a stalled Electron download on macOS,
+# what protects the bug-#39219 case — a stalled dependency download on macOS,
 # where `timeout` is usually absent — turning an indefinite hang into a non-zero
-# exit so callers (install_desktop) can self-heal via the mirror fallback.
+# exit so callers can self-heal via a fallback.
 #
 # $1 (timeout) must be a bare integer number of seconds — the pure-shell loop
 # compares it arithmetically (the `timeout` binary would also accept suffixes
@@ -2110,7 +2095,7 @@ run_with_timeout() {
     fi
 
     # Pure-shell fallback: run in a new process group so we can kill the whole
-    # subtree (npm spawns node + the Electron downloader as children).
+    # subtree (npm spawns node + its downloaders as children).
     set -m
     ( "$@" ) &
     local cmd_pid=$!
@@ -2241,7 +2226,7 @@ run_playwright_install() {
 }
 
 configure_browser_env_from_system_browser() {
-    local env_file="$HERMES_HOME/.env"
+    local env_file="$ALLR_HOME/.env"
     local browser_path="${DETECTED_BROWSER_EXECUTABLE:-}"
 
     if [ -z "$browser_path" ]; then
@@ -2252,7 +2237,7 @@ configure_browser_env_from_system_browser() {
         return 0
     fi
 
-    mkdir -p "$HERMES_HOME"
+    mkdir -p "$ALLR_HOME"
     if [ ! -f "$env_file" ]; then
         touch "$env_file"
     fi
@@ -2264,7 +2249,7 @@ configure_browser_env_from_system_browser() {
 
     {
         echo ""
-        echo "# Hermes Agent browser tools — explicit browser override."
+        echo "# Allr browser tools — explicit browser override."
         echo "AGENT_BROWSER_EXECUTABLE_PATH=$browser_path"
     } >> "$env_file"
     log_success "Configured browser tools to use $browser_path"
@@ -2287,7 +2272,7 @@ install_node_deps() {
         log_info "Installing Node.js dependencies (browser tools)..."
         cd "$INSTALL_DIR"
         # Time-boxed: a stalled registry fetch would otherwise hang here with no
-        # progress (same #39219 stall class as the desktop build below).
+        # progress (same #39219 stall class).
         run_with_timeout "$NODE_DEPS_TIMEOUT" npm install --silent || {
             log_warn "npm install failed or timed out (browser tools may not work)"
         }
@@ -2391,12 +2376,12 @@ install_node_deps() {
         cd "$INSTALL_DIR/ui-tui"
         # Time-boxed: a stalled registry fetch would otherwise hang here (#39219).
         run_with_timeout "$NODE_DEPS_TIMEOUT" npm install --silent || {
-            log_warn "TUI npm install failed or timed out (hermes --tui may not work)"
+            log_warn "TUI npm install failed or timed out (allr --tui may not work)"
         }
         log_success "TUI dependencies installed"
     fi
 
-    # Keep the checkout clean so `hermes update` doesn't autostash every run.
+    # Keep the checkout clean so `allr update` doesn't autostash every run.
     restore_dirty_lockfiles "$INSTALL_DIR"
 }
 
@@ -2415,7 +2400,7 @@ run_setup_wizard() {
     # but opening fails with ENXIO, so the wizard would proceed and
     # then crash on `< /dev/tty` below.
     if ! (: </dev/tty) 2>/dev/null; then
-        log_info "Setup wizard skipped (no terminal available). Run 'hermes setup' after install."
+        log_info "Setup wizard skipped (no terminal available). Run 'allr setup' after install."
         return 0
     fi
 
@@ -2425,7 +2410,7 @@ run_setup_wizard() {
 
     cd "$INSTALL_DIR"
 
-    # Run hermes setup using the venv Python directly (no activation needed).
+    # Run allr setup using the venv Python directly (no activation needed).
     # Redirect stdin from /dev/tty so interactive prompts work when piped from curl.
     if [ "$USE_VENV" = true ]; then
         "$INSTALL_DIR/venv/bin/python" -m hermes_cli.main setup < /dev/tty
@@ -2436,7 +2421,7 @@ run_setup_wizard() {
 
 maybe_start_gateway() {
     # Check if any messaging platform tokens were configured
-    ENV_FILE="$HERMES_HOME/.env"
+    ENV_FILE="$ALLR_HOME/.env"
     if [ ! -f "$ENV_FILE" ]; then
         return 0
     fi
@@ -2456,23 +2441,23 @@ maybe_start_gateway() {
 
     echo ""
     log_info "Messaging platform token detected!"
-    log_info "The gateway needs to be running for Hermes to send/receive messages."
+    log_info "The gateway needs to be running for Allr to send/receive messages."
 
     # If WhatsApp is enabled and no session exists yet, run foreground first for QR scan
     WHATSAPP_VAL=$(grep "^WHATSAPP_ENABLED=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2-)
-    WHATSAPP_SESSION="$HERMES_HOME/whatsapp/session/creds.json"
+    WHATSAPP_SESSION="$ALLR_HOME/whatsapp/session/creds.json"
     if [ "$WHATSAPP_VAL" = "true" ] && [ ! -f "$WHATSAPP_SESSION" ]; then
         if [ "$IS_INTERACTIVE" = true ]; then
             echo ""
             log_info "WhatsApp is enabled but not yet paired."
-            log_info "Running 'hermes whatsapp' to pair via QR code..."
+            log_info "Running 'allr whatsapp' to pair via QR code..."
             echo ""
             if prompt_yes_no "Pair WhatsApp now?" "yes"; then
-                HERMES_CMD="$(get_hermes_command_path)"
-                $HERMES_CMD whatsapp || true
+                ALLR_CMD="$(get_hermes_command_path)"
+                $ALLR_CMD whatsapp || true
             fi
         else
-            log_info "WhatsApp pairing skipped (non-interactive). Run 'hermes whatsapp' to pair."
+            log_info "WhatsApp pairing skipped (non-interactive). Run 'allr whatsapp' to pair."
         fi
     fi
 
@@ -2480,7 +2465,7 @@ maybe_start_gateway() {
     # in Docker builds where the device node is in the mount namespace
     # but opening fails with ENXIO. See #16746.
     if ! (: </dev/tty) 2>/dev/null; then
-        log_info "Gateway setup skipped (no terminal available). Run 'hermes gateway install' later."
+        log_info "Gateway setup skipped (no terminal available). Run 'allr gateway install' later."
         return 0
     fi
 
@@ -2497,19 +2482,19 @@ maybe_start_gateway() {
     fi
 
     if [ "$should_install_gateway" = true ]; then
-        HERMES_CMD="$(get_hermes_command_path)"
+        ALLR_CMD="$(get_hermes_command_path)"
 
         if [ "$DISTRO" != "termux" ] && command -v systemctl &> /dev/null; then
             log_info "Installing systemd service..."
-            if $HERMES_CMD gateway install 2>/dev/null; then
+            if $ALLR_CMD gateway install 2>/dev/null; then
                 log_success "Gateway service installed"
-                if $HERMES_CMD gateway start 2>/dev/null; then
+                if $ALLR_CMD gateway start 2>/dev/null; then
                     log_success "Gateway started! Your bot is now online."
                 else
-                    log_warn "Service installed but failed to start. Try: hermes gateway start"
+                    log_warn "Service installed but failed to start. Try: allr gateway start"
                 fi
             else
-                log_warn "Systemd install failed. You can start manually: hermes gateway"
+                log_warn "Systemd install failed. You can start manually: allr gateway"
             fi
         else
             if [ "$DISTRO" = "termux" ]; then
@@ -2517,28 +2502,27 @@ maybe_start_gateway() {
             else
                 log_info "systemd not available — starting gateway in background..."
             fi
-            nohup $HERMES_CMD gateway > "$HERMES_HOME/logs/gateway.log" 2>&1 &
+            nohup $ALLR_CMD gateway > "$ALLR_HOME/logs/gateway.log" 2>&1 &
             GATEWAY_PID=$!
-            log_success "Gateway started (PID $GATEWAY_PID). Logs: ~/.hermes/logs/gateway.log"
+            log_success "Gateway started (PID $GATEWAY_PID). Logs: ~/.allr/logs/gateway.log"
             log_info "To stop: kill $GATEWAY_PID"
-            log_info "To restart later: hermes gateway"
+            log_info "To restart later: allr gateway"
             if [ "$DISTRO" = "termux" ]; then
                 log_warn "Android may stop background processes when Termux is suspended or the system reclaims resources."
             fi
         fi
     else
-        log_info "Skipped. Start the gateway later with: hermes gateway"
+        log_info "Skipped. Start the gateway later with: allr gateway"
     fi
 }
 
 write_bootstrap_marker() {
-    # Writes $INSTALL_DIR/.hermes-bootstrap-complete, which tells the Hermes
-    # desktop app (apps/desktop/electron/main.ts) and the macOS launcher fast
-    # path (apps/bootstrap-installer) "a real install finished here -- don't
-    # re-run first-run bootstrap."
+    # Writes $INSTALL_DIR/.hermes-bootstrap-complete, which tells the Allr
+    # desktop app and the macOS launcher fast path (apps/bootstrap-installer)
+    # "a real install finished here -- don't re-run first-run bootstrap."
     #
-    # Schema mirrors install.ps1's Write-BootstrapMarker and main.ts's
-    # writeBootstrapMarker(). Keep the three in lockstep:
+    # Schema mirrors install.ps1's Write-BootstrapMarker. Keep the two in
+    # lockstep:
     #   schemaVersion 1 + pinnedCommit (length >= 7) are what the desktop
     #   validator requires; desktopVersion is omitted because only the desktop
     #   app knows its own version.
@@ -2585,9 +2569,9 @@ print_success() {
     # Show file locations
     echo -e "${CYAN}${BOLD}📁 Your files:${NC}"
     echo ""
-    echo -e "   ${YELLOW}Config:${NC}    $HERMES_HOME/config.yaml"
-    echo -e "   ${YELLOW}API Keys:${NC}  $HERMES_HOME/.env"
-    echo -e "   ${YELLOW}Data:${NC}      $HERMES_HOME/cron/, sessions/, logs/"
+    echo -e "   ${YELLOW}Config:${NC}    $ALLR_HOME/config.yaml"
+    echo -e "   ${YELLOW}API Keys:${NC}  $ALLR_HOME/.env"
+    echo -e "   ${YELLOW}Data:${NC}      $ALLR_HOME/cron/, sessions/, logs/"
     echo -e "   ${YELLOW}Code:${NC}      $INSTALL_DIR"
     echo ""
 
@@ -2595,24 +2579,24 @@ print_success() {
     echo ""
     echo -e "${CYAN}${BOLD}🚀 Commands:${NC}"
     echo ""
-    echo -e "   ${GREEN}hermes${NC}              Start chatting"
-    echo -e "   ${GREEN}hermes setup${NC}        Configure API keys & settings"
-    echo -e "   ${GREEN}hermes config${NC}       View/edit configuration"
-    echo -e "   ${GREEN}hermes config edit${NC}  Open config in editor"
-    echo -e "   ${GREEN}hermes gateway install${NC} Install gateway service (messaging + cron)"
-    echo -e "   ${GREEN}hermes update${NC}       Update to latest version"
+    echo -e "   ${GREEN}allr${NC}              Start chatting"
+    echo -e "   ${GREEN}allr setup${NC}        Configure API keys & settings"
+    echo -e "   ${GREEN}allr config${NC}       View/edit configuration"
+    echo -e "   ${GREEN}allr config edit${NC}  Open config in editor"
+    echo -e "   ${GREEN}allr gateway install${NC} Install gateway service (messaging + cron)"
+    echo -e "   ${GREEN}allr update${NC}       Update to latest version"
     echo ""
 
     echo -e "${CYAN}─────────────────────────────────────────────────────────${NC}"
     echo ""
     if [ "$DISTRO" = "termux" ]; then
-        echo -e "${YELLOW}⚡ 'hermes' was linked into $(get_command_link_display_dir), which is already on PATH in Termux.${NC}"
+        echo -e "${YELLOW}⚡ 'allr' was linked into $(get_command_link_display_dir), which is already on PATH in Termux.${NC}"
         echo ""
     elif [ "$ROOT_FHS_LAYOUT" = true ]; then
-        echo -e "${YELLOW}⚡ 'hermes' was linked into /usr/local/bin and is ready to use — no shell reload needed.${NC}"
+        echo -e "${YELLOW}⚡ 'allr' was linked into /usr/local/bin and is ready to use — no shell reload needed.${NC}"
         echo ""
     else
-        echo -e "${YELLOW}⚡ Reload your shell to use 'hermes' command:${NC}"
+        echo -e "${YELLOW}⚡ Reload your shell to use 'allr' command:${NC}"
         echo ""
         LOGIN_SHELL="$(basename "${SHELL:-/bin/bash}")"
         if [ "$LOGIN_SHELL" = "zsh" ]; then
@@ -2656,9 +2640,9 @@ print_success() {
 
 ensure_browser() {
     if ! command -v node >/dev/null 2>&1; then
-        local node_bin="$HERMES_HOME/node/bin/node"
+        local node_bin="$ALLR_HOME/node/bin/node"
         if [ -x "$node_bin" ]; then
-            export PATH="$HERMES_HOME/node/bin:$PATH"
+            export PATH="$ALLR_HOME/node/bin:$PATH"
         else
             log_error "Node.js not found. Run with --ensure node first."
             return 1
@@ -2666,7 +2650,7 @@ ensure_browser() {
     fi
 
     local npm_bin
-    npm_bin="$(command -v npm 2>/dev/null || echo "$HERMES_HOME/node/bin/npm")"
+    npm_bin="$(command -v npm 2>/dev/null || echo "$ALLR_HOME/node/bin/npm")"
     if [ ! -x "$npm_bin" ]; then
         log_error "npm not found"
         return 1
@@ -2676,8 +2660,8 @@ ensure_browser() {
     local log_file
     log_file="$(mktemp)"
     # Time-boxed (#39219): a stalled npm registry fetch here would otherwise
-    # hang the installer with no progress, same class as the desktop build.
-    if ! run_with_timeout "$NODE_DEPS_TIMEOUT" "$npm_bin" install -g --prefix "$HERMES_HOME/node" --silent --ignore-scripts \
+    # hang the installer with no progress, same #39219 stall class.
+    if ! run_with_timeout "$NODE_DEPS_TIMEOUT" "$npm_bin" install -g --prefix "$ALLR_HOME/node" --silent --ignore-scripts \
         "agent-browser@^0.26.0" \
         "@askjo/camofox-browser@^1.5.2" \
         >"$log_file" 2>&1; then
@@ -2687,7 +2671,7 @@ ensure_browser() {
         return 1
     fi
     rm -f "$log_file"
-    export PATH="$HERMES_HOME/node/bin:$PATH"
+    export PATH="$ALLR_HOME/node/bin:$PATH"
 
     strip_snap_browser_override
     local sys_browser
@@ -2699,7 +2683,7 @@ ensure_browser() {
     fi
 
     log_info "Installing Chromium via agent-browser install..."
-    local ab_bin="$HERMES_HOME/node/bin/agent-browser"
+    local ab_bin="$ALLR_HOME/node/bin/agent-browser"
     if [ -x "$ab_bin" ]; then
         "$ab_bin" install 2>/dev/null || {
             log_warn "Chromium install failed. Browser tools may not work without a system browser."
@@ -2762,412 +2746,15 @@ ensure_mode() {
 }
 
 
-# Clear the cached Electron download + any half-written unpacked output so the
-# next `npm run pack` re-downloads and re-stages from scratch. A corrupt zip in
-# the per-user Electron download cache - most often a partial/resumed download
-# that leaves concatenated junk - makes electron-builder's `unpack-electron`
-# extract a tree MISSING the electron binary, so the `electron`->`Hermes` rename
-# dies with ENOENT and every re-run repeats the broken extraction forever. This
-# is the bash sibling of install.ps1's Clear-ElectronBuildCache and the Python
-# _purge_electron_build_cache() used by `hermes desktop`; install.sh was the only
-# build path lacking it. Echoes the removed paths (one per line); best-effort.
-clear_electron_build_cache() {
-    local desktop_dir="$1"
-    local removed=""
-
-    # Per-user Electron download cache dirs, honoring the overrides @electron/get
-    # respects, then the platform defaults (macOS: ~/Library/Caches/electron,
-    # Linux: $XDG_CACHE_HOME/electron or ~/.cache/electron).
-    local cache_dirs=()
-    [ -n "${electron_config_cache:-}" ] && cache_dirs+=("$electron_config_cache")
-    [ -n "${ELECTRON_CACHE:-}" ] && cache_dirs+=("$ELECTRON_CACHE")
-    if [ "$OS" = "macos" ]; then
-        cache_dirs+=("$HOME/Library/Caches/electron")
-    else
-        [ -n "${XDG_CACHE_HOME:-}" ] && cache_dirs+=("$XDG_CACHE_HOME/electron")
-        cache_dirs+=("$HOME/.cache/electron")
-    fi
-
-    local dir zip
-    for dir in "${cache_dirs[@]}"; do
-        [ -d "$dir" ] || continue
-        # Recurse: the bad copy may be the top-level zip OR a copy inside an
-        # @electron/get hash subdir.
-        while IFS= read -r zip; do
-            [ -n "$zip" ] || continue
-            if rm -f "$zip" 2>/dev/null; then
-                removed="$removed$zip
-"
-            fi
-        done <<EOF
-$(find "$dir" -type f -name 'electron-*.zip' 2>/dev/null)
-EOF
-    done
-
-    # A half-written unpacked dir from an interrupted prior pack poisons the
-    # rename even after the zip is fixed (mac-arm64-unpacked / linux-unpacked).
-    local release_dir="$desktop_dir/release"
-    if [ -d "$release_dir" ]; then
-        local unpacked
-        while IFS= read -r unpacked; do
-            [ -n "$unpacked" ] || continue
-            if rm -rf "$unpacked" 2>/dev/null; then
-                removed="$removed$unpacked
-"
-            fi
-        done <<EOF
-$(find "$release_dir" -maxdepth 1 -type d -name '*-unpacked' 2>/dev/null)
-EOF
-    fi
-
-    printf '%s' "$removed"
-}
-
-# Run the desktop pack in $1 (the apps/desktop dir). `npm run pack` = tsc +
-# vite build + electron-builder --dir, producing an unpacked app for the
-# current OS. Signing auto-discovery is disabled so electron-builder falls back
-# to an ad-hoc signature instead of grabbing an unrelated Developer ID from the
-# keychain (a real signed/notarized .dmg needs Apple credentials — a separate
-# release concern). Optional $2 = an ELECTRON_MIRROR base URL for this attempt,
-# used as a fallback when the default GitHub release download is blocked.
-_desktop_pack() {
-    local desktop_dir="$1"
-    local mirror="${2:-}"
-    if [ -n "$mirror" ]; then
-        ( cd "$desktop_dir" && ELECTRON_MIRROR="$mirror" CSC_IDENTITY_AUTO_DISCOVERY=false npm run pack )
-    else
-        ( cd "$desktop_dir" && CSC_IDENTITY_AUTO_DISCOVERY=false npm run pack )
-    fi
-}
-
-# Last-resort Electron mirror after GitHub download fails (#47266).
-DESKTOP_ELECTRON_FALLBACK_MIRROR="https://npmmirror.com/mirrors/electron/"
-
-# Per-attempt wall-clock cap for the desktop npm install / electron-builder pack
-# (#39219). A stalled (not failed) Electron download on a throttled/blocked link
-# never returns, so without this the installer hangs forever on "Build desktop
-# app". 900s is generous enough for a slow-but-progressing ~150MB fetch + build;
-# override with DESKTOP_BUILD_TIMEOUT for very slow links.
-DESKTOP_BUILD_TIMEOUT="${DESKTOP_BUILD_TIMEOUT:-900}"
-
 # Wall-clock cap for the plain registry `npm install`s (browser-tools + TUI
-# deps). Same #39219 stall class but no ~150MB Electron binary, so a shorter
-# default; override with NODE_DEPS_TIMEOUT for very slow links.
+# deps). Same #39219 stall class; override with NODE_DEPS_TIMEOUT for very
+# slow links.
 NODE_DEPS_TIMEOUT="${NODE_DEPS_TIMEOUT:-600}"
-
-# Electron package dir — workspace-local nest first, then root hoist.
-_electron_dir() {
-    local install_dir="$1"
-    if [ -d "$install_dir/apps/desktop/node_modules/electron" ]; then
-        printf '%s\n' "$install_dir/apps/desktop/node_modules/electron"
-    else
-        printf '%s\n' "$install_dir/node_modules/electron"
-    fi
-}
-
-# True when dist/ holds a usable Electron binary (#38673 / run-electron-builder.mjs).
-_electron_dist_ok() {
-    local install_dir="$1"
-    local electron_dir
-    electron_dir="$(_electron_dir "$install_dir")"
-    if [ "$OS" = "macos" ]; then
-        [ -e "$electron_dir/dist/Electron.app/Contents/MacOS/Electron" ]
-    else
-        [ -e "$electron_dir/dist/electron" ]
-    fi
-}
-
-# Best-effort: run electron/install.js to populate dist/ (optional mirror).
-_restore_electron_dist() {
-    local install_dir="$1"
-    local mirror="${2:-}"
-    local electron_dir
-    electron_dir="$(_electron_dir "$install_dir")"
-    _electron_dist_ok "$install_dir" && return 0
-
-    [ -f "$electron_dir/install.js" ] || return 1
-    command -v node >/dev/null 2>&1 || return 1
-
-    rm -rf "$electron_dir/dist" 2>/dev/null || true
-    rm -f "$electron_dir/path.txt" 2>/dev/null || true
-
-    if [ -n "$mirror" ]; then
-        ( cd "$electron_dir" && ELECTRON_MIRROR="$mirror" node install.js ) || true
-    else
-        ( cd "$electron_dir" && node install.js ) || true
-    fi
-    _electron_dist_ok "$install_dir"
-}
-
-_electron_pkg_staged_missing_dist() {
-    local install_dir="$1"
-    local electron_dir
-    electron_dir="$(_electron_dir "$install_dir")"
-    [ -f "$electron_dir/package.json" ] && [ -f "$electron_dir/install.js" ] && ! _electron_dist_ok "$install_dir"
-}
-
-_restore_electron_dist_with_fallback() {
-    local install_dir="$1"
-    _restore_electron_dist "$install_dir" \
-        || { [ -z "${ELECTRON_MIRROR:-}" ] && _restore_electron_dist "$install_dir" "$DESKTOP_ELECTRON_FALLBACK_MIRROR"; }
-}
-
-# Build apps/desktop into a launchable native app. Mirrors install.ps1's
-# Install-Desktop: a root-level npm install so the apps/* workspace resolves
-# the desktop's own deps (Electron ~150MB), then `npm run pack`
-# (electron-builder --dir) which emits an unpacked app for the current OS. Only invoked
-# via the 'desktop' stage / --include-desktop, which the Electron app's own
-# first-launch bootstrap never requests (it must not rebuild itself).
-install_desktop_voice_deps() {
-    # Desktop ships with working voice out of the box: eagerly install the
-    # wake-word + local-STT stacks ([wake] + [voice] extras) instead of
-    # leaving them to lazy first-use install. Policy change (Teknium, July
-    # 2026, #70509 testing): the first ear-click used to trigger a
-    # multi-minute onnxruntime pip install that froze the UI and blew RPC
-    # timeouts. Lazy install remains the fallback for CLI-only installs and
-    # for anything this best-effort step fails to fetch.
-    local _prev_venv="${VIRTUAL_ENV:-}"
-    if [ "$USE_VENV" = true ]; then
-        export VIRTUAL_ENV="$INSTALL_DIR/venv"
-    fi
-    if [ -z "${UV_CMD:-}" ]; then
-        install_uv || true
-    fi
-    if [ -z "${UV_CMD:-}" ]; then
-        log_warn "uv unavailable — voice/wake deps will lazy-install at first use instead"
-        return 0
-    fi
-    log_info "Installing voice + wake-word dependencies (onnxruntime, faster-whisper — 1-3min)..."
-    if (cd "$INSTALL_DIR" && $UV_CMD pip install -e ".[wake,voice]") ; then
-        log_success "Voice + wake-word dependencies installed"
-    else
-        log_warn "Voice/wake dependency install failed — they will lazy-install at first use"
-    fi
-    if [ "$USE_VENV" = true ] && [ -z "$_prev_venv" ]; then
-        unset VIRTUAL_ENV
-    fi
-    return 0
-}
-
-install_desktop() {
-    local desktop_dir="$INSTALL_DIR/apps/desktop"
-
-    # The desktop stage only runs when a build is explicitly requested
-    # (--include-desktop / 'desktop' stage), so a missing toolchain is a hard
-    # failure, not a silent skip — a silent skip yields a "complete" install
-    # with no app and a confusing "couldn't find a built desktop" at launch.
-    # Always re-resolve Node here. Stages run in separate processes, so we can't
-    # trust an earlier check; more importantly check_node now enforces the build
-    # floor (Node >=26) and prepends the Hermes-managed Node to PATH, so
-    # the build never runs on a too-old system Node — the cause of the opaque
-    # "Build desktop app … exit code 1" failure (Vite crashes on old Node).
-    check_node
-    if ! command -v npm >/dev/null 2>&1; then
-        log_error "Cannot build desktop app: Node.js / npm unavailable"
-        log_info "Install Node.js and retry: cd $desktop_dir && npm run pack"
-        return 1
-    fi
-    if [ ! -f "$desktop_dir/package.json" ]; then
-        log_warn "Skipping desktop build (apps/desktop not present in checkout)"
-        return 0
-    fi
-
-    # 1. Root workspace install so apps/desktop's deps (Electron, Vite,
-    #    node-pty prebuilds) resolve. The browser-tools install runs in the
-    #    repo-root package workspace, which does not pull apps/* deps.
-    #
-    #    Prefer `npm ci`: it deletes node_modules and reinstalls from the
-    #    lockfile, so it always produces a complete tree. Bare `npm install`
-    #    can report "up to date" against a stale node_modules/.package-lock.json
-    #    marker while node_modules is actually empty (Windows workspace-hoisting
-    #    flake) — leaving tsc/typescript unresolved and `npm run pack`'s
-    #    `tsc -b` failing with no obvious cause. Fall back to `npm install`
-    #    only if `npm ci` is unavailable or the lockfile is out of sync.
-    #
-    #    Both the install and the build below are wrapped in a hard wall-clock
-    #    timeout (#39219): the Electron binary (~150MB) is fetched from GitHub,
-    #    and on a throttled/blocked connection that download can *stall* — npm
-    #    neither errors nor exits, so the installer sits on "Build desktop app"
-    #    forever with only `npm warn deprecated` lines visible. A stall now
-    #    converts to a non-zero exit, which feeds the existing self-heal /
-    #    mirror-fallback escalation instead of hanging the whole install.
-    #
-    #    The `npm ci` and its `npm install` fallback SHARE one budget: a stalled
-    #    link wedges both identically, so giving each a full DESKTOP_BUILD_TIMEOUT
-    #    would double the worst-case hang. We compute a single deadline and pass
-    #    the remaining seconds to the fallback (min 30s so it still gets a real
-    #    attempt if `npm ci` failed fast rather than stalling).
-    log_info "Installing desktop workspace dependencies (includes Electron ~150MB, 1-3min)..."
-    local _deps_start _deps_remaining
-    _deps_start=$(date +%s)
-    if run_with_timeout "$DESKTOP_BUILD_TIMEOUT" bash -c 'cd "$1" && npm ci' _ "$INSTALL_DIR"; then
-        log_success "Desktop workspace dependencies installed"
-    elif _deps_remaining=$(( DESKTOP_BUILD_TIMEOUT - ($(date +%s) - _deps_start) )); \
-         [ "$_deps_remaining" -lt 30 ] && _deps_remaining=30; \
-         run_with_timeout "$_deps_remaining" bash -c 'cd "$1" && npm install' _ "$INSTALL_DIR"; then
-        log_success "Desktop workspace dependencies installed"
-    elif _electron_pkg_staged_missing_dist "$INSTALL_DIR"; then
-        log_warn "Desktop dependency install failed with a missing Electron dist; attempting self-heal..."
-        _restore_electron_dist_with_fallback "$INSTALL_DIR" || true
-    else
-        log_error "Desktop workspace npm install failed"
-        # Common cause: a previous 'sudo npm'/'sudo npx' left root-owned files in
-        # ~/.npm, so this non-root install can't write the shared cache. npm hides
-        # it behind a confusing EEXIST / "File exists" message while the real errno
-        # is EACCES (-13). Point the user at the fix instead of a raw npm trace.
-        log_info "If the errors above mention EACCES / 'permission denied' / EEXIST while"
-        log_info "writing the npm cache, your ~/.npm likely holds root-owned files from an"
-        log_info "earlier 'sudo npm' or 'sudo npx'. Reclaim ownership and retry:"
-        log_info "  sudo chown -R \"\$(id -un)\" ~/.npm && npm cache verify"
-        log_info "Then re-run this installer, or build manually:"
-        log_info "  cd \"$INSTALL_DIR\" && npm ci && cd apps/desktop && npm run pack"
-        return 1
-    fi
-
-    # 2. Build, with up to three escalating attempts so a transient/blocked
-    #    Electron download self-heals instead of failing the whole install:
-    #      a) plain `npm run pack` (downloads Electron from GitHub),
-    #      b) on failure, purge a corrupt cached zip + stale unpacked dir and
-    #         retry (matches install.ps1 / `hermes desktop`),
-    #      c) on still-failing, fall back to a public Electron mirror — this is
-    #         the GitHub-blocked/throttled case (the repeating "retrying" log).
-    log_info "Building desktop app (this takes 1-3 minutes)..."
-    local pack_ok=false
-    if run_with_timeout "$DESKTOP_BUILD_TIMEOUT" _desktop_pack "$desktop_dir"; then
-        pack_ok=true
-    else
-        local purged=""
-        local restored=false
-        if ! _electron_dist_ok "$INSTALL_DIR"; then
-            purged="$(clear_electron_build_cache "$desktop_dir")"
-            if _restore_electron_dist "$INSTALL_DIR"; then restored=true; fi
-        fi
-        if [ "$restored" = true ]; then
-            log_warn "Desktop build failed; refreshed the Electron download and retrying once..."
-            if run_with_timeout "$DESKTOP_BUILD_TIMEOUT" _desktop_pack "$desktop_dir"; then
-                pack_ok=true
-            fi
-        fi
-    fi
-
-    # (c) GitHub blocked → mirror fallback (#47266).
-    if [ "$pack_ok" = false ] && [ -z "${ELECTRON_MIRROR:-}" ]; then
-        log_warn "Desktop build still failing — the Electron download from GitHub looks blocked."
-        log_warn "Re-downloading Electron via a public mirror ($DESKTOP_ELECTRON_FALLBACK_MIRROR), then rebuilding..."
-        log_warn "  (set ELECTRON_MIRROR yourself to use a different/trusted mirror)"
-        _electron_dist_ok "$INSTALL_DIR" || _restore_electron_dist "$INSTALL_DIR" "$DESKTOP_ELECTRON_FALLBACK_MIRROR" || true
-        if run_with_timeout "$DESKTOP_BUILD_TIMEOUT" _desktop_pack "$desktop_dir" "$DESKTOP_ELECTRON_FALLBACK_MIRROR"; then
-            pack_ok=true
-        fi
-    fi
-
-    if [ "$pack_ok" = false ]; then
-        log_error "Desktop app build failed"
-        # If the log shows repeated "retrying" lines fetching the Electron zip,
-        # the binary download is blocked/throttled (firewall, proxy, region) and
-        # the mirror fallback above also couldn't reach a host. Try a mirror you
-        # trust and rebuild (@electron/get honors ELECTRON_MIRROR):
-        log_info "If the log shows Electron download retries, rebuild via a reachable mirror:"
-        log_info "  ELECTRON_MIRROR=<mirror-base-url> \\"
-        log_info "    bash -c 'cd \"$desktop_dir\" && CSC_IDENTITY_AUTO_DISCOVERY=false npm run pack'"
-        log_info "Otherwise build manually: cd $desktop_dir && npm run pack"
-        return 1
-    fi
-
-    local app=""
-    if [ "$OS" = "linux" ]; then
-        if [ -x "$desktop_dir/release/linux-unpacked/Hermes" ]; then
-            app="$desktop_dir/release/linux-unpacked/Hermes"
-        elif [ -x "$desktop_dir/release/linux-unpacked/hermes" ]; then
-            app="$desktop_dir/release/linux-unpacked/hermes"
-        fi
-    else
-        local cand
-        for cand in \
-            "$desktop_dir/release/mac-arm64/Hermes.app" \
-            "$desktop_dir/release/mac/Hermes.app"; do
-            if [ -d "$cand" ]; then
-                app="$cand"
-                break
-            fi
-        done
-    fi
-    if [ -z "$app" ]; then
-        log_error "Desktop build completed but no app was found under $desktop_dir/release/"
-        return 1
-    fi
-    log_success "Desktop app built: $app"
-
-    # Linux: Electron's chrome-sandbox helper needs root:root 4755 or the
-    # sandboxed renderer will abort on startup.  Check the file is a regular
-    # file (not a symlink) before chown/chmod so we don't follow an
-    # attacker-controlled link to an arbitrary path.
-    if [ "$OS" = "linux" ]; then
-        local sandbox="$desktop_dir/release/linux-unpacked/chrome-sandbox"
-        if [ -f "$sandbox" ] && [ ! -L "$sandbox" ]; then
-            if [ "$(id -u)" -eq 0 ]; then
-                chown root:root "$sandbox" && chmod 4755 "$sandbox" || {
-                    log_error "Cannot configure Electron sandbox helper: $sandbox"
-                    return 1
-                }
-            elif command -v sudo >/dev/null 2>&1; then
-                sudo chown root:root "$sandbox" && sudo chmod 4755 "$sandbox" || {
-                    log_error "Cannot configure Electron sandbox helper (sudo failed): $sandbox"
-                    return 1
-                }
-            else
-                log_error "Cannot configure Electron sandbox helper without sudo: $sandbox"
-                return 1
-            fi
-        fi
-    fi
-
-    # macOS: route through the same config-aware signing fixup as
-    # `hermes desktop`, so install/repair and self-update agree about the app's
-    # identity. The fixup preserves the Electron entitlement plists and signs
-    # with a stable Designated Requirement (configured keychain identity, else
-    # identifier-pinned ad-hoc), so macOS TCC grants — Full Disk Access,
-    # Desktop/Downloads/Documents, Accessibility, microphone — survive the
-    # rebuild instead of resetting on every update. The shell's
-    # publisher-signing decision governed the build and is passed explicitly so
-    # importing Python cannot reverse it by loading HERMES_HOME/.env. If the
-    # helper is unavailable or fails, branch into the historical quarantine
-    # strip + deep ad-hoc repair so a broken venv never leaves the bundle
-    # unsigned/unlaunchable.
-    if [ "$OS" = "macos" ] && [ -z "${CSC_LINK:-}" ] && [ -z "${APPLE_SIGNING_IDENTITY:-}" ] && command -v codesign >/dev/null 2>&1; then
-        local config_python="$INSTALL_DIR/venv/bin/python"
-        local fixup_ok=""
-        if [ -x "$config_python" ]; then
-            if HERMES_HOME="$HERMES_HOME" "$config_python" - "$desktop_dir" <<'PYEOF'
-import sys
-from pathlib import Path
-from hermes_cli.main import _desktop_macos_relaunchable_fixup
-ok = _desktop_macos_relaunchable_fixup(
-    Path(sys.argv[1]), publisher_signing_configured=False
-)
-sys.exit(0 if ok else 1)
-PYEOF
-            then
-                fixup_ok=1
-            else
-                log_warn "Config-aware macOS signing fixup failed; applying the historical ad-hoc fallback."
-            fi
-        fi
-        if [ -z "$fixup_ok" ]; then
-            xattr -cr "$app" 2>/dev/null || true
-            codesign --force --deep --sign - "$app" >/dev/null 2>&1 || true
-        fi
-    fi
-
-    # `npm install` + `npm run pack` rewrite lockfiles; restore them so the
-    # checkout stays clean for the next `hermes update`.
-    restore_dirty_lockfiles "$INSTALL_DIR"
-}
 
 # Each --stage runs in its own process, so (unlike the monolithic main() where
 # clone_repo cd's once and later steps inherit it) a stage that operates on the
 # checkout must cd into it explicitly. Without this, install_deps/setup_path run
-# from the desktop app's cwd and resolve `.` / the venv against the wrong tree.
+# from the caller's cwd and resolve `.` / the venv against the wrong tree.
 require_install_dir() {
     if [ -z "$INSTALL_DIR" ] || [ ! -d "$INSTALL_DIR" ]; then
         log_error "Install directory not found: ${INSTALL_DIR:-<unset>}"
@@ -3177,8 +2764,8 @@ require_install_dir() {
     cd "$INSTALL_DIR"
 }
 
-# Desktop bootstrap stage protocol. Mirrors the Windows install.ps1 surface
-# closely enough for the Electron bootstrap runner to show structured progress.
+# Bootstrap stage protocol. Mirrors the Windows install.ps1 surface closely
+# enough for the bootstrap installer to show structured progress.
 run_stage_body() {
     local stage="$1"
 
@@ -3247,28 +2834,16 @@ run_stage_body() {
             require_install_dir
             maybe_start_gateway
             ;;
-        desktop)
-            detect_os
-            resolve_install_layout
-            require_install_dir
-            # Each stage runs in its own process, so the Hermes-managed Node
-            # provisioned during prerequisites/node-deps (at $HERMES_HOME/node/bin)
-            # isn't on PATH here. check_node re-adds it (or installs if missing)
-            # so install_desktop can find npm instead of silently skipping.
-            check_node
-            install_desktop_voice_deps
-            install_desktop
-            ;;
         complete)
             detect_os
             resolve_install_layout
             print_success
             write_bootstrap_marker
             # Code-scoped stamp: write next to the install tree, not into
-            # $HERMES_HOME. $HERMES_HOME is a shared data dir (it can be
+            # $ALLR_HOME. $ALLR_HOME is a shared data dir (it can be
             # bind-mounted into a Docker gateway too), so a stamp there gets
             # clobbered by the container's 'docker' stamp and wrongly blocks
-            # 'hermes update' on this host install. See detect_install_method().
+            # 'allr update' on this host install. See detect_install_method().
             echo "git" > "$INSTALL_DIR/.install_method"
             ;;
         *)
@@ -3300,7 +2875,7 @@ run_stage_protocol() {
     # on failure (clone_repo, install_deps, etc. were written for the monolithic
     # flow) only exits the subshell — the parent still reaches the JSON result
     # frame below. Without this, a failed --stage would terminate the process
-    # before emitting the frame and the Rust/Electron parser would see "no
+    # before emitting the frame and the Rust parser would see "no
     # result frame" instead of a clean {ok:false} contract response.
     set +e
     ( run_stage_body "$stage" )
@@ -3342,19 +2917,14 @@ main() {
     run_setup_wizard
     maybe_start_gateway
 
-    if [ "$INCLUDE_DESKTOP" = true ]; then
-        install_desktop_voice_deps
-        install_desktop
-    fi
-
     print_success
 
     write_bootstrap_marker
 
-    # Code-scoped stamp: write next to the install tree, not into $HERMES_HOME.
-    # $HERMES_HOME is a shared data dir (it can be bind-mounted into a Docker
+    # Code-scoped stamp: write next to the install tree, not into $ALLR_HOME.
+    # $ALLR_HOME is a shared data dir (it can be bind-mounted into a Docker
     # gateway too), so a stamp there gets clobbered by the container's 'docker'
-    # stamp and wrongly blocks 'hermes update' on this host install.
+    # stamp and wrongly blocks 'allr update' on this host install.
     # See detect_install_method().
     echo "git" > "$INSTALL_DIR/.install_method"
 }

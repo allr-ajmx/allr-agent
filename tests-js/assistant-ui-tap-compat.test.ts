@@ -1,9 +1,8 @@
 /**
  * Invariant: the @assistant-ui dependency cluster agrees on one tap version.
  *
- * The Hermes desktop app (``apps/desktop``) is built from source on every
- * install/update via ``scripts/install.ps1`` → ``npm ci``/``npm install`` →
- * ``tsc -b && vite build``. The ``@assistant-ui`` packages share an internal
+ * The Allr app (``apps/hermes-universal``) is built from source via
+ * ``npm ci``/``npm install`` → ``tsc -b && vite build``. The ``@assistant-ui`` packages share an internal
  * reactivity lib, ``@assistant-ui/tap``, and they only interoperate when they
  * all resolve the *same* tap version:
  *
@@ -19,13 +18,13 @@
  *
  *     "./react-shim" is not exported ... from package @assistant-ui/tap
  *
- * i.e. the opaque "apps/desktop build failed (exit 1)" every user hit when
+ * i.e. the opaque "app build failed (exit 1)" every user hit when
  * updating. The fix pins ``@assistant-ui/store`` (via root ``overrides``) to the
  * last release that targets ``tap@^0.5.x``.
  *
  * This is a *contract* test, not a snapshot: it does not assert specific version
  * numbers, only that the cluster resolves a single shared tap (wherever npm
- * places it — hoisted to root, or nested under the ``apps/desktop`` workspace
+ * places it — hoisted to root, or nested under the ``apps/hermes-universal`` workspace
  * since the 0.14 bump dropped the ``store`` override) and that this tap satisfies
  * every ``@assistant-ui/*`` package's declared requirement. It fails if any
  * future bump reintroduces a split tap version or requirement across the cluster.

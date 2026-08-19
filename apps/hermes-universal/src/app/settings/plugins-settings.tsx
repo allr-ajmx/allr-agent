@@ -46,11 +46,11 @@ import {
 
 const KIND_ORDER: Record<PluginRecord['kind'], number> = { disk: 0, runtime: 1, bundled: 2 }
 
-// User-installed plugins first, bundled last — mirrors `hermes plugins list`.
+// User-installed plugins first, bundled last — mirrors `allr plugins list`.
 const SOURCE_ORDER: Record<string, number> = { bundled: 3, entrypoint: 2, git: 0, project: 1, user: 0 }
 
 // Plugin categories (by registry key prefix) that other surfaces own.
-// dashboard_auth/* only matters to `hermes dashboard`; model-providers/* are
+// dashboard_auth/* only matters to `allr dashboard`; model-providers/* are
 // configured in Settings ▸ Models; platforms/* are managed from Messaging. The
 // plugin switch is not the user-facing control for any of them, so listing them
 // here is noise.
@@ -73,7 +73,7 @@ const agentPluginRowKey = (row: AgentPluginRow) =>
   row.key ?? [row.name, row.source, row.version, row.description].join('\0')
 
 // Agent plugins live under the BACKEND's hermes home (profile-aware), so the
-// path comes from the gateway — not from this device's HERMES_HOME. The caller
+// path comes from the gateway — not from this device's ALLR_HOME. The caller
 // gates on a local connection: revealing a path that belongs to a remote box
 // would point this device's file manager at a directory that isn't there.
 async function revealAgentPluginsDir(request: GatewayRequest, failTitle: string) {
@@ -147,7 +147,7 @@ function AgentPluginRowView({ row }: { row: AgentPluginRow }) {
 
 /**
  * The BACKEND half of the plugins page. The list above it is what runs in this
- * webview; this is what runs in the Hermes process on the other end of the
+ * webview; this is what runs in the Allr process on the other end of the
  * gateway — tools, skills, MCP servers, hooks, slash commands. Both belong on
  * one page because "my plugins" is one question to a user, however many
  * processes the answer spans.

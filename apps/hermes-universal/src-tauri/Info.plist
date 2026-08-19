@@ -9,6 +9,6 @@
 <plist version="1.0">
 <dict>
   <key>NSMicrophoneUsageDescription</key>
-  <string>Hermes uses the microphone for voice conversations.</string>
+  <string>Allr uses the microphone for voice conversations.</string>
 </dict>
 </plist>

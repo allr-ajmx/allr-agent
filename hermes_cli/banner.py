@@ -67,28 +67,19 @@ def _skin_color(key: str, fallback: str) -> str:
 
 from hermes_cli import __version__ as VERSION, __release_date__ as RELEASE_DATE
 
-HERMES_AGENT_LOGO = """[bold #FFD700]██╗  ██╗███████╗██████╗ ███╗   ███╗███████╗███████╗       █████╗  ██████╗ ███████╗███╗   ██╗████████╗[/]
-[bold #FFD700]██║  ██║██╔════╝██╔══██╗████╗ ████║██╔════╝██╔════╝      ██╔══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝[/]
-[#FFBF00]███████║█████╗  ██████╔╝██╔████╔██║█████╗  ███████╗█████╗███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║[/]
-[#FFBF00]██╔══██║██╔══╝  ██╔══██╗██║╚██╔╝██║██╔══╝  ╚════██║╚════╝██╔══██║██║   ██║██╔══╝  ██║╚██╗██║   ██║[/]
-[#CD7F32]██║  ██║███████╗██║  ██║██║ ╚═╝ ██║███████╗███████║      ██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║[/]
-[#CD7F32]╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝╚══════╝╚══════╝      ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝[/]"""
+ALLR_AGENT_LOGO = """[bold #f7c14c] █████╗ ██╗     ██╗     ██████╗ [/]
+[bold #f7c14c]██╔══██╗██║     ██║     ██╔══██╗[/]
+[bold #e9a83e]███████║██║     ██║     ██████╔╝[/]
+[bold #e9a83e]██╔══██║██║     ██║     ██╔══██╗[/]
+[bold #b77e1f]██║  ██║███████╗███████╗██║  ██║[/]
+[bold #b77e1f]╚═╝  ╚═╝╚══════╝╚══════╝╚═╝  ╚═╝[/]"""
 
-HERMES_CADUCEUS = """[#CD7F32]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣀⡀⠀⣀⣀⠀⢀⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
-[#CD7F32]⠀⠀⠀⠀⠀⠀⢀⣠⣴⣾⣿⣿⣇⠸⣿⣿⠇⣸⣿⣿⣷⣦⣄⡀⠀⠀⠀⠀⠀⠀[/]
-[#FFBF00]⠀⢀⣠⣴⣶⠿⠋⣩⡿⣿⡿⠻⣿⡇⢠⡄⢸⣿⠟⢿⣿⢿⣍⠙⠿⣶⣦⣄⡀⠀[/]
-[#FFBF00]⠀⠀⠉⠉⠁⠶⠟⠋⠀⠉⠀⢀⣈⣁⡈⢁⣈⣁⡀⠀⠉⠀⠙⠻⠶⠈⠉⠉⠀⠀[/]
-[#FFD700]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣴⣿⡿⠛⢁⡈⠛⢿⣿⣦⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
-[#FFD700]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠿⣿⣦⣤⣈⠁⢠⣴⣿⠿⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
-[#FFBF00]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠉⠻⢿⣿⣦⡉⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
-[#FFBF00]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠘⢷⣦⣈⠛⠃⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
-[#CD7F32]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢠⣴⠦⠈⠙⠿⣦⡄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
-[#CD7F32]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠸⣿⣤⡈⠁⢤⣿⠇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
-[#B8860B]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⠛⠷⠄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
-[#B8860B]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣀⠑⢶⣄⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
-[#B8860B]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣿⠁⢰⡆⠈⡿⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
-[#B8860B]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠳⠈⣡⠞⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
-[#B8860B]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]"""
+ALLR_MARK = """[#f7c14c]⠀⠀⠀⠀⢀⣤⣄⡀⠀⠀⠀⠀[/]
+[#f7c14c]⠀⠀⢠⣾⣿⣿⣿⣿⣷⡄⠀⠀[/]
+[#e9a83e]⢠⣾⣿⣿⣿⣿⣿⣿⣿⣿⣷⡄[/]
+[#e9a83e]⠈⠻⣿⣿⣿⣿⣿⣿⣿⣿⠟⠁[/]
+[#b77e1f]⠀⠀⠈⠻⣿⣿⣿⣿⠟⠁⠀⠀[/]
+[#b77e1f]⠀⠀⠀⠀⠈⠛⠛⠁⠀⠀⠀⠀[/]"""
 
 
 
@@ -127,8 +118,8 @@ _UPDATE_CHECK_CACHE_SECONDS = 6 * 3600
 # (e.g. nix-built hermes — no local git history to count against).
 UPDATE_AVAILABLE_NO_COUNT = -1
 
-_UPSTREAM_REPO_URL = "https://github.com/NousResearch/hermes-agent.git"
-_OFFICIAL_REPO_CANONICAL = "github.com/nousresearch/hermes-agent"
+_UPSTREAM_REPO_URL = "https://github.com/allr-ajmx/allr-agent.git"
+_OFFICIAL_REPO_CANONICAL = "github.com/allr-ajmx/allr-agent"
 
 
 def _canonical_github_remote(url: str | None) -> str:
@@ -221,7 +212,7 @@ def _check_via_local_git(repo_dir: Path) -> Optional[int]:
     # number (e.g. "12492 commits behind"). Detect shallow up front: fetch with
     # --depth 1 to preserve the boundary and compare tip SHAs instead of
     # counting. Full clones (developers, Docker dev images) keep the exact
-    # count path unchanged. Mirrors the desktop fix in apps/desktop/electron/main.cjs.
+    # count path unchanged. Mirrors the same fix on the desktop app side.
     shallow = _git_stdout(["rev-parse", "--is-shallow-repository"], cwd=repo_dir)
     is_shallow = shallow == "true"
 
@@ -274,9 +265,9 @@ def _check_via_local_git(repo_dir: Path) -> Optional[int]:
 
 
 def check_for_updates() -> Optional[int]:
-    """Check whether a Hermes update is available.
+    """Check whether an Allr update is available.
 
-    Two paths: if ``HERMES_REVISION`` is set (nix builds embed it), compare
+    Two paths: if ``ALLR_REVISION`` is set (nix builds embed it), compare
     it to upstream main via ``git ls-remote``. Otherwise look for a local
     git checkout and count commits behind ``origin/main``.
 
@@ -286,11 +277,11 @@ def check_for_updates() -> Optional[int]:
     """
     hermes_home = get_hermes_home()
     cache_file = hermes_home / ".update_check"
-    embedded_rev = os.environ.get("HERMES_REVISION") or None
+    embedded_rev = os.environ.get("ALLR_REVISION") or None
 
     # Docker images have no working tree to count commits against — the
     # published image excludes `.git` (see .dockerignore) and sets no
-    # HERMES_REVISION (that's nix-only). Returning None makes both the Rich
+    # ALLR_REVISION (that's nix-only). Returning None makes both the Rich
     # banner (build_welcome_banner) and the Ink badge (branding.tsx, guarded
     # on `typeof === 'number' && > 0`) show nothing. The dashboard's REST
     # `/api/hermes/update/check` endpoint short-circuits docker the same way
@@ -321,11 +312,11 @@ def check_for_updates() -> Optional[int]:
         behind = _check_via_rev(embedded_rev)
     else:
         # Prefer the running code's location over the profile-scoped path.
-        # $HERMES_HOME/hermes-agent/ may be a stale copy from --clone-all;
+        # $ALLR_HOME/allr-agent/ may be a stale copy from --clone-all;
         # Path(__file__) always resolves to the actual installed checkout.
         repo_dir = Path(__file__).parent.parent.resolve()
         if not (repo_dir / ".git").exists():
-            repo_dir = hermes_home / "hermes-agent"
+            repo_dir = hermes_home / "allr-agent"
         if not (repo_dir / ".git").exists():
             # No git checkout and no embedded revision — can't determine
             # update status. This is the Docker path (already short-circuited
@@ -346,16 +337,16 @@ def check_for_updates() -> Optional[int]:
 
 
 def _resolve_repo_dir() -> Optional[Path]:
-    """Return the active Hermes git checkout, or None if this isn't a git install.
+    """Return the active Allr git checkout, or None if this isn't a git install.
 
     Prefers the running code's location over the profile-scoped path
-    because ``$HERMES_HOME/hermes-agent/`` may be a stale copy carried
+    because ``$ALLR_HOME/allr-agent/`` may be a stale copy carried
     over by ``--clone-all``.
     """
     repo_dir = Path(__file__).parent.parent.resolve()
     if not (repo_dir / ".git").exists():
         hermes_home = get_hermes_home()
-        repo_dir = hermes_home / "hermes-agent"
+        repo_dir = hermes_home / "allr-agent"
     return repo_dir if (repo_dir / ".git").exists() else None
 
 
@@ -437,7 +428,7 @@ def get_git_banner_state(repo_dir: Optional[Path] = None) -> Optional[dict]:
     return {"upstream": upstream, "local": local, "ahead": max(ahead, 0)}
 
 
-_RELEASE_URL_BASE = "https://github.com/NousResearch/hermes-agent/releases/tag"
+_RELEASE_URL_BASE = "https://github.com/allr-ajmx/allr-agent/releases/tag"
 _latest_release_cache: Optional[tuple] = None  # (tag, url) once resolved
 
 
@@ -445,8 +436,8 @@ def get_latest_release_tag(repo_dir: Optional[Path] = None) -> Optional[tuple]:
     """Return ``(tag, release_url)`` for the latest git tag, or None.
 
     Local-only — runs ``git describe --tags --abbrev=0`` against the
-    Hermes checkout. Cached per-process. Release URL always points at the
-    canonical NousResearch/hermes-agent repo (forks don't get a link).
+    Allr checkout. Cached per-process. Release URL always points at the
+    canonical allr-ajmx/allr-agent repo (forks don't get a link).
     """
     global _latest_release_cache
     if _latest_release_cache is not None:
@@ -487,7 +478,7 @@ def get_latest_release_tag(repo_dir: Optional[Path] = None) -> Optional[tuple]:
 
 def format_banner_version_label() -> str:
     """Return the version label shown in the startup banner title."""
-    base = f"Hermes Agent v{VERSION} ({RELEASE_DATE})"
+    base = f"Allr v{VERSION} ({RELEASE_DATE})"
     state = get_git_banner_state()
     if not state:
         return base
@@ -631,10 +622,10 @@ def build_welcome_banner(console: "Console", model: str, cwd: str,
     try:
         from hermes_cli.skin_engine import get_active_skin
         _bskin = get_active_skin()
-        _hero = _bskin.banner_hero if hasattr(_bskin, 'banner_hero') and _bskin.banner_hero else HERMES_CADUCEUS
+        _hero = _bskin.banner_hero if hasattr(_bskin, 'banner_hero') and _bskin.banner_hero else ALLR_MARK
     except Exception:
         _bskin = None
-        _hero = HERMES_CADUCEUS
+        _hero = ALLR_MARK
     left_lines = ["", _hero, ""]
     if (provider or "").strip().lower() == "moa":
         # MoA virtual provider: ``model`` is a preset name. Show the preset and
@@ -665,7 +656,7 @@ def build_welcome_banner(console: "Console", model: str, cwd: str,
             # is wrong and how to fix it.
             left_lines.append(
                 f"[bold red]no model configured[/] "
-                f"[dim {dim}]— run /model or hermes setup[/]"
+                f"[dim {dim}]— run /model or allr setup[/]"
             )
         else:
             model_short = model.split("/")[-1] if "/" in model else model
@@ -676,7 +667,7 @@ def build_welcome_banner(console: "Console", model: str, cwd: str,
             ctx_str = f" [dim {dim}]·[/] [dim {dim}]{_format_context_length(context_length)} context[/]" if context_length else ""
             left_lines.append(f"[{accent}]{model_short}[/]{ctx_str} [dim {dim}]·[/] [dim {dim}]Nous Research[/]")
 
-    if os.getenv("HERMES_YOLO_MODE"):
+    if os.getenv("ALLR_YOLO_MODE"):
         left_lines.append(f"[bold red]⚠ YOLO mode[/] [dim {dim}]— all approval prompts bypassed[/]")
     left_lines.append(f"[dim {dim}]{cwd}[/]")
     if session_id:
@@ -900,8 +891,9 @@ def build_welcome_banner(console: "Console", model: str, cwd: str,
 
     console.print()
     term_width = shutil.get_terminal_size().columns
-    if term_width >= 95:
-        _logo = _bskin.banner_logo if _bskin and hasattr(_bskin, 'banner_logo') and _bskin.banner_logo else HERMES_AGENT_LOGO
+    # The ALLR wordmark is 32 columns wide; the pre-rename one was ~100.
+    if term_width >= 40:
+        _logo = _bskin.banner_logo if _bskin and hasattr(_bskin, 'banner_logo') and _bskin.banner_logo else ALLR_AGENT_LOGO
         console.print(_logo)
         console.print()
     console.print(outer_panel)

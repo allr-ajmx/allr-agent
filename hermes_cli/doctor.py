@@ -1,7 +1,7 @@
 """
 Doctor command for hermes CLI.
 
-Diagnoses issues with Hermes Agent setup.
+Diagnoses issues with Allr setup.
 """
 
 import os
@@ -23,15 +23,15 @@ from hermes_constants import display_hermes_home
 from hermes_constants import agent_browser_runnable
 
 PROJECT_ROOT = get_project_root()
-HERMES_HOME = get_hermes_home()
-_DHH = display_hermes_home()  # user-facing display path (e.g. ~/.hermes or ~/.hermes/profiles/coder)
+ALLR_HOME = get_hermes_home()
+_DHH = display_hermes_home()  # user-facing display path (e.g. ~/.allr or ~/.allr/profiles/coder)
 
-# Load environment variables from ~/.hermes/.env so API key checks work
+# Load environment variables from ~/.allr/.env so API key checks work
 _env_path = get_env_path()
 load_hermes_dotenv(hermes_home=_env_path.parent, project_env=PROJECT_ROOT / ".env")
 
 from hermes_cli.colors import Colors, color
-from hermes_cli.models import _HERMES_USER_AGENT
+from hermes_cli.models import _ALLR_USER_AGENT
 from hermes_cli.vercel_auth import describe_vercel_auth
 from hermes_constants import OPENROUTER_MODELS_URL
 from utils import base_url_host_matches
@@ -88,11 +88,11 @@ def _sqlite_upgrade_hint(install_method: str | None = None) -> str:
     method = install_method or detect_install_method(PROJECT_ROOT)
     if method == "docker":
         command = recommended_update_command_for_method(method)
-        action = f"run `{command}`, then recreate all Hermes containers"
+        action = f"run `{command}`, then recreate all Allr containers"
     elif method in {"nix", "nixos"}:
         action = recommended_update_command_for_method(method)
     else:
-        action = "run `hermes update`"
+        action = "run `allr update`"
     return (
         f"({action}; fixed versions: 3.51.3+ / 3.50.7 / 3.44.6 — "
         "see https://sqlite.org/wal.html#walresetbug)"
@@ -100,7 +100,7 @@ def _sqlite_upgrade_hint(install_method: str | None = None) -> str:
 
 
 def _hermes_database_paths(hermes_home: Path) -> list[tuple[str, Path]]:
-    """Return (display name, path) pairs for Hermes-managed SQLite databases."""
+    """Return (display name, path) pairs for Allr-managed SQLite databases."""
     # backup.py owns the canonical list of per-profile stores; reuse it.
     from hermes_cli.backup import _QUICK_STATE_FILES
 
@@ -161,11 +161,11 @@ def _report_database_journal_modes(
     from hermes_state import _wal_reset_repair_hint, is_sqlite_wal_reset_vulnerable
 
     vulnerable = is_sqlite_wal_reset_vulnerable(version_info)
-    home = hermes_home if hermes_home is not None else HERMES_HOME
+    home = hermes_home if hermes_home is not None else ALLR_HOME
     try:
         databases = _hermes_database_paths(home)
     except Exception as exc:
-        check_warn(f"Could not list Hermes databases: {exc}")
+        check_warn(f"Could not list Allr databases: {exc}")
         return
     exposed = []
     for name, path in databases:
@@ -227,7 +227,7 @@ def _termux_install_all_fallback_notes() -> list[str]:
 
 
 def _has_provider_env_config(content: str) -> bool:
-    """Return True when ~/.hermes/.env contains provider auth/base URL settings."""
+    """Return True when ~/.allr/.env contains provider auth/base URL settings."""
     return any(key in content for key in _PROVIDER_ENV_HINTS)
 
 
@@ -246,7 +246,7 @@ def _is_kanban_worker_env_gate(item: dict) -> bool:
     """Return True when Kanban is unavailable only because this is not a worker process."""
     if item.get("name") != "kanban":
         return False
-    if os.environ.get("HERMES_KANBAN_TASK"):
+    if os.environ.get("ALLR_KANBAN_TASK"):
         return False
 
     tools = item.get("tools") or []
@@ -255,7 +255,7 @@ def _is_kanban_worker_env_gate(item: dict) -> bool:
 
 def _doctor_tool_availability_detail(toolset: str) -> str:
     """Optional explanatory suffix for toolsets whose doctor status needs context."""
-    if toolset == "kanban" and not os.environ.get("HERMES_KANBAN_TASK"):
+    if toolset == "kanban" and not os.environ.get("ALLR_KANBAN_TASK"):
         return "(runtime-gated; loaded only for dispatcher-spawned workers)"
     return ""
 
@@ -388,7 +388,7 @@ def _render_state_db_stats(stats: dict, holders=None) -> list:
         )
         if stats.get("fts_rebuild_pending") or legacy_trigram:
             detail += (
-                "; run 'hermes sessions optimize-storage' offline "
+                "; run 'allr sessions optimize-storage' offline "
                 "(with the gateway stopped) to compact FTS storage"
             )
         lines.append((
@@ -436,12 +436,12 @@ _DEPRECATED_COMPRESSION_SUMMARY_KEYS: tuple[str, ...] = (
 # Deprecated env vars (checked in the .env file, not process env, so config→env
 # bridges like terminal.cwd → TERMINAL_CWD do not false-positive).
 _DEPRECATED_ENV_VARS: tuple[tuple[str, str], ...] = (
-    # HERMES_TOOL_PROGRESS is fully unsupported since the v12 config support
+    # ALLR_TOOL_PROGRESS is fully unsupported since the v12 config support
     # floor removed its only consumer (the v3→4 migration) — it is silently
-    # ignored. HERMES_TOOL_PROGRESS_MODE is still read by the gateway as a
+    # ignored. ALLR_TOOL_PROGRESS_MODE is still read by the gateway as a
     # back-compat fallback but remains deprecated.
-    ("HERMES_TOOL_PROGRESS", "display.tool_progress in config.yaml — ignored/unsupported since config floor v12"),
-    ("HERMES_TOOL_PROGRESS_MODE", "display.tool_progress in config.yaml"),
+    ("ALLR_TOOL_PROGRESS", "display.tool_progress in config.yaml — ignored/unsupported since config floor v12"),
+    ("ALLR_TOOL_PROGRESS_MODE", "display.tool_progress in config.yaml"),
     ("TERMINAL_CWD", "terminal.cwd in config.yaml"),
     ("MESSAGING_CWD", "terminal.cwd in config.yaml"),
     ("QQ_HOME_CHANNEL", "QQBOT_HOME_CHANNEL"),
@@ -589,7 +589,7 @@ def _check_version_consistency(issues: list[str]) -> None:
         _fail_and_issue(
             "Version mismatch between source files",
             f"(pyproject.toml {pyproject_version} != hermes_cli/__init__.py {init_version})",
-            "Re-sync version files (e.g. run 'hermes update', or set "
+            "Re-sync version files (e.g. run 'allr update', or set "
             "hermes_cli/__init__.py __version__ to match pyproject.toml)",
             issues,
         )
@@ -603,7 +603,7 @@ def _check_s6_supervision(issues: list[str]) -> None:
     container so host runs aren't cluttered with irrelevant output.
 
     Reports:
-      - Whether the main-hermes and dashboard static services are up
+      - Whether the main-allr and dashboard static services are up
       - How many per-profile gateway slots are registered (via
         ``S6ServiceManager.list_profile_gateways()``) and how many are
         currently supervised as ``up``
@@ -625,7 +625,7 @@ def _check_s6_supervision(issues: list[str]) -> None:
 
     # Static services. They live under /run/service/ via s6-rc symlinks,
     # so the same s6-svstat probe works.
-    for static in ("main-hermes", "dashboard"):
+    for static in ("main-allr", "dashboard"):
         if mgr.is_running(static):
             check_ok(f"{static}: up")
         else:
@@ -633,7 +633,7 @@ def _check_s6_supervision(issues: list[str]) -> None:
 
     profiles = mgr.list_profile_gateways()
     if not profiles:
-        check_info("No per-profile gateways registered yet — create one with `hermes profile create <name>`")
+        check_info("No per-profile gateways registered yet — create one with `allr profile create <name>`")
         return
 
     up_count = sum(1 for p in profiles if mgr.is_running(f"gateway-{p}"))
@@ -675,7 +675,7 @@ def check_certificates(should_fix: bool = False, issues: "list | None" = None) -
         check_fail("SSL CA certificate bundle is broken", first_error)
         if issues is not None:
             issues.append(
-                "Repair the CA bundle: run `hermes doctor --fix`, or "
+                "Repair the CA bundle: run `allr doctor --fix`, or "
                 f"`{sys.executable} -m pip install --force-reinstall certifi`"
             )
         return
@@ -873,7 +873,7 @@ def managed_scope_check() -> None:
     """Report the active managed scope (resolved dir + pinned key counts).
 
     Silent when no managed scope is present. When the managed directory was
-    resolved from the HERMES_MANAGED_DIR override (rather than the system
+    resolved from the ALLR_MANAGED_DIR override (rather than the system
     default), that is surfaced too — a redirected scope is the documented
     foot-gun (see docs/design/managed-scope.md §7) and an operator should see it.
     """
@@ -890,8 +890,8 @@ def managed_scope_check() -> None:
         f"Managed scope active: {n_cfg} config key(s), {n_env} env key(s) "
         f"pinned by {managed_dir}"
     )
-    if os.environ.get("HERMES_MANAGED_DIR", "").strip():
-        check_info(f"managed dir set via HERMES_MANAGED_DIR={managed_dir}")
+    if os.environ.get("ALLR_MANAGED_DIR", "").strip():
+        check_info(f"managed dir set via ALLR_MANAGED_DIR={managed_dir}")
 
 
 def run_doctor(args):
@@ -901,9 +901,9 @@ def run_doctor(args):
 
     # Doctor runs from the interactive CLI, so CLI-gated tool availability
     # checks (like cronjob management) should see the same context as `hermes`.
-    os.environ.setdefault("HERMES_INTERACTIVE", "1")
+    os.environ.setdefault("ALLR_INTERACTIVE", "1")
 
-    # Handle `hermes doctor --ack <id>` as a fast path. Persist the ack and
+    # Handle `allr doctor --ack <id>` as a fast path. Persist the ack and
     # return without running the rest of the diagnostics — the user has
     # already seen the advisory and just wants to silence it.
     if ack_target:
@@ -928,7 +928,7 @@ def run_doctor(args):
         else:
             print(color(
                 f"  ✗ Failed to persist ack for {ack_target}. "
-                f"Check ~/.hermes/config.yaml is writable.",
+                f"Check ~/.allr/config.yaml is writable.",
                 Colors.RED,
             ))
             sys.exit(1)
@@ -940,7 +940,7 @@ def run_doctor(args):
 
     print()
     print(color("┌─────────────────────────────────────────────────────────┐", Colors.CYAN))
-    print(color("│                 🩺 Hermes Doctor                        │", Colors.CYAN))
+    print(color("│                 🩺 Allr Doctor                        │", Colors.CYAN))
     print(color("└─────────────────────────────────────────────────────────┘", Colors.CYAN))
 
     _section("Security Advisories")
@@ -972,7 +972,7 @@ def run_doctor(args):
                     f"Resolve security advisory {hit.advisory.id}: "
                     f"uninstall {hit.package}=={hit.installed_version} and "
                     f"rotate credentials, then run "
-                    f"`hermes doctor --ack {hit.advisory.id}`."
+                    f"`allr doctor --ack {hit.advisory.id}`."
                 )
             # Acked-but-still-installed: show as informational so the user
             # knows the package is still on disk after the ack.
@@ -1043,7 +1043,7 @@ def run_doctor(args):
             (_sqlite_src[:48] + "…") if len(_sqlite_src) > 48 else _sqlite_src
         )
         if is_sqlite_wal_reset_vulnerable():
-            # Warn-only: Hermes already refuses to enable WAL on fresh DBs.
+            # Warn-only: Allr already refuses to enable WAL on fresh DBs.
             # Do not append to ``issues`` because runtime repair remains
             # best-effort and unsupported installs may need manual action.
             check_warn(
@@ -1103,8 +1103,8 @@ def run_doctor(args):
     _section("Configuration Files")
     # Managed scope (administrator-pinned config/env), when present.
     managed_scope_check()
-    # Check ~/.hermes/.env (primary location for user config)
-    env_path = HERMES_HOME / '.env'
+    # Check ~/.allr/.env (primary location for user config)
+    env_path = ALLR_HOME / '.env'
     if env_path.exists():
         check_ok(f"{_DHH}/.env file exists")
         
@@ -1119,7 +1119,7 @@ def run_doctor(args):
             check_ok("API key or custom endpoint configured")
         else:
             check_warn(f"No API key found in {_DHH}/.env")
-            issues.append("Run 'hermes setup' to configure API keys")
+            issues.append("Run 'allr setup' to configure API keys")
     else:
         # Also check project root as fallback
         fallback_env = PROJECT_ROOT / '.env'
@@ -1138,14 +1138,14 @@ def run_doctor(args):
                 except OSError:
                     pass
                 check_ok(f"Created empty {_DHH}/.env")
-                check_info("Run 'hermes setup' to configure API keys")
+                check_info("Run 'allr setup' to configure API keys")
                 fixed_count += 1
             else:
-                check_info("Run 'hermes setup' to create one")
-                issues.append("Run 'hermes setup' to create .env")
+                check_info("Run 'allr setup' to create one")
+                issues.append("Run 'allr setup' to create .env")
     
-    # Check ~/.hermes/config.yaml (primary) or project cli-config.yaml (fallback)
-    config_path = HERMES_HOME / 'config.yaml'
+    # Check ~/.allr/config.yaml (primary) or project cli-config.yaml (fallback)
+    config_path = ALLR_HOME / 'config.yaml'
     if config_path.exists():
         check_ok(f"{_DHH}/config.yaml exists")
 
@@ -1251,7 +1251,7 @@ def run_doctor(args):
                         (
                             f"model.provider '{provider_raw}' is unknown. "
                             f"Valid providers: {known_list}. "
-                            f"Fix: run 'hermes config set model.provider <valid_provider>'"
+                            f"Fix: run 'allr config set model.provider <valid_provider>'"
                         ),
                         issues,
                     )
@@ -1331,11 +1331,11 @@ def run_doctor(args):
                     if not configured:
                         _fail_and_issue(
                             f"model.provider '{runtime_provider}' is set but no API key is configured",
-                            "(check ~/.hermes/.env or run 'hermes setup')",
+                            "(check ~/.allr/.env or run 'allr setup')",
                             (
                                 f"No credentials found for provider '{runtime_provider}'. "
-                                f"Run 'hermes setup' or set the provider's API key in {_DHH}/.env, "
-                                f"or switch providers with 'hermes config set model.provider <name>'"
+                                f"Run 'allr setup' or set the provider's API key in {_DHH}/.env, "
+                                f"or switch providers with 'allr config set model.provider <name>'"
                             ),
                             issues,
                         )
@@ -1364,7 +1364,7 @@ def run_doctor(args):
                 check_warn("config.yaml not found", "(using defaults)")
 
     # Check config version and stale keys
-    config_path = HERMES_HOME / 'config.yaml'
+    config_path = ALLR_HOME / 'config.yaml'
     if config_path.exists():
         try:
             from hermes_cli.config import check_config_version, migrate_config
@@ -1381,9 +1381,9 @@ def run_doctor(args):
                         fixed_count += 1
                     except Exception as mig_err:
                         check_warn(f"Auto-migration failed: {mig_err}")
-                        issues.append("Run 'hermes setup' to migrate config")
+                        issues.append("Run 'allr setup' to migrate config")
                 else:
-                    issues.append("Run 'hermes doctor --fix' or 'hermes setup' to migrate config")
+                    issues.append("Run 'allr doctor --fix' or 'allr setup' to migrate config")
             else:
                 check_ok(f"Config version up to date (v{current_ver})")
         except Exception:
@@ -1423,15 +1423,15 @@ def run_doctor(args):
                     check_ok("Migrated stale root-level keys into model section")
                     fixed_count += 1
                 else:
-                    issues.append("Stale root-level provider/base_url in config.yaml — run 'hermes doctor --fix'")
+                    issues.append("Stale root-level provider/base_url in config.yaml — run 'allr doctor --fix'")
         except Exception:
             pass
 
-        # Detect stale HERMES_MAX_ITERATIONS ghost in .env shadowing
+        # Detect stale ALLR_MAX_ITERATIONS ghost in .env shadowing
         # agent.max_turns in config.yaml (issue #17534). The setup wizard
         # used to dual-write the iteration budget to both stores; users who
         # later edit only config.yaml are left with a .env ghost. The gateway
-        # bridge normally derives HERMES_MAX_ITERATIONS from agent.max_turns
+        # bridge normally derives ALLR_MAX_ITERATIONS from agent.max_turns
         # at startup, but if that bridge bails (any earlier config-parse
         # error), the stale .env value silently wins and the agent runs at the
         # wrong budget — e.g. config says 400 but the activity line reads N/90.
@@ -1450,7 +1450,7 @@ def run_doctor(args):
             # Legacy root-level key counts too.
             if cfg_max_turns is None:
                 cfg_max_turns = raw_config.get("max_turns")
-            env_ghost = load_env().get("HERMES_MAX_ITERATIONS")
+            env_ghost = load_env().get("ALLR_MAX_ITERATIONS")
             drift = (
                 cfg_max_turns is not None
                 and env_ghost is not None
@@ -1458,27 +1458,27 @@ def run_doctor(args):
             )
             if drift:
                 check_warn(
-                    f"HERMES_MAX_ITERATIONS={env_ghost} in .env shadows "
+                    f"ALLR_MAX_ITERATIONS={env_ghost} in .env shadows "
                     f"agent.max_turns={cfg_max_turns} in config.yaml",
-                    "(stale ghost from an earlier `hermes setup` run)",
+                    "(stale ghost from an earlier `allr setup` run)",
                 )
                 if should_fix:
-                    if remove_env_value("HERMES_MAX_ITERATIONS"):
+                    if remove_env_value("ALLR_MAX_ITERATIONS"):
                         check_ok(
-                            "Removed stale HERMES_MAX_ITERATIONS from .env "
+                            "Removed stale ALLR_MAX_ITERATIONS from .env "
                             f"(config.yaml agent.max_turns={cfg_max_turns} is now authoritative)"
                         )
                         fixed_count += 1
                     else:
-                        check_warn("Could not remove HERMES_MAX_ITERATIONS from .env")
+                        check_warn("Could not remove ALLR_MAX_ITERATIONS from .env")
                         manual_issues.append(
-                            "Manually delete the HERMES_MAX_ITERATIONS line from "
+                            "Manually delete the ALLR_MAX_ITERATIONS line from "
                             f"{_DHH}/.env — config.yaml agent.max_turns is authoritative."
                         )
                 else:
                     issues.append(
-                        "Stale HERMES_MAX_ITERATIONS in .env shadows config.yaml — "
-                        "run 'hermes doctor --fix'"
+                        "Stale ALLR_MAX_ITERATIONS in .env shadows config.yaml — "
+                        "run 'allr doctor --fix'"
                     )
         except Exception:
             pass
@@ -1582,7 +1582,7 @@ def run_doctor(args):
             check_warn("OpenAI Codex auth", "(not logged in)")
             if codex_status.get("error"):
                 check_info(codex_status["error"])
-            # Native OAuth uses Hermes' own device-code flow — the Codex CLI is
+            # Native OAuth uses Allr' own device-code flow — the Codex CLI is
             # only needed to import existing tokens from ~/.codex/auth.json.
             # Attach the hint to the Codex auth row so it doesn't read as
             # remediation for whichever provider happens to print next (#27975).
@@ -1617,7 +1617,7 @@ def run_doctor(args):
         pass
 
     _section("Directory Structure")
-    hermes_home = HERMES_HOME
+    hermes_home = ALLR_HOME
     if hermes_home.exists():
         check_ok(f"{_DHH} directory exists")
     elif should_fix:
@@ -1651,13 +1651,13 @@ def run_doctor(args):
         else:
             check_info(f"{_DHH}/SOUL.md exists but is empty — edit it to customize personality")
     else:
-        check_warn(f"{_DHH}/SOUL.md not found", "(create it to give Hermes a custom personality)")
+        check_warn(f"{_DHH}/SOUL.md not found", "(create it to give Allr a custom personality)")
         if should_fix:
             soul_path.parent.mkdir(parents=True, exist_ok=True)
             soul_path.write_text(
-                "# Hermes Agent Persona\n\n"
-                "<!-- Edit this file to customize how Hermes communicates. -->\n\n"
-                "You are Hermes, a helpful AI assistant.\n",
+                "# Allr Persona\n\n"
+                "<!-- Edit this file to customize how Allr communicates. -->\n\n"
+                "You are Allr, a helpful AI assistant.\n",
                 encoding="utf-8",
             )
             check_ok(f"Created {_DHH}/SOUL.md with basic template")
@@ -1733,8 +1733,8 @@ def run_doctor(args):
                         )
                 else:
                     issues.append(
-                        "state.db FTS write corruption — run 'hermes doctor --fix' "
-                        "(or 'hermes sessions repair') to rebuild the FTS index"
+                        "state.db FTS write corruption — run 'allr doctor --fix' "
+                        "(or 'allr sessions repair') to rebuild the FTS index"
                     )
         except Exception as e:
             from hermes_state import is_malformed_db_error, repair_state_db_schema
@@ -1779,14 +1779,14 @@ def run_doctor(args):
                         )
                 else:
                     issues.append(
-                        "state.db schema malformed — run 'hermes doctor --fix' "
-                        "(or 'hermes sessions repair') to recover hidden sessions"
+                        "state.db schema malformed — run 'allr doctor --fix' "
+                        "(or 'allr sessions repair') to recover hidden sessions"
                     )
             else:
                 check_warn(f"{_DHH}/state.db exists but has issues: {e}")
 
         # Health/stats snapshot (#statedb-visibility): a multi-GB state.db
-        # with a runaway WAL was previously invisible to every Hermes
+        # with a runaway WAL was previously invisible to every Allr
         # surface. Strictly read-only (mode=ro) so it is safe against a
         # live DB held by the gateway; any failure degrades to one info
         # line rather than failing doctor.
@@ -1805,7 +1805,7 @@ def run_doctor(args):
                             "state.db is large — enable sessions.auto_prune "
                             "in config.yaml"
                             + (
-                                " and run 'hermes sessions optimize-storage' "
+                                " and run 'allr sessions optimize-storage' "
                                 "offline (gateway stopped)"
                                 if "optimize-storage" in _detail else ""
                             )
@@ -1836,7 +1836,7 @@ def run_doctor(args):
                     check_ok(f"WAL checkpoint performed ({wal_size // 1024}K → {new_size // 1024}K)")
                     fixed_count += 1
                 else:
-                    issues.append("Large WAL file — run 'hermes doctor --fix' to checkpoint")
+                    issues.append("Large WAL file — run 'allr doctor --fix' to checkpoint")
             elif wal_size > 10 * 1024 * 1024:  # 10 MB
                 check_info(f"WAL file is {wal_size // (1024*1024)} MB (normal for active sessions)")
         except Exception:
@@ -1882,31 +1882,31 @@ def run_doctor(args):
                 _target = _cmd_link.resolve()
                 _expected = _venv_bin.resolve()
                 if _target == _expected:
-                    check_ok(f"{_cmd_link_display}/hermes → correct target")
+                    check_ok(f"{_cmd_link_display}/allr → correct target")
                 else:
                     check_warn(
-                        f"{_cmd_link_display}/hermes points to wrong target",
+                        f"{_cmd_link_display}/allr points to wrong target",
                         f"(→ {_target}, expected → {_expected})"
                     )
                     if should_fix:
                         _cmd_link.unlink()
                         _cmd_link.symlink_to(_venv_bin)
-                        check_ok(f"Fixed symlink: {_cmd_link_display}/hermes → {_venv_bin}")
+                        check_ok(f"Fixed symlink: {_cmd_link_display}/allr → {_venv_bin}")
                         fixed_count += 1
                     else:
-                        issues.append(f"Broken symlink at {_cmd_link_display}/hermes — run 'hermes doctor --fix'")
+                        issues.append(f"Broken symlink at {_cmd_link_display}/allr — run 'allr doctor --fix'")
             elif _cmd_link.exists():
                 # It's a regular file, not a symlink — possibly a wrapper script
-                check_ok(f"{_cmd_link_display}/hermes exists (non-symlink)")
+                check_ok(f"{_cmd_link_display}/allr exists (non-symlink)")
             else:
                 check_fail(
-                    f"{_cmd_link_display}/hermes not found",
+                    f"{_cmd_link_display}/allr not found",
                     "(hermes command may not work outside the venv)"
                 )
                 if should_fix:
                     _cmd_link_dir.mkdir(parents=True, exist_ok=True)
                     _cmd_link.symlink_to(_venv_bin)
-                    check_ok(f"Created symlink: {_cmd_link_display}/hermes → {_venv_bin}")
+                    check_ok(f"Created symlink: {_cmd_link_display}/allr → {_venv_bin}")
                     fixed_count += 1
 
                     # Check if the link dir is on PATH
@@ -1918,7 +1918,7 @@ def run_doctor(args):
                         )
                         manual_issues.append(f"Add {_cmd_link_display} to your PATH")
                 else:
-                    issues.append(f"Missing {_cmd_link_display}/hermes symlink — run 'hermes doctor --fix'")
+                    issues.append(f"Missing {_cmd_link_display}/allr symlink — run 'allr doctor --fix'")
 
     _section("External Tools")
     # Git
@@ -2073,8 +2073,8 @@ def run_doctor(args):
         else:
             _fail_and_issue(
                 "vercel SDK not installed",
-                "(pip install 'hermes-agent[vercel]')",
-                "Install the Vercel optional dependency: pip install 'hermes-agent[vercel]'",
+                "(pip install 'allr-agent[vercel]')",
+                "Install the Vercel optional dependency: pip install 'allr-agent[vercel]'",
                 issues,
             )
 
@@ -2111,8 +2111,8 @@ def run_doctor(args):
         agent_browser_path = PROJECT_ROOT / "node_modules" / "agent-browser"
         agent_browser_ok = False
         _which_ab = shutil.which("agent-browser")
-        # `hermes acp --setup-browser` installs agent-browser into the
-        # Hermes-managed node prefix, which isn't necessarily on PATH. Mirror
+        # `allr acp --setup-browser` installs agent-browser into the
+        # Allr-managed node prefix, which isn't necessarily on PATH. Mirror
         # dep_ensure._has_hermes_agent_browser() so doctor and dep_ensure agree
         # on what "installed" means; otherwise doctor false-negatives (#53192).
         # Resolve with PATHEXT-aware ``shutil.which`` (not a bare is_file())
@@ -2127,10 +2127,10 @@ def run_doctor(args):
                 return None
 
         _managed_ab = (
-            _which_in(HERMES_HOME / "node" / "bin")
-            or _which_in(HERMES_HOME / "node")
+            _which_in(ALLR_HOME / "node" / "bin")
+            or _which_in(ALLR_HOME / "node")
         )
-        _legacy_ab = _which_in(HERMES_HOME / "node_modules" / ".bin")
+        _legacy_ab = _which_in(ALLR_HOME / "node_modules" / ".bin")
         if agent_browser_path.exists():
             check_ok("agent-browser (Node.js)", "(browser automation)")
             agent_browser_ok = True
@@ -2146,7 +2146,7 @@ def run_doctor(args):
         elif _which_ab:
             # Found on PATH but won't run — almost always a dangling global
             # symlink left behind by agent-browser's npm postinstall after a
-            # `hermes update` wiped node_modules (issue #48521).
+            # `allr update` wiped node_modules (issue #48521).
             check_warn(
                 "agent-browser found but not runnable",
                 f"(broken symlink at {_which_ab}? run: npm install)",
@@ -2169,7 +2169,7 @@ def run_doctor(args):
         if agent_browser_ok and not _is_termux():
             try:
                 # Lazy import: browser_tool is a ~150KB module we don't want
-                # to eagerly load in every `hermes doctor` invocation.
+                # to eagerly load in every `allr doctor` invocation.
                 from tools.browser_tool import (
                     _chromium_installed,
                     _is_camofox_mode,
@@ -2226,7 +2226,7 @@ def run_doctor(args):
         # glob (which pulls in Electron, node-pty, etc.) is never resolved
         # for a routine security check. The web and ui-tui workspaces are
         # audited separately via --workspace flags. See #38772.
-        # The WhatsApp bridge may live under a writable HERMES_HOME mirror
+        # The WhatsApp bridge may live under a writable ALLR_HOME mirror
         # instead of the (possibly read-only) install tree in Docker — resolve
         # it through the shared helper so we audit the dir that actually holds
         # node_modules. See #49561.
@@ -2298,7 +2298,7 @@ def run_doctor(args):
                         # tooling (esbuild/vite, etc.), not runtime code that ships
                         # to users. Manual npm remediation may error with a known
                         # arborist crash (edgesOut / isDescendantOf) on this monorepo
-                        # tree — in that case it is an npm bug, not a Hermes one.
+                        # tree — in that case it is an npm bug, not an Allr one.
                         check_info(
                             "  ^ build-time tooling (not runtime); if manual npm remediation "
                             "errors with an arborist crash it's a known npm bug — clears "
@@ -2377,7 +2377,7 @@ def run_doctor(args):
                     [(color("✗", Colors.RED), "OpenRouter API",
                       color("(out of credits — payment required)", Colors.DIM))],
                     ["OpenRouter account has insufficient credits. "
-                     "Fix: run 'hermes config set model.provider <provider>' "
+                     "Fix: run 'allr config set model.provider <provider>' "
                      "to switch providers, or fund your OpenRouter account "
                      "at https://openrouter.ai/settings/credits"],
                 )
@@ -2507,7 +2507,7 @@ def run_doctor(args):
             url = (base.rstrip("/") + "/models") if base else default_url
             headers = {
                 "Authorization": f"Bearer {key}",
-                "User-Agent": _HERMES_USER_AGENT,
+                "User-Agent": _ALLR_USER_AGENT,
             }
             if base_url_host_matches(base, "api.kimi.com"):
                 headers["User-Agent"] = "claude-code/0.1.0"
@@ -2516,7 +2516,7 @@ def run_doctor(args):
             # ``ACCESS_TOKEN_TYPE_UNSUPPORTED`` — that header is reserved for
             # OAuth 2 access tokens, not plain API keys. Plain keys use
             # ``x-goog-api-key`` (or ``?key=``). Without this, a perfectly valid
-            # GOOGLE_API_KEY/GEMINI_API_KEY always shows red in ``hermes doctor``.
+            # GOOGLE_API_KEY/GEMINI_API_KEY always shows red in ``allr doctor``.
             if url and base_url_host_matches(url, "generativelanguage.googleapis.com"):
                 headers.pop("Authorization", None)
                 headers["x-goog-api-key"] = key
@@ -2720,7 +2720,7 @@ def run_doctor(args):
     # Set on the parent thread before submitting work so the env-var
     # mutation never races with another worker. has_aws_credentials() in
     # the bedrock probe already gates on real env-var creds, so IMDS is
-    # never the legitimate source for `hermes doctor`.
+    # never the legitimate source for `allr doctor`.
     _imds_prev = os.environ.get("AWS_EC2_METADATA_DISABLED")
     os.environ["AWS_EC2_METADATA_DISABLED"] = "true"
     try:
@@ -2777,12 +2777,12 @@ def run_doctor(args):
         # still show warnings above, but should not pollute the final summary.
         api_disabled = _missing_api_key_toolsets_for_summary(unavailable)
         if api_disabled:
-            issues.append("Run 'hermes setup' to configure missing API keys for full tool access")
+            issues.append("Run 'allr setup' to configure missing API keys for full tool access")
     except Exception as e:
         check_warn("Could not check tool availability", f"({e})")
     
     _section("Skills Hub")
-    hub_dir = HERMES_HOME / "skills" / ".hub"
+    hub_dir = ALLR_HOME / "skills" / ".hub"
     if hub_dir.exists():
         check_ok("Skills Hub directory exists")
         lock_file = hub_dir / "lock.json"
@@ -2799,7 +2799,7 @@ def run_doctor(args):
         if q_count > 0:
             check_warn(f"{q_count} skill(s) in quarantine", "(pending review)")
     else:
-        check_warn("Skills Hub directory not initialized", "(run: hermes skills list)")
+        check_warn("Skills Hub directory not initialized", "(run: allr skills list)")
 
     from hermes_cli.config import get_env_value
 
@@ -2826,7 +2826,7 @@ def run_doctor(args):
     _active_memory_provider = ""
     try:
         from hermes_cli.config import read_user_config_raw as _read_raw_mem
-        _mem_cfg_path = HERMES_HOME / "config.yaml"
+        _mem_cfg_path = ALLR_HOME / "config.yaml"
         if _mem_cfg_path.exists():
             # Raw-file diagnostic (+ managed overlay below, unchanged).
             _raw_cfg = _read_raw_mem(_mem_cfg_path)
@@ -2856,14 +2856,14 @@ def run_doctor(args):
                         f"config file {_honcho_cfg_path} not found, using HONCHO_API_KEY env var",
                     )
                 else:
-                    check_warn("Honcho config not found", "run: hermes memory setup")
+                    check_warn("Honcho config not found", "run: allr memory setup")
             elif not hcfg.enabled:
                 check_info(f"Honcho disabled (set enabled: true in {_honcho_cfg_path} to activate)")
             elif not (hcfg.api_key or hcfg.base_url):
                 _fail_and_issue(
                     "Honcho API key or base URL not set",
-                    "run: hermes memory setup",
-                    "No Honcho API key — run 'hermes memory setup'",
+                    "run: allr memory setup",
+                    "No Honcho API key — run 'allr memory setup'",
                     issues,
                 )
             else:
@@ -2897,7 +2897,7 @@ def run_doctor(args):
             else:
                 _fail_and_issue(
                     "Mem0 API key not set",
-                    "(set MEM0_API_KEY in .env or run hermes memory setup)",
+                    "(set MEM0_API_KEY in .env or run allr memory setup)",
                     "Mem0 is set as memory provider but API key is missing",
                     issues,
                 )
@@ -2918,9 +2918,9 @@ def run_doctor(args):
             if _provider and _provider.is_available():
                 check_ok(f"{_active_memory_provider} provider active")
             elif _provider:
-                check_warn(f"{_active_memory_provider} configured but not available", "run: hermes memory status")
+                check_warn(f"{_active_memory_provider} configured but not available", "run: allr memory status")
             else:
-                check_warn(f"{_active_memory_provider} plugin not found", "run: hermes memory setup")
+                check_warn(f"{_active_memory_provider} plugin not found", "run: allr memory setup")
         except Exception as _e:
             check_warn(f"{_active_memory_provider} check failed", str(_e))
 
@@ -2968,7 +2968,7 @@ def run_doctor(args):
         pass
 
     # Opt-in live backend probes run AFTER all static checks, only with
-    # `hermes doctor --live` (real network calls; bounded + read-only).
+    # `allr doctor --live` (real network calls; bounded + read-only).
     try:
         from hermes_cli.doctor_live import maybe_run_live_checks
         maybe_run_live_checks(args, manual_issues)
@@ -2997,7 +2997,7 @@ def run_doctor(args):
             print(f"  {i}. {issue}")
         print()
         if not should_fix:
-            print(color("  Tip: run 'hermes doctor --fix' to auto-fix what's possible.", Colors.DIM))
+            print(color("  Tip: run 'allr doctor --fix' to auto-fix what's possible.", Colors.DIM))
     else:
         print(color("─" * 60, Colors.GREEN))
         print(color("  All checks passed! 🎉", Colors.GREEN, Colors.BOLD))

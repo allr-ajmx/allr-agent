@@ -25,7 +25,7 @@ import { atom } from '@/store/atom'
  */
 
 /** Emitted by the Rust side with the match count for the current query. */
-const FOUND_IN_PAGE_EVENT = 'hermes://found-in-page'
+const FOUND_IN_PAGE_EVENT = 'allr://found-in-page'
 
 export interface FindInPageState {
   active: boolean

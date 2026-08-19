@@ -17,7 +17,7 @@ import {
 //
 // One component, mounted once, reading shared atoms — rather than living inside
 // SshPanel as it used to. Desktop ran `ssh` with BatchMode=yes and so could never
-// ask anything; we can, and the moment a SECOND caller existed (installing Hermes
+// ask anything; we can, and the moment a SECOND caller existed (installing Allr
 // on the remote, which authenticates exactly like a connect) the panel-owned
 // version left it asking into a void until the 60s timeout killed it.
 //

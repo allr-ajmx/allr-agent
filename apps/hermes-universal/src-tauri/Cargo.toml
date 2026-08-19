@@ -1,7 +1,7 @@
 [package]
 name = "hermes-universal"
-version = "0.0.1"
-description = "Hermes Universal — Tauri v2 client (desktop + Android + iOS from one codebase)."
+version = "0.0.2"
+description = "Allr Universal — Tauri v2 client (desktop + Android + iOS from one codebase)."
 authors = ["Nous Research <info@nousresearch.com>"]
 edition = "2021"
 # 1.85 is russh 0.62's MSRV (see the `russh` dependency below). Everything else
@@ -25,7 +25,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 # links no exporter.
 #
 # TWO switches, deliberately. The feature only makes tracing POSSIBLE; nothing
-# is recorded until `HERMES_TRACE=1` is set at launch. So an ordinary
+# is recorded until `ALLR_TRACE=1` is set at launch. So an ordinary
 # `tauri dev --features tracing` still costs nothing, and a release binary
 # contains nothing at all.
 #
@@ -234,7 +234,7 @@ portable-pty = "0.9"
 # D-Bus. Gated for the same reason as the PTY — a phone has no such lever, and this
 # keeps the D-Bus/IOKit bindings out of the NDK build.
 keepawake = "0.6"
-# OS-level hotkeys that fire while Hermes is in the BACKGROUND (MJXHRM-55) — the
+# OS-level hotkeys that fire while Allr is in the BACKGROUND (MJXHRM-55) — the
 # substrate a summonable second surface needs. Gated here rather than checked at
 # runtime because neither mobile OS lets an app claim a system-wide chord, so the
 # plugin has nothing to do there and no reason to be in the NDK build.
@@ -398,3 +398,15 @@ objc2-local-authentication = { version = "0.3.2", default-features = false, feat
   "LAError",
   "LAPublicDefines",
 ] }
+
+# Vendored tao with a single upstream-confirmed fix. tao 0.35.3 returns a dangling
+# UISceneConfiguration from `application:configurationForConnectingSceneSession:`
+# (see vendor/tao-0.35.3/src/platform_impl/ios/view.rs), which segfaults every
+# optimized iOS build at launch because Info.ios.plist sets
+# UIApplicationSupportsMultipleScenes. tao 0.36.0 carries the same fix, but
+# tauri-runtime-wry 2.11.4 requires ^0.35.0 and cannot take it -- and `[patch]`
+# replaces a source, not a version, so 0.36.0 is not reachable this way either.
+# REMOVE this patch, and the vendored tree, once tauri-runtime-wry requires tao
+# 0.36 (already on tauri's dev branch, unreleased as of 2026-08-19).
+[patch.crates-io]
+tao = { path = "vendor/tao-0.35.3" }

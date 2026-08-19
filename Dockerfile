@@ -43,7 +43,7 @@ RUN apt-get -o Acquire::Retries=3 update && \
 FROM ghcr.io/astral-sh/uv:0.11.6-python3.13-trixie@sha256:b3c543b6c4f23a5f2df22866bd7857e5d304b67a564f4feab6ac22044dde719b AS uv_source
 # Node 26 source stage. Debian trixie's bundled nodejs is pinned to 20.x
 # which reached EOL in April 2026 — we copy node + npm from the upstream
-# node:26 image instead (Hermes pins its toolchain to Node 26 everywhere).
+# node:26 image instead (Allr pins its toolchain to Node 26 everywhere).
 # Bookworm-based slim image used so the produced binary links
 # against glibc 2.36, which runs cleanly on our Debian 13 (trixie, glibc
 # 2.41) runtime.  Bumping to a new Node major is a one-line ARG change; see
@@ -136,7 +136,7 @@ RUN set -eu; \
 
 # #34192 / #66679: backward-compat shim for orchestration templates that
 # still reference the legacy /usr/bin/tini entrypoint (Hostinger's
-# 'Hermes WebUI' catalog, NAS compose projects that preserve an old
+# 'Allr WebUI' catalog, NAS compose projects that preserve an old
 # entrypoint on image update, etc.). A plain symlink to /init made the
 # path exist, but forwarded tini flags like `-g` into s6-overlay's
 # rc.init as the container CMD (`rc.init: 91: -g: not found`) and
@@ -146,7 +146,7 @@ RUN set -eu; \
 # updated.
 COPY --chmod=0755 docker/tini-shim.sh /usr/bin/tini
 
-# Non-root user for runtime; UID can be overridden via HERMES_UID at runtime
+# Non-root user for runtime; UID can be overridden via ALLR_UID at runtime
 RUN useradd -u 10000 -m -d /opt/data hermes
 
 COPY --chmod=0755 --from=uv_source /usr/local/bin/uv /usr/local/bin/uvx /usr/local/bin/
@@ -243,9 +243,9 @@ RUN cd plugins/platforms/photon/sidecar && \
 # so Docker users can use these providers without requiring runtime
 # lazy-install access to PyPI (often blocked in containerized envs).
 #
-# The [otlp] extra contains the SDK/exporter imported by Hermes when Gateway
+# The [otlp] extra contains the SDK/exporter imported by Allr when Gateway
 # Health export is enabled. Collector and observability-backend dependencies
-# remain external and are not part of the Hermes production image.
+# remain external and are not part of the Allr production image.
 #
 # The hindsight memory provider's client (hindsight-client) is baked in
 # for the same reason: it lazy-installs into /opt/hermes/.venv at first
@@ -286,7 +286,7 @@ RUN cd web && npm run build && \
 COPY --link --chmod=a+rX,go-w . .
 
 # ---------- Permissions ----------
-# Link hermes-agent itself (editable). Deps are already installed in the
+# Link allr-agent itself (editable). Deps are already installed in the
 # cached layer above; `--no-deps` makes this a fast egg-link creation with no
 # resolution or downloads.
 RUN uv pip install --no-cache-dir --no-deps -e "."
@@ -297,30 +297,30 @@ RUN uv pip install --no-cache-dir --no-deps -e "."
 
 USER root
 RUN mkdir -p /opt/hermes/bin && \
-    cp /opt/hermes/docker/hermes-exec-shim.sh /opt/hermes/bin/hermes && \
-    chmod 0755 /opt/hermes/bin/hermes && \
+    cp /opt/hermes/docker/allr-exec-shim.sh /opt/hermes/bin/allr && \
+    chmod 0755 /opt/hermes/bin/allr && \
     printf 'docker\n' > /opt/hermes/.install_method
 # The ``.install_method`` stamp is baked next to the running code (the install
-# tree), NOT into $HERMES_HOME. $HERMES_HOME (/opt/data) is a shared data
+# tree), NOT into $ALLR_HOME. $ALLR_HOME (/opt/data) is a shared data
 # volume that is commonly bind-mounted from the host and even shared with a
 # host-side Desktop/CLI install; stamping it at boot used to clobber that
-# host install's marker and wrongly block its ``hermes update``. A code-scoped
+# host install's marker and wrongly block its ``allr update``. A code-scoped
 # stamp is read first by detect_install_method() and is immune to the share.
 # Start as root so the s6-overlay stage2 hook can usermod/groupmod and chown
 # the data volume. Each supervised service then drops to the hermes user via
-# `s6-setuidgid hermes` in its run script. If HERMES_UID is unset, services
+# `s6-setuidgid hermes` in its run script. If ALLR_UID is unset, services
 # run as the default hermes user (UID 10000).
 
 # ---------- Bake build-time git revision ----------
 # .dockerignore excludes .git, so `git rev-parse HEAD` from inside the
-# container always returns nothing — meaning `hermes dump` reports
+# container always returns nothing — meaning `allr dump` reports
 # "(unknown)" and the startup banner drops its `· upstream <sha>` suffix.
 # That makes support triage from container bug reports impossible:
 # we can't tell which commit the user is actually running.
 #
-# Fix: write the commit SHA passed via the HERMES_GIT_SHA build-arg to
+# Fix: write the commit SHA passed via the ALLR_GIT_SHA build-arg to
 # /opt/hermes/.hermes_build_sha at build time, and have
-# hermes_cli/build_info.py read it at runtime.  Both `hermes dump` and
+# hermes_cli/build_info.py read it at runtime.  Both `allr dump` and
 # banner.get_git_banner_state() try the baked SHA first, then fall back
 # to live `git rev-parse` for source installs (unchanged behaviour).
 #
@@ -328,13 +328,13 @@ RUN mkdir -p /opt/hermes/bin && \
 # omits the file, and the runtime falls back to live-git lookup.  CI
 # (.github/workflows/docker.yml) passes ${{ github.sha }} so
 # every published image has it.
-ARG HERMES_GIT_SHA=
-RUN if [ -n "${HERMES_GIT_SHA}" ]; then \
-        printf '%s\n' "${HERMES_GIT_SHA}" > /opt/hermes/.hermes_build_sha; \
+ARG ALLR_GIT_SHA=
+RUN if [ -n "${ALLR_GIT_SHA}" ]; then \
+        printf '%s\n' "${ALLR_GIT_SHA}" > /opt/hermes/.hermes_build_sha; \
     fi
 
 # ---------- s6-overlay service wiring ----------
-# Static services declared at build time: main-hermes + dashboard.
+# Static services declared at build time: main-allr + dashboard.
 # Per-profile gateway services are registered dynamically at runtime by
 # the profile create/delete hooks (Phase 4); they live under
 # /run/service/ (tmpfs) and are reconciled on container restart by
@@ -347,17 +347,17 @@ COPY docker/s6-rc.d/ /etc/s6-overlay/s6-rc.d/
 # runs before user services start.
 #
 # 02-reconcile-profiles re-creates per-profile gateway s6 service
-# slots from $HERMES_HOME/profiles/<name>/ after a container restart
+# slots from $ALLR_HOME/profiles/<name>/ after a container restart
 # (the /run/service/ scandir is tmpfs and wiped on restart). Phase 4.
 RUN mkdir -p /etc/cont-init.d && \
     printf '#!/command/with-contenv sh\nexec /opt/hermes/docker/stage2-hook.sh\n' \
-        > /etc/cont-init.d/01-hermes-setup && \
-    chmod +x /etc/cont-init.d/01-hermes-setup
+        > /etc/cont-init.d/01-allr-setup && \
+    chmod +x /etc/cont-init.d/01-allr-setup
 COPY --chmod=0755 docker/cont-init.d/015-supervise-perms /etc/cont-init.d/015-supervise-perms
 COPY --chmod=0755 docker/cont-init.d/02-reconcile-profiles /etc/cont-init.d/02-reconcile-profiles
 
 # ---------- Runtime ----------
-ENV HERMES_WEB_DIST=/opt/hermes/hermes_cli/web_dist
+ENV ALLR_WEB_DIST=/opt/hermes/hermes_cli/web_dist
 # Point the TUI launcher at the prebuilt bundle baked at build time (Layer 8:
 # `ui-tui && npm run build`). This makes _make_tui_argv take the prebuilt-bundle
 # fast path (`node --expose-gc /opt/hermes/ui-tui/dist/entry.js`) and skip the
@@ -374,10 +374,10 @@ ENV HERMES_WEB_DIST=/opt/hermes/hermes_cli/web_dist
 # embedded-chat (/api/pty) connections → ENOTEMPTY → the chat tab dies with a
 # 502 / "[session ended]". Pointing at the prebuilt bundle sidesteps the whole
 # check. (A separate launcher hardening is tracked independently.)
-ENV HERMES_TUI_DIR=/opt/hermes/ui-tui
-ENV HERMES_HOME=/opt/data
-ENV HERMES_WRITE_SAFE_ROOT=/opt/data
-ENV HERMES_DISABLE_LAZY_INSTALLS=1
+ENV ALLR_TUI_DIR=/opt/hermes/ui-tui
+ENV ALLR_HOME=/opt/data
+ENV ALLR_WRITE_SAFE_ROOT=/opt/data
+ENV ALLR_DISABLE_LAZY_INSTALLS=1
 # The published image seals /opt/hermes (root-owned, read-only) so a runtime
 # lazy install can't mutate the agent's own venv and brick it. But opt-in
 # backends (Firecrawl web search, Exa, Feishu, …) keep their SDKs in
@@ -390,20 +390,20 @@ ENV HERMES_DISABLE_LAZY_INSTALLS=1
 # is seeded + chowned to the hermes user by docker/stage2-hook.sh and lives
 # on the /opt/data volume, so it persists across container recreates / image
 # updates (an ABI stamp invalidates it if a rebuild bumps the interpreter).
-ENV HERMES_LAZY_INSTALL_TARGET=/opt/data/lazy-packages
+ENV ALLR_LAZY_INSTALL_TARGET=/opt/data/lazy-packages
 
 # `docker exec` privilege-drop shim. When operators run
 # `docker exec <c> hermes ...` they default to root, and any file the
-# command writes under $HERMES_HOME (auth.json, .env, config.yaml) ends
+# command writes under $ALLR_HOME (auth.json, .env, config.yaml) ends
 # up root-owned and unreadable to the supervised gateway (UID 10000).
-# The shim lives at /opt/hermes/bin/hermes, sits earliest on PATH, and
+# The shim lives at /opt/hermes/bin/allr, sits earliest on PATH, and
 # transparently re-exec's the real venv binary via `s6-setuidgid hermes`
 # when invoked as root. Non-root callers (supervised processes,
 # `--user hermes`, etc.) hit the short-circuit path with no overhead.
 # Recursion is impossible because the shim exec's the venv binary by
-# absolute path (/opt/hermes/.venv/bin/hermes). See the shim source for
-# the opt-out env var (HERMES_DOCKER_EXEC_AS_ROOT=1).
-COPY --chmod=0755 docker/hermes-exec-shim.sh /opt/hermes/bin/hermes
+# absolute path (/opt/hermes/.venv/bin/allr). See the shim source for
+# the opt-out env var (ALLR_DOCKER_EXEC_AS_ROOT=1).
+COPY --chmod=0755 docker/allr-exec-shim.sh /opt/hermes/bin/allr
 COPY --chmod=0755 docker/entrypoint-dispatch.sh /opt/hermes/docker/entrypoint-dispatch.sh
 
 # Pre-s6 entrypoint.sh did `source .venv/bin/activate` which exported

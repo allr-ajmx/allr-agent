@@ -2,7 +2,7 @@
 name: searxng-search
 description: Free keyless meta-search aggregating 70+ engines.
 version: 1.0.1
-author: hermes-agent
+author: allr-agent
 license: MIT
 platforms: [linux, macos]
 metadata:

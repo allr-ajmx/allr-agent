@@ -78,7 +78,7 @@ export function mediaExternalUrl(path: string): string {
 
 // Fetch gateway-local media as a data URL over the authenticated fs bridge.
 // Gateway artifacts can live anywhere the gateway can read (workspace, skills,
-// ~/.hermes/cache, …); /api/fs/read-data-url is the general reader.
+// ~/.allr/cache, …); /api/fs/read-data-url is the general reader.
 export async function gatewayMediaDataUrl(path: string): Promise<string> {
   return readDesktopFileDataUrl(filePathFromMediaPath(path))
 }

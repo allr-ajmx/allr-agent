@@ -18,9 +18,9 @@ import pytest
 @pytest.fixture
 def hermes_home(monkeypatch):
     d = tempfile.mkdtemp(prefix="hermes_wa_test_")
-    home = os.path.join(d, ".hermes")
+    home = os.path.join(d, ".allr")
     os.makedirs(home)
-    monkeypatch.setenv("HERMES_HOME", home)
+    monkeypatch.setenv("ALLR_HOME", home)
     yield home
     shutil.rmtree(d, ignore_errors=True)
 

@@ -181,7 +181,7 @@ export const StreamStallIndicator: FC = () => {
   const hint = compacting ? t.assistant.thread.compacting : ''
 
   return (
-    <StatusRow className="mt-1.5" data-slot="aui_stream-stall" label={hint || 'Hermes is thinking'}>
+    <StatusRow className="mt-1.5" data-slot="aui_stream-stall" label={hint || 'Allr is thinking'}>
       <span aria-hidden="true" className="dither inline-block size-3 rounded-[2px] text-midground/80 animate-pulse" />
       {hint && <HintText>{hint}</HintText>}
       <ActivityTimerText seconds={elapsed} />

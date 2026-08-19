@@ -26,10 +26,10 @@ export interface DroppedFile {
 
 /** MIME emitted by in-app drag sources (project tree, gutter line numbers).
  *  Payload is JSON `{ path; isDirectory?; line?; lineEnd? }[]`. */
-export const HERMES_PATHS_MIME = 'application/x-hermes-paths'
+export const ALLR_PATHS_MIME = 'application/x-hermes-paths'
 
 /**
- * Resolve files from a drop event into DroppedFile entries. Internal Hermes
+ * Resolve files from a drop event into DroppedFile entries. Internal Allr
  * sources (project tree) ride on a custom MIME and produce path-only entries; OS
  * drops produce File-bearing entries. On Tauri/WebKitGTK a browser drop carries
  * no filesystem path (Tauri routes real OS drops through onDragDropEvent), so
@@ -45,7 +45,7 @@ export function extractDroppedFiles(transfer: DataTransfer): DroppedFile[] {
 
   // In-app drags first — richer metadata (isDirectory) than the File fallback.
   try {
-    const internalRaw = transfer.getData(HERMES_PATHS_MIME)
+    const internalRaw = transfer.getData(ALLR_PATHS_MIME)
 
     if (internalRaw) {
       const parsed = JSON.parse(internalRaw) as {

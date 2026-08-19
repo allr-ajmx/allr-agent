@@ -21,7 +21,7 @@ beforeEach(() => {
 
 describe('session-persist', () => {
   it('persist exports the jar and writes it to the cookies keyring entry', async () => {
-    const jar = '[{"raw_cookie":"hermes_session_rt=abc"}]'
+    const jar = '[{"raw_cookie":"allr_session_rt=abc"}]'
     setImpl(cmd => {
       if (cmd === 'cookies_export') {
         return Promise.resolve(jar)
@@ -46,7 +46,7 @@ describe('session-persist', () => {
   })
 
   it('restore reads the keyring blob and imports it into the jar', async () => {
-    const jar = '[{"raw_cookie":"hermes_session_rt=abc"}]'
+    const jar = '[{"raw_cookie":"allr_session_rt=abc"}]'
     setImpl(cmd => {
       // Reads consult the unlock gate first; ungated here.
       if (cmd === 'secrets_status') {

@@ -323,7 +323,7 @@ class TestRegistration:
         assert second == []
 
     def test_safe_mode_skips_registration(self, monkeypatch):
-        monkeypatch.setenv("HERMES_SAFE_MODE", "1")
+        monkeypatch.setenv("ALLR_SAFE_MODE", "1")
         cfg = _cfg(
             {"url": "https://example.com/hook", "events": ["on_session_end"]}
         )
@@ -383,12 +383,26 @@ class TestDelivery:
         assert payload["extra"]["completed"] is True
         assert payload["extra"]["model"] == "test-model"
 
-        assert req["headers"]["X-Hermes-Event"] == "on_session_end"
-        assert req["headers"]["X-Hermes-Delivery"]
+        assert req["headers"]["X-Allr-Event"] == "on_session_end"
+        assert req["headers"]["X-Allr-Delivery"]
         expected = hmac.new(
             secret.encode(), req["body"], hashlib.sha256
         ).hexdigest()
-        assert req["headers"]["X-Hermes-Signature-256"] == f"sha256={expected}"
+        assert req["headers"]["X-Allr-Signature-256"] == f"sha256={expected}"
+
+        # And the pre-rename spelling of each, with identical values. Receivers
+        # are other people's code, pinned to whichever name the docs showed them;
+        # the Allr rename renamed these out from under all of them at once, and a
+        # webhook that stops being recognised does not fail loudly -- it just
+        # stops doing anything.
+        assert req["headers"]["X-Hermes-Event"] == req["headers"]["X-Allr-Event"]
+        assert (
+            req["headers"]["X-Hermes-Delivery"] == req["headers"]["X-Allr-Delivery"]
+        )
+        assert (
+            req["headers"]["X-Hermes-Signature-256"]
+            == req["headers"]["X-Allr-Signature-256"]
+        )
 
     def test_unsigned_delivery_has_no_signature_header(self, http_server):
         cfg = _cfg({"url": _url(http_server), "events": ["on_session_end"]})
@@ -400,6 +414,9 @@ class TestDelivery:
         assert outbound_webhooks.flush()
 
         assert len(http_server.captured) == 1
+        assert "X-Allr-Signature-256" not in http_server.captured[0]["headers"]
+        # Neither spelling: an unsigned delivery must not look signed to a
+        # receiver reading either name.
         assert "X-Hermes-Signature-256" not in http_server.captured[0]["headers"]
 
     def test_matcher_filters_tool_events(self, http_server):
@@ -467,7 +484,7 @@ class TestDelivery:
         assert http_server.captured[0]["path"] == "/hook"
 
     def test_delivery_id_matches_header_and_body(self, http_server):
-        """The X-Hermes-Delivery header and the signed body's delivery_id
+        """The X-Allr-Delivery header and the signed body's delivery_id
         must be the same value, or receiver-side dedupe breaks."""
         cfg = _cfg(
             {"url": _url(http_server), "events": ["on_session_end"],
@@ -482,7 +499,7 @@ class TestDelivery:
 
         req = http_server.captured[0]
         payload = json.loads(req["body"])
-        assert payload["delivery_id"] == req["headers"]["X-Hermes-Delivery"]
+        assert payload["delivery_id"] == req["headers"]["X-Allr-Delivery"]
 
     def test_connection_error_does_not_raise(self):
         target = outbound_webhooks.WebhookTarget(
@@ -498,7 +515,7 @@ class TestDelivery:
         outbound_webhooks._deliver(delivery)
 
     def test_events_enqueued_at_exit_still_delivered(self, http_server, tmp_path):
-        """A short-lived process (`hermes chat -q`, cron) exits right after
+        """A short-lived process (`allr chat -q`, cron) exits right after
         firing on_session_end.  The delivery worker is a daemon thread, so
         without the atexit flush the final event is silently dropped."""
         import subprocess

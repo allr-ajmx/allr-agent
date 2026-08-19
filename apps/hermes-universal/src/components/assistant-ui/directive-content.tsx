@@ -13,7 +13,7 @@ import { parseSessionRefValue } from '@/lib/session-refs'
 
 import { hermesDirectiveFormatter, iconPathsFor, refAttrs, type SlashChipKind } from './directive-text'
 
-// React renderer for Hermes directives in SENT user messages — the display
+// React renderer for Allr directives in SENT user messages — the display
 // half of the composer's directive pipeline (the parser/serializer/glyphs live
 // in directive-text.ts; this file is kept separate to avoid a .ts/.tsx basename
 // clash on the `directive-text` import specifier). Ported from the renderer half
@@ -54,7 +54,7 @@ function safeDirectiveSegments(text: string) {
 }
 
 /**
- * Renders text containing Hermes directives (`@file:...`, `@image:...`) as
+ * Renders text containing Allr directives (`@file:...`, `@image:...`) as
  * inline chips. Embedded MEDIA images render below as a thumbnail row.
  */
 export function DirectiveContent({ text }: { text: string }) {

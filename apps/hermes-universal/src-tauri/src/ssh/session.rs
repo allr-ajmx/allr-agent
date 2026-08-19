@@ -355,8 +355,8 @@ impl SshSession {
             return Err(SshError::new(
                 SshErrorKind::Unknown,
                 format!(
-                    "The remote host did not run a command Hermes sent it. Its shell may be \
-                     missing a `base64` decoder, which Hermes needs to send commands safely. \
+                    "The remote host did not run a command Allr sent it. Its shell may be \
+                     missing a `base64` decoder, which Allr needs to send commands safely. \
                      ({} on {})",
                     if out.stderr.trim().is_empty() {
                         "no error output"
@@ -539,7 +539,7 @@ mod tests {
     #[test]
     fn require_success_redacts_secrets_in_the_failure() {
         let out = ExecOutput {
-            stderr: "spawn failed: HERMES_DASHBOARD_SESSION_TOKEN=deadbeef".into(),
+            stderr: "spawn failed: ALLR_DASHBOARD_SESSION_TOKEN=deadbeef".into(),
             exit_status: Some(1),
             ..Default::default()
         };
@@ -655,7 +655,7 @@ mod tests {
         // what the old shq-based wrapper got wrong.
         let hostile = "a'; rm -rf /; #";
         let spawn_command = super::super::posix_lifecycle::build_spawn_command(
-            "/usr/local/bin/hermes",
+            "/usr/local/bin/allr",
             Some(hostile),
             "~/x.log",
             None,
@@ -702,7 +702,7 @@ mod tests {
         // itself twice-quoted and carries a hostile apostrophe. Under the old
         // wrapper this produced `'\''` sequences, which fish misparses.
         let spawn_command = super::super::posix_lifecycle::build_spawn_command(
-            "/usr/local/bin/hermes",
+            "/usr/local/bin/allr",
             Some("a'; rm -rf /; #"),
             "~/x.log",
             None,

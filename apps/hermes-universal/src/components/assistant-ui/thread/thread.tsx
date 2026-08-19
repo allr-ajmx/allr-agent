@@ -18,8 +18,8 @@ import { type RestoreMessageTarget } from './types'
 import { UserEditComposer } from './user-edit-composer'
 import { UserMessage } from './user-message'
 
-// New-conversation empty state — desktop's <Intro>: the auto-fit "HERMES AGENT"
-// wordmark + a rotating neutral tagline. Centered and pushed above the docked
+// New-conversation empty state — desktop's <Intro>: the Allr brand lockup
+// (mark + wordmark) + a rotating neutral tagline. Centered and pushed above the docked
 // composer by its measured height, matching desktop's placement.
 const EmptyPlaceholder = (
   <div className="flex min-h-0 w-full flex-col items-center justify-center pt-[var(--composer-measured-height)]">

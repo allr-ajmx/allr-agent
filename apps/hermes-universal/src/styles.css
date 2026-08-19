@@ -120,6 +120,86 @@
     U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 
+/* ─── Allr brand faces ───────────────────────────────────────────────────────
+   Nunito Sans (body + UI) and Young Serif (display) are the Allr brand pair.
+   Vendored like everything else — the marketing site loads them from Google
+   Fonts, which the Tauri webviews cannot do.
+
+   These are SUBSET files (latin + latin-ext only), lifted from the Allr site's
+   own build, so the unicode-range declarations are load-bearing: drop them and
+   the browser will pick these faces for CJK/Cyrillic text and render tofu. The
+   ranges below are byte-identical to Inter's above, which is what lets Inter
+   keep covering everything Nunito Sans doesn't. */
+@font-face {
+  font-family: 'Nunito Sans';
+  font-style: normal;
+  font-weight: 200 1000;
+  font-stretch: 100%;
+  font-display: swap;
+  src: url('./fonts/nunito-sans-latin-wght-normal.woff2') format('woff2');
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F,
+    U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Nunito Sans';
+  font-style: normal;
+  font-weight: 200 1000;
+  font-stretch: 100%;
+  font-display: swap;
+  src: url('./fonts/nunito-sans-latin-ext-wght-normal.woff2') format('woff2');
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF,
+    U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Nunito Sans';
+  font-style: italic;
+  font-weight: 200 1000;
+  font-stretch: 100%;
+  font-display: swap;
+  src: url('./fonts/nunito-sans-latin-wght-italic.woff2') format('woff2');
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F,
+    U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Nunito Sans';
+  font-style: italic;
+  font-weight: 200 1000;
+  font-stretch: 100%;
+  font-display: swap;
+  src: url('./fonts/nunito-sans-latin-ext-wght-italic.woff2') format('woff2');
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF,
+    U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+/* Young Serif — the DISPLAY face. 400 is the only weight that exists, and per
+   the brand guideline it is the only one that should ever be used: emphasis in
+   a heading is done with colour, never weight. Same role Collapse plays for
+   the Nous skin — wordmark and headings, never UI labels. */
+@font-face {
+  font-family: 'Young Serif';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./fonts/young-serif-latin.woff2') format('woff2');
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F,
+    U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Young Serif';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./fonts/young-serif-latin-ext.woff2') format('woff2');
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF,
+    U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
 /* Collapse — 100/300/400/700, roman + italic. */
 @font-face {
   font-family: 'Collapse';
@@ -321,6 +401,11 @@
      @nous-research/ui/dist/ui/globals.css). Nothing consumes them yet — they
      exist so a ported surface that asks for the brand kit gets the packed face
      instead of a silent fallback. */
+  /* The Allr display face. Weight 400 is the only one that exists, and per the
+     brand book the only one that should ever be used — emphasis in a heading is
+     done with colour, never weight. Reach for it on the wordmark and real page
+     headings; never on labels, rows or body copy. */
+  --font-display: 'Young Serif', Georgia, 'Times New Roman', serif;
   --font-rules-compressed: 'Rules Compressed', var(--dt-font-sans);
   --font-rules-expanded: 'Rules Expanded', var(--dt-font-sans);
   --font-mondwest: 'Mondwest', var(--dt-font-sans);
@@ -378,8 +463,11 @@
    ────────────────────────────────────────────────────────────────────────────
    Three-layer chain: `--theme-*` seeds (set inline per skin by applyTheme) →
    `--ui-*` color-mix derivations → `--dt-*` shadcn tokens (mapped into Tailwind
-   above). The :root defaults render the light `nous` skin; `.dark` overrides the
-   per-mode mix knobs + neutrals so the same derivations re-resolve for dark.
+   above). The :root defaults render the light DEFAULT skin (`allr`); `.dark`
+   overrides the per-mode mix knobs + neutrals so the same derivations re-resolve
+   for dark. The seed VALUES are deliberately forked from desktop's (which are
+   still Nous blue) — don't "fix" that drift by copying desktop's block back, it
+   reverts the rebrand. The token names and their order are still shared.
 
    DO NOT REORDER OR PRUNE. Earlier ports dropped "unused" tokens and reshuffled
    the block; because several tokens derive from earlier ones, that is exactly
@@ -390,20 +478,24 @@
   :root {
     color-scheme: light;
 
-    --theme-foreground: #17171a;
-    --theme-primary: #0053fd;
-    --theme-secondary: color-mix(in srgb, #0053fd 7%, #ffffff);
-    --theme-accent-soft: color-mix(in srgb, #0053fd 10%, #ffffff);
-    --theme-midground: #0053fd;
+    /* These defaults only paint the PRE-HYDRATION frame — applyTheme() overwrites
+       every --theme-* seed inline once React mounts. They exist so boot doesn't
+       flash a different palette, so they must track DEFAULT_SKIN_NAME in
+       themes/presets.ts, which is `allr`. */
+    --theme-foreground: #223b33;
+    --theme-primary: #1e7a49;
+    --theme-secondary: #fbefd8;
+    --theme-accent-soft: #ecf2ec;
+    --theme-midground: #b77e1f;
     --theme-warm: #cf806d;
-    --theme-background-seed: #f8faff;
-    --theme-sidebar-seed: #f3f7ff;
+    --theme-background-seed: #fbf8f2;
+    --theme-sidebar-seed: #f7f1e6;
     --theme-card-seed: #ffffff;
     --theme-elevated-seed: #ffffff;
-    --theme-bubble-seed: color-mix(in srgb, #0053fd 6%, #ffffff);
-    --theme-neutral-chrome: #f3f3f3;
-    --theme-neutral-sidebar: #f3f3f3;
-    --theme-neutral-card: #fcfcfc;
+    --theme-bubble-seed: #fbefd8;
+    --theme-neutral-chrome: #f5efe4;
+    --theme-neutral-sidebar: #f5efe4;
+    --theme-neutral-card: #fffdf9;
     --theme-mix-chrome: 92%;
     --theme-mix-sidebar: 100%;
     --theme-mix-card: 22%;
@@ -462,7 +554,7 @@
       var(--theme-neutral-card)
     );
     --ui-bg-card: color-mix(in srgb, var(--ui-accent) 4%, color-mix(in srgb, var(--ui-base) 4%, transparent));
-    --ui-bg-input: #fcfcfc;
+    --ui-bg-input: #fffdf9;
     --ui-bg-primary: color-mix(
       in srgb,
       var(--ui-accent) var(--theme-fill-primary-accent-mix),
@@ -763,9 +855,11 @@
     --theme-mix-card: 38%;
     --theme-mix-elevated: 46%;
     --theme-mix-bubble: 46%;
-    --theme-neutral-chrome: #0d0d0e;
-    --theme-neutral-sidebar: #0a0a0b;
-    --theme-neutral-card: #161618;
+    /* Warm pine neutrals rather than near-black — the dark skin is the light
+       skin's ink, not a separate grey product. Pre-hydration only, as above. */
+    --theme-neutral-chrome: #101c18;
+    --theme-neutral-sidebar: #0c1613;
+    --theme-neutral-card: #223b33;
 
     /* Dark-only accent palette overrides. */
     --ui-red: #e75e78;
@@ -1032,6 +1126,18 @@
    packed face. `text-display` is purely typographic (uppercase + tracking) and
    composes with any of them; per the package's own guidance it belongs on
    chrome, never on body copy. */
+/* The brand display face. Named `font-brand`, NOT `font-display`: Tailwind v4
+   auto-generates a `font-<key>` utility for every `--font-*` theme token, so an
+   `@utility font-display` would ship alongside a generated `.font-display` that
+   sets family only — two rules for one name, and the weight pin below quietly
+   dependent on source order. Pinned to 400 because Young Serif ships no other
+   weight; anything else synthesises a fake bold. */
+@utility font-brand {
+  font-family: var(--font-display);
+  font-weight: 400;
+  line-height: 1.18;
+}
+
 @utility font-compressed {
   font-family: var(--font-rules-compressed);
 }
@@ -1205,13 +1311,17 @@
    CSS, but expressed purely in the shared theme tokens so it tracks the active
    skin. The wordmark uses the Collapse face declared at the top of this file —
    desktop declares the same @font-face but has no surface that uses it. */
+/* Text-only fallback for the wordmark. The lockup itself is a component now
+   (components/brand/wordmark.tsx) — this stays for anything that needs the
+   brand voice in a plain text node. Lowercase and untracked on purpose: caps
+   and letterspacing belong to pills and chips, not the wordmark. */
 .brand {
-  font-family: 'Collapse';
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--ui-accent);
-  font-size: 13px;
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ui-text-primary);
+  font-size: 15px;
 }
 
 .connect {
@@ -1263,9 +1373,12 @@
   gap: 10px;
 }
 .connect-title {
+  font-family: var(--font-display);
   font-size: 22px;
   margin: 6px 0 0;
-  font-weight: 650;
+  /* Young Serif has one weight; asking for 650 would synthesise a fake bold. */
+  font-weight: 400;
+  line-height: 1.18;
 }
 /* Wordmark row. The language switcher rides on the end of it (welcome step
    only) — `justify-content: space-between` rather than a float so RTL mirrors

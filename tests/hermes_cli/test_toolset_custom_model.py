@@ -51,7 +51,7 @@ class _Fake(ImageGenProvider):
 
 @pytest.fixture(autouse=True)
 def _isolated_home(tmp_path, monkeypatch):
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("ALLR_HOME", str(tmp_path))
     image_gen_registry._reset_for_tests()
     yield
     image_gen_registry._reset_for_tests()

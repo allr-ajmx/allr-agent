@@ -110,7 +110,7 @@ function Probe({ pluginId }: { pluginId: string }) {
 }
 
 // Universal persists the locale in a localStorage-backed atom (desktop round-trips
-// it through Hermes config), so a test that switches must switch back or it leaks
+// it through Allr config), so a test that switches must switch back or it leaks
 // into the next one.
 function LocaleSwitch({ to }: { to: Locale }) {
   const { setLocale } = useI18n()

@@ -17,7 +17,7 @@ import {
   stepBackInSshInstall
 } from '@/store/ssh-install'
 
-// Offering to install Hermes on the remote host, shown after a connect failed
+// Offering to install Allr on the remote host, shown after a connect failed
 // with `hermes-not-found`.
 //
 // Deliberately AFTER the failure and behind an explicit button rather than

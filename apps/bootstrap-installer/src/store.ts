@@ -5,7 +5,7 @@ import { atom, computed } from 'nanostores'
 /*
  * Bootstrap state store — single source of truth for installer screens.
  *
- * Lives in nanostores per the project's TypeScript guidelines (apps/desktop
+ * Lives in nanostores per the project's TypeScript guidelines (the app
  * AGENTS.md): "Prefer small nanostores over component state when state is
  * shared, reused, or read by distant UI."
  *
@@ -68,7 +68,7 @@ export type Route = 'welcome' | 'progress' | 'success' | 'failure'
 
 /// How the installer was launched, mirrored from src-tauri AppMode.
 /// 'install' = first-run onboarding (bare launch). 'update' = driven by the
-/// desktop app handing off via `Hermes-Setup.exe --update`.
+/// desktop app handing off via `Allr-Setup.exe --update`.
 export type AppMode = 'install' | 'update'
 
 export const $route = atom<Route>('welcome')
@@ -177,8 +177,8 @@ export async function initialize(): Promise<void> {
 
   if (fake) {
     unlisten = () => {}
-    $logPath.set('~/.hermes/logs/bootstrap-installer.log')
-    $hermesHome.set('~/.hermes')
+    $logPath.set('~/.allr/logs/bootstrap-installer.log')
+    $hermesHome.set('~/.allr')
     $mode.set(fake === 'update' ? 'update' : 'install')
 
     // Update auto-runs (it's a hand-off); install/failure wait for the welcome click.
@@ -264,7 +264,7 @@ export async function initialize(): Promise<void> {
           currentStage: null
         })
 
-        // Install: show the "launch Hermes" success screen. Update: this is a
+        // Install: show the "launch Allr" success screen. Update: this is a
         // hand-off — the installer relaunches the desktop and exits within a
         // few hundred ms, so routing to success just flashes that screen
         // before the window closes. Stay on progress until we exit.
@@ -316,7 +316,6 @@ export async function startInstall(opts?: { branch?: string }): Promise<void> {
     args: {
       commit: null,
       branch: opts?.branch ?? null,
-      include_desktop: true,
       hermes_home: null
     }
   })
@@ -329,7 +328,7 @@ export async function startUpdate(): Promise<void> {
     return
   }
 
-  // Update is driven by the desktop handing off (Hermes-Setup.exe --update);
+  // Update is driven by the desktop handing off (Allr-Setup.exe --update);
   // there's no welcome click. Reset + jump straight to progress, then let the
   // Rust side stream the synthetic update manifest.
   $bootstrap.set(INITIAL)
@@ -389,16 +388,14 @@ const FAKE_INSTALL_STAGES: FakeStage[] = [
   { name: 'system-packages', title: 'System packages' },
   { name: 'uv', title: 'uv' },
   { name: 'python', title: 'Python environment' },
-  { name: 'repo', title: 'Hermes repository' },
+  { name: 'repo', title: 'Allr repository' },
   { name: 'dependencies', title: 'Python dependencies' },
-  { name: 'node', title: 'Node runtime' },
-  { name: 'desktop', title: 'Desktop app' }
+  { name: 'node', title: 'Node runtime' }
 ]
 
 const FAKE_UPDATE_STAGES: FakeStage[] = [
   { name: 'handoff', title: 'Preparing to update' },
   { name: 'update', title: 'Downloading the latest version' },
-  { name: 'rebuild', title: 'Rebuilding the desktop app' },
   { name: 'install', title: 'Installing the update' }
 ]
 

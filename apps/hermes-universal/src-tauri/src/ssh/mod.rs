@@ -1,6 +1,6 @@
 //! SSH gateway transport (MJX-55).
 //!
-//! Reaches a Hermes backend on a remote host over SSH. The shape, ported from the
+//! Reaches an Allr backend on a remote host over SSH. The shape, ported from the
 //! Electron desktop app (`apps/desktop/electron/{ssh-connection,remote-lifecycle,
 //! windows-remote-lifecycle}.ts`):
 //!
@@ -9,8 +9,8 @@
 //!   2. Run control-plane `exec` channels to probe the platform, locate `hermes`,
 //!      check its capabilities, read/write a lockfile, and upload a session token
 //!      over stdin (never argv).
-//!   3. Spawn `hermes serve --isolated --host 127.0.0.1 --port 0` detached on the
-//!      remote and scrape `HERMES_(BACKEND|DASHBOARD)_READY port=<N>` from its log.
+//!   3. Spawn `allr serve --isolated --host 127.0.0.1 --port 0` detached on the
+//!      remote and scrape `ALLR_(BACKEND|DASHBOARD)_READY port=<N>` from its log.
 //!      It binds remote loopback only — the tunnel is the sole route in.
 //!   4. Forward a local `127.0.0.1:<ephemeral>` TCP port to that remote port. The
 //!      ordinary HTTP + `/api/ws` traffic then rides that forward, so the rest of
@@ -497,7 +497,7 @@ pub async fn ssh_test(
     })
 }
 
-/// Install Hermes on the remote host.
+/// Install Allr on the remote host.
 ///
 /// A separate command rather than a branch inside `establish`, on purpose. The
 /// user confirms this AFTER a connect has already failed with `HermesNotFound`,
@@ -1546,7 +1546,7 @@ mod tests {
         let config: SshConnectConfig = serde_json::from_value(serde_json::json!({
             "host": "deploy@box.example:2222",
             "keyPath": "/keys/id_ed25519",
-            "remoteHermesPath": "/usr/local/bin/hermes",
+            "remoteHermesPath": "/usr/local/bin/allr",
             "profile": "work",
             "interactive": true
         }))

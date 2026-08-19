@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Prove a user on some earlier commit can reach this one.
 #
-# Installs a real, earlier Hermes the way a user does, applies ONE update route,
+# Installs a real, earlier Allr the way a user does, applies ONE update route,
 # and requires the checkout to land on this commit with a working `hermes`.
 #
 # Nothing here is mocked. scripts/dev-sandbox.sh provides the fake Internet --
@@ -24,7 +24,7 @@
 #                                       [--install-ref REF] [--keep]
 #
 #   --route         which update path to exercise (required):
-#                     update     `hermes update`
+#                     update     `allr update`
 #                     installer  re-running the curl one-liner over the checkout
 #   --install-ref   what to install first; anything git resolves (a branch, a
 #                   tag like v2026.7.7, or a SHA reachable from main).
@@ -67,21 +67,21 @@ cd "$REPO_ROOT"
 # onto the worktree root and feeds it to `tar --exclude`, so it MUST be a
 # relative directory name.
 SANDBOX_DIR_NAME=".hermes-sandbox-e2e-$ROUTE"
-export HERMES_DEV_SANDBOX_DIR="$SANDBOX_DIR_NAME"
+export ALLR_DEV_SANDBOX_DIR="$SANDBOX_DIR_NAME"
 
 SANDBOX_ROOT="$REPO_ROOT/$SANDBOX_DIR_NAME"
-INSTALL_DIR="/home/hermes/.hermes/hermes-agent"   # user-level layout (sandbox default)
-FAKE_REMOTE="/work/repos/hermes-agent.git"
+INSTALL_DIR="/home/hermes/.allr/allr-agent"   # user-level layout (sandbox default)
+FAKE_REMOTE="/work/repos/allr-agent.git"
 # Only used to fetch an old install.sh for the flag probe below; the sandbox does
 # its own fetching. Same override dev-sandbox.sh honours, so a fork can retarget
 # both together.
-UPSTREAM_URL="${HERMES_DEV_SANDBOX_UPSTREAM:-https://github.com/NousResearch/hermes-agent.git}"
+UPSTREAM_URL="${ALLR_DEV_SANDBOX_UPSTREAM:-https://github.com/NousResearch/hermes-agent.git}"
 
 # Installer transcripts live outside the sandbox root: the sandbox is recreated
 # and (unless --keep) deleted, and these logs are the most useful artifact when
 # a real install breaks. Created after the dirty check below, so that a log dir
 # pointed inside the repo cannot be the thing that makes the tree dirty.
-LOG_DIR="${HERMES_E2E_LOG_DIR:-$(mktemp -d -t hermes-install-e2e-logs.XXXXXX)}"
+LOG_DIR="${ALLR_E2E_LOG_DIR:-$(mktemp -d -t hermes-install-e2e-logs.XXXXXX)}"
 
 step() { printf '\n\033[1;36m▶ %s\033[0m\n' "$*"; }
 ok()   { printf '\033[1;32m  ✓ %s\033[0m\n' "$*"; }
@@ -145,16 +145,16 @@ fi
 rm -rf -- "$SANDBOX_ROOT"
 
 # ── helpers ────────────────────────────────────────────────────────────────
-# Does the INSTALLED hermes accept FLAG on `hermes update`?
+# Does the INSTALLED hermes accept FLAG on `allr update`?
 #
 # Asked of the installed binary rather than parsed out of a release's source:
 # the update subcommand has lived in main.py, subcommands/update.py, and
 # update_cmd.py across the releases we sample, so any static parse is a guess
-# that silently rots. `hermes update --help` is the same surface a user meets,
+# that silently rots. `allr update --help` is the same surface a user meets,
 # and argparse prints every option it accepts.
 update_supports() {
   local flag="$1"
-  in_sandbox "hermes update --help 2>&1" | grep -qF -- "$flag"
+  in_sandbox "allr update --help 2>&1" | grep -qF -- "$flag"
 }
 
 # Does the installer at REF accept FLAG? Read it out of that ref's own
@@ -246,7 +246,7 @@ require_hermes_works() {
   ok "hermes runs $when"
 }
 
-# ── install the earlier Hermes ─────────────────────────────────────────────
+# ── install the earlier Allr ─────────────────────────────────────────────
 step "installing upstream $INSTALL_REF (real curl | install.sh: uv, Python, Node, venv)"
 install_in_sandbox "install of upstream $INSTALL_REF" "$INSTALL_REF" install
 
@@ -261,21 +261,21 @@ require_hermes_works 'after install'
 # ── apply exactly one update route ─────────────────────────────────────────
 case "$ROUTE" in
   update)
-    step 'ROUTE: hermes update'
+    step 'ROUTE: allr update'
     # `--yes` reaches the update subcommand only in later releases, and argparse
     # rejects the whole invocation when it does not exist. Ask the installed
     # hermes which it accepts; older ones read the prompt from stdin, so close it.
     if update_supports --yes; then
-      update_cmd="hermes update --yes"
+      update_cmd="allr update --yes"
     else
-      update_cmd="hermes update </dev/null"
+      update_cmd="allr update </dev/null"
     fi
     if ! in_sandbox "cd $INSTALL_DIR && $update_cmd"; then
       collect_sandbox_logs update
-      fail "hermes update failed ($update_cmd)"
+      fail "allr update failed ($update_cmd)"
     fi
-    require_landed_on_target 'hermes update'
-    require_hermes_works 'after hermes update'
+    require_landed_on_target 'allr update'
+    require_hermes_works 'after allr update'
     ;;
   installer)
     step 'ROUTE: installer re-run over the existing checkout'

@@ -14,7 +14,7 @@ import {
 } from '@/store/local-install'
 import { attachSshPrompts } from '@/store/ssh-backend'
 
-// Installing Hermes on a REMOTE host, after an SSH connect failed with
+// Installing Allr on a REMOTE host, after an SSH connect failed with
 // `hermes-not-found`.
 //
 // Rust runs the same staged install protocol as the local flow — just over SSH
@@ -25,7 +25,7 @@ import { attachSshPrompts } from '@/store/ssh-backend'
 //
 // The state reuses `LocalInstallState`'s phase union verbatim, including
 // `'missing'` for "showing the two repo cards". That reads oddly for a second
-// there, but it is exactly right: Hermes IS missing, on that host. Inventing a
+// there, but it is exactly right: Allr IS missing, on that host. Inventing a
 // parallel union would fork `applyInstallEvent`'s return type for no gain.
 //
 // `null` means no offer is on screen — there is no detection phase here, because

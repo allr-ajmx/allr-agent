@@ -18,7 +18,7 @@ use tauri::State;
 use crate::transport::TransportState;
 
 // A realistic UA — some sites serve an error/blank <title> to unknown agents.
-const USER_AGENT: &str = "Mozilla/5.0 (compatible; Hermes-Universal/1.0)";
+const USER_AGENT: &str = "Mozilla/5.0 (compatible; Allr/1.0)";
 const REQUEST_TIMEOUT_SECS: u64 = 8;
 const MAX_TITLE_CHARS: usize = 300;
 

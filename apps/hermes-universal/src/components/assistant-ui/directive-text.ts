@@ -146,7 +146,7 @@ export function formatRefValue(value: string): string {
 
 const CANONICAL_DIRECTIVE_RE = /:([\w-]{1,64})\[([^\]\n]{1,1024})\](?:\{name=([^}\n]{1,1024})\})?/g
 
-const HERMES_DIRECTIVE_RE = referenceRe()
+const ALLR_DIRECTIVE_RE = referenceRe()
 
 // A skill referenced in a sent message — either the invocation that opens it
 // (`/work fix the leak`, which is all a skill turn ever renders as) or one
@@ -186,7 +186,7 @@ function parseDirectiveText(text: string): Unstable_DirectiveSegment[] {
       label: match[2] || match[3] || '',
       id: match[3] || match[2] || ''
     })),
-    ...Array.from(text.matchAll(HERMES_DIRECTIVE_RE)).map(match => {
+    ...Array.from(text.matchAll(ALLR_DIRECTIVE_RE)).map(match => {
       const id = unwrapRefValue(match[2] || '')
 
       return {

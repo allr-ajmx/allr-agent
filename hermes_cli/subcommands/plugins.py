@@ -1,4 +1,4 @@
-"""``hermes plugins`` subcommand parser.
+"""``allr plugins`` subcommand parser.
 
 Extracted from ``hermes_cli/main.py:main()`` (god-file Phase 2 follow-up).
 Handler injected to avoid importing ``main``.
@@ -15,7 +15,7 @@ def build_plugins_parser(subparsers, *, cmd_plugins: Callable) -> None:
         "plugins",
         help="Manage plugins — install, update, remove, list",
         description=(
-            "Install, update, remove, or list native Hermes plugins and "
+            "Install, update, remove, or list native Allr plugins and "
             "portable Agent Plugins v1 packages. Portable packages install disabled."
         ),
     )
@@ -43,7 +43,7 @@ def build_plugins_parser(subparsers, *, cmd_plugins: Callable) -> None:
     _install_enable_group.add_argument(
         "--no-enable",
         action="store_true",
-        help="Install disabled (skip confirmation prompt); enable later with `hermes plugins enable <name>`",
+        help="Install disabled (skip confirmation prompt); enable later with `allr plugins enable <name>`",
     )
 
     plugins_update = plugins_subparsers.add_parser(

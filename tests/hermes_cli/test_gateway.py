@@ -26,12 +26,12 @@ def _install_fake_gateway_run(monkeypatch, start_gateway):
     # ``run_gateway()`` calls ``refresh_systemd_unit_if_needed()`` on every
     # invocation so that restart settings stay current after exit-code-75
     # respawns. That helper writes to ``Path.home() / ".config/systemd/user
-    # /hermes-gateway.service"`` and runs ``systemctl --user daemon-reload``
+    # /allr-gateway.service"`` and runs ``systemctl --user daemon-reload``
     # — both target the *real* user environment because the conftest only
-    # sandboxes ``HERMES_HOME``, not ``HOME``. Tests that drive
+    # sandboxes ``ALLR_HOME``, not ``HOME``. Tests that drive
     # ``run_gateway()`` end-to-end with a fake ``start_gateway`` MUST stub
     # the refresh call too, or every run rewrites the developer's installed
-    # unit (baking in the test's pytest-tmp ``HERMES_HOME`` value, which
+    # unit (baking in the test's pytest-tmp ``ALLR_HOME`` value, which
     # systemd then uses on the next boot — silently breaking the gateway
     # for the developer).
     monkeypatch.setattr(gateway, "supports_systemd_services", lambda: False)
@@ -79,7 +79,7 @@ def test_gateway_run_subprocess_preserves_daemon_exit_codes(
 
         import hermes_cli.gateway as gateway_cli
 
-        outcome = os.environ["HERMES_TEST_GATEWAY_OUTCOME"]
+        outcome = os.environ["ALLR_TEST_GATEWAY_OUTCOME"]
 
         async def start_gateway(*, replace, verbosity):
             if outcome == "failure":
@@ -101,9 +101,9 @@ def test_gateway_run_subprocess_preserves_daemon_exit_codes(
     )
     env = {
         **os.environ,
-        "HERMES_HOME": str(tmp_path),
-        "HERMES_GATEWAY_EXIT_DIAG": "0",
-        "HERMES_TEST_GATEWAY_OUTCOME": outcome,
+        "ALLR_HOME": str(tmp_path),
+        "ALLR_GATEWAY_EXIT_DIAG": "0",
+        "ALLR_TEST_GATEWAY_OUTCOME": outcome,
         "INVOCATION_ID": "systemd-test",
     }
 
@@ -145,7 +145,7 @@ def test_gateway_run_subprocess_preserves_daemon_exit_codes(
 def _clear_supervisor_markers(monkeypatch):
     """Make ``_running_under_gateway_supervisor()`` report a plain shell."""
     monkeypatch.delenv("INVOCATION_ID", raising=False)
-    monkeypatch.delenv("HERMES_S6_SUPERVISED_CHILD", raising=False)
+    monkeypatch.delenv("ALLR_S6_SUPERVISED_CHILD", raising=False)
     # Interactive macOS shells inherit XPC_SERVICE_NAME="0"; launchd jobs get
     # the real label. Default to the shell sentinel so the guard can fire.
     monkeypatch.setenv("XPC_SERVICE_NAME", "0")
@@ -230,17 +230,17 @@ class TestContainerSystemdSupport:
     reason="systemd user-linger is Linux-only (drives os.getuid())",
 )
 def test_systemd_install_checks_linger_status(monkeypatch, tmp_path, capsys):
-    unit_path = tmp_path / "systemd" / "user" / "hermes-gateway.service"
+    unit_path = tmp_path / "systemd" / "user" / "allr-gateway.service"
 
     monkeypatch.setattr(gateway, "get_systemd_unit_path", lambda system=False: unit_path)
     # Synthetic unit with a non-temp home: the real generator bakes the
-    # hermetic test HERMES_HOME (a tmp dir), which the temp-home write
+    # hermetic test ALLR_HOME (a tmp dir), which the temp-home write
     # guard correctly refuses.
     monkeypatch.setattr(
         gateway,
         "generate_systemd_unit",
         lambda system=False, run_as_user=None: (
-            '[Service]\nEnvironment="HERMES_HOME=/home/alice/.hermes"\n'
+            '[Service]\nEnvironment="ALLR_HOME=/home/alice/.allr"\n'
         ),
     )
 
@@ -253,6 +253,9 @@ def test_systemd_install_checks_linger_status(monkeypatch, tmp_path, capsys):
 
     monkeypatch.setattr(gateway.subprocess, "run", fake_run)
     monkeypatch.setattr(gateway, "_ensure_linger_enabled", lambda: helper_calls.append(True))
+    # Do not let a real pre-rename unit on the dev box divert install into the
+    # legacy-migration prompt.
+    monkeypatch.setattr(gateway, "_legacy_unit_search_paths", list)
 
     gateway.systemd_install(force=False)
 
@@ -291,7 +294,7 @@ def test_gateway_install_noninteractive_skips_legacy_unit_prompt(monkeypatch, tm
     monkeypatch.setattr(gateway, "remove_legacy_hermes_units", lambda interactive=False: calls.append(("remove_legacy",)))
     monkeypatch.setattr(gateway, "print_legacy_unit_warning", lambda: None)
 
-    fake_path = tmp_path / "hermes-gateway.service"
+    fake_path = tmp_path / "allr-gateway.service"
     monkeypatch.setattr(gateway, "get_systemd_unit_path", lambda system=False: fake_path)
     monkeypatch.setattr(gateway, "generate_systemd_unit", lambda system=False, run_as_user=None: "[Service]")
     monkeypatch.setattr(gateway, "_run_systemctl", lambda *a, **kw: None)

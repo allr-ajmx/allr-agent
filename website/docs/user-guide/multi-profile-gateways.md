@@ -10,12 +10,12 @@ covers the operational concerns: starting them all together, viewing logs
 across profiles, preventing the host from sleeping, and recovering from common
 launchd/systemd quirks.
 
-If you only run one Hermes agent, you don't need this page — see
+If you only run one Allr agent, you don't need this page — see
 [Profiles](./profiles.md) for the basics.
 
 ## When to use this
 
-You want this setup when you have two or more Hermes agents that should all
+You want this setup when you have two or more Allr agents that should all
 be online at the same time. Common reasons:
 
 - A personal assistant on one Telegram bot and a coding agent on another
@@ -25,17 +25,17 @@ be online at the same time. Common reasons:
   memory and skills
 
 Every profile already gets its own per-platform LaunchAgent
-(`ai.hermes.gateway-<name>.plist`) or systemd user service
-(`hermes-gateway-<name>.service`). This guide adds the patterns for managing
+(`work.allr.gateway-<name>.plist`) or systemd user service
+(`allr-gateway-<name>.service`). This guide adds the patterns for managing
 them collectively.
 
 ## Quick start
 
 ```bash
 # Create profiles (once)
-hermes profile create coder
-hermes profile create personal-bot
-hermes profile create research
+allr profile create coder
+allr profile create personal-bot
+allr profile create research
 
 # Configure each
 coder setup
@@ -85,11 +85,11 @@ Set the flag on the **default profile** (it owns the multiplexer) and restart
 its gateway:
 
 ```bash
-hermes config set gateway.multiplex_profiles true
-hermes gateway restart
+allr config set gateway.multiplex_profiles true
+allr gateway restart
 ```
 
-Equivalently, in the default profile's `~/.hermes/config.yaml`:
+Equivalently, in the default profile's `~/.allr/config.yaml`:
 
 ```yaml
 gateway:
@@ -103,7 +103,7 @@ credentials, and routes each inbound message to the profile it belongs to. Each
 turn resolves the routed profile's config, skills, memory, SOUL, **and provider
 keys** — credentials are never shared across profiles.
 
-You do **not** run `hermes gateway start` for the secondary profiles — the
+You do **not** run `allr gateway start` for the secondary profiles — the
 default gateway serves them. See the contract changes below.
 
 ### What changes when multiplexing is on
@@ -113,7 +113,7 @@ moment the flag is off.
 
 #### 1. Secondary profiles must not start their own gateway
 
-With a multiplexer running, a named-profile `hermes gateway start` / `run` is a
+With a multiplexer running, a named-profile `allr gateway start` / `run` is a
 **hard error**, pointing you back at the multiplexer:
 
 ```
@@ -162,7 +162,7 @@ Authentication follows the profile named in the URL. Unprefixed endpoints keep
 using the default listener's existing credentials.
 
 - `/p/coder/...` API-server requests must use `API_SERVER_KEY` from
-  `~/.hermes/profiles/coder/.env`; the default listener key is rejected.
+  `~/.allr/profiles/coder/.env`; the default listener key is rejected.
 - A webhook route that targets `coder` must declare `profile: coder` beside
   its existing route-specific `secret` in the default profile's
   `config.yaml`. That secret is then accepted only at
@@ -201,8 +201,8 @@ migration, no orphaned history.
 #### 5. One PID/lock and one status surface
 
 There is a single process-level PID and lock (the multiplexer, under the default
-home). `hermes status` reports the multiplexer and the profiles it serves;
-`hermes status -p <name>` slices to one profile. Each profile still writes its
+home). `allr status` reports the multiplexer and the profiles it serves;
+`allr status -p <name>` slices to one profile. Each profile still writes its
 own `runtime_status.json` under its own home, so existing per-profile readers
 keep working.
 
@@ -263,7 +263,7 @@ falls back to the default home.
 
 The CLI ships with single-profile lifecycle commands. To act across every
 profile, wrap them in a shell loop. Put the snippet below in
-`~/.local/bin/hermes-gateways` and `chmod +x` it:
+`~/.local/bin/allr-gateways` and `chmod +x` it:
 
 ```sh
 #!/bin/sh
@@ -273,14 +273,14 @@ set -eu
 profiles="default coder personal-bot research"
 
 usage() {
-  echo "Usage: hermes-gateways {start|stop|restart|status|list}"
+  echo "Usage: allr-gateways {start|stop|restart|status|list}"
 }
 
 run_for_profile() {
   profile="$1"
   action="$2"
   if [ "$profile" = "default" ]; then
-    hermes gateway "$action"
+    allr gateway "$action"
   else
     hermes -p "$profile" gateway "$action"
   fi
@@ -295,7 +295,7 @@ case "$action" in
     done
     ;;
   list)
-    hermes gateway list
+    allr gateway list
     ;;
   *)
     usage
@@ -307,15 +307,15 @@ esac
 Then:
 
 ```bash
-hermes-gateways start      # start every configured profile
-hermes-gateways stop       # stop every configured profile
-hermes-gateways restart    # restart all
-hermes-gateways status     # status across all
-hermes-gateways list       # delegates to `hermes gateway list`
+allr-gateways start      # start every configured profile
+allr-gateways stop       # stop every configured profile
+allr-gateways restart    # restart all
+allr-gateways status     # status across all
+allr-gateways list       # delegates to `allr gateway list`
 ```
 
 :::tip
-The `default` profile is targeted with `hermes gateway <action>` (no `-p`),
+The `default` profile is targeted with `allr gateway <action>` (no `-p`),
 not `hermes -p default gateway <action>`. The wrapper above handles both forms.
 :::
 
@@ -344,11 +344,11 @@ never clash:
 
 | Platform | Path                                                              |
 | -------- | ----------------------------------------------------------------- |
-| macOS    | `~/Library/LaunchAgents/ai.hermes.gateway-<profile>.plist`        |
-| Linux    | `~/.config/systemd/user/hermes-gateway-<profile>.service`         |
+| macOS    | `~/Library/LaunchAgents/work.allr.gateway-<profile>.plist`        |
+| Linux    | `~/.config/systemd/user/allr-gateway-<profile>.service`         |
 
-The default profile keeps the historical names: `ai.hermes.gateway.plist` /
-`hermes-gateway.service`.
+The default profile keeps the historical names: `work.allr.gateway.plist` /
+`allr-gateway.service`.
 
 ## Viewing logs
 
@@ -356,35 +356,35 @@ Each profile writes to its own log files:
 
 ```bash
 # Default profile
-tail -f ~/.hermes/logs/gateway.log
-tail -f ~/.hermes/logs/gateway.error.log
+tail -f ~/.allr/logs/gateway.log
+tail -f ~/.allr/logs/gateway.error.log
 
 # Named profile
-tail -f ~/.hermes/profiles/<name>/logs/gateway.log
-tail -f ~/.hermes/profiles/<name>/logs/gateway.error.log
+tail -f ~/.allr/profiles/<name>/logs/gateway.log
+tail -f ~/.allr/profiles/<name>/logs/gateway.error.log
 ```
 
 Stream every profile's log simultaneously:
 
 ```bash
-tail -f ~/.hermes/logs/gateway.log ~/.hermes/profiles/*/logs/gateway.log
+tail -f ~/.allr/logs/gateway.log ~/.allr/profiles/*/logs/gateway.log
 ```
 
 The CLI also has a structured log viewer:
 
 ```bash
-hermes logs -f                  # follow default profile
+allr logs -f                  # follow default profile
 hermes -p coder logs -f         # follow one profile
-hermes logs --help              # filters, levels, JSON output
+allr logs --help              # filters, levels, JSON output
 ```
 
 ## Identify what's actually running
 
 ```bash
-hermes profile list             # profiles + model + gateway state
-hermes-gateways status          # full status across every profile
+allr profile list             # profiles + model + gateway state
+allr-gateways status          # full status across every profile
 launchctl list | grep hermes    # macOS — PIDs and labels
-systemctl --user list-units 'hermes-gateway-*'   # Linux — units
+systemctl --user list-units 'allr-gateway-*'   # Linux — units
 ```
 
 ## Editing configuration
@@ -392,18 +392,18 @@ systemctl --user list-units 'hermes-gateway-*'   # Linux — units
 Every profile keeps its config inside its own directory:
 
 ```
-~/.hermes/profiles/<name>/
+~/.allr/profiles/<name>/
 ├── .env              # API keys, bot tokens (chmod 600)
 ├── config.yaml       # model, provider, toolsets, gateway settings
 └── SOUL.md           # personality / system prompt
 ```
 
-The default profile uses `~/.hermes/` directly with the same three files.
+The default profile uses `~/.allr/` directly with the same three files.
 
 Edit them with any editor or via the CLI:
 
 ```bash
-hermes config set model.model anthropic/claude-sonnet-4    # default profile
+allr config set model.model anthropic/claude-sonnet-4    # default profile
 coder config set model.model openai/gpt-5                  # named profile
 ```
 
@@ -412,7 +412,7 @@ After editing `.env` or `config.yaml`, restart the affected gateway:
 ```bash
 coder gateway restart
 # or, for everything:
-hermes-gateways restart
+allr-gateways restart
 ```
 
 ## Keeping the host awake
@@ -427,7 +427,7 @@ to sleep when idle. Two patterns:
 ```bash
 caffeinate -dis                    # block display, idle, and system sleep
 caffeinate -dis -t 28800           # same, auto-exit after 8 hours
-caffeinate -i -w $(cat ~/.hermes/gateway.pid) &   # awake while default gateway runs
+caffeinate -i -w $(cat ~/.allr/gateway.pid) &   # awake while default gateway runs
 
 # Persistent: run in background and forget
 nohup caffeinate -dis >/dev/null 2>&1 &
@@ -466,7 +466,7 @@ sudo loginctl enable-linger "$USER"
 ```
 
 After enabling lingering, your systemd user units (including
-`hermes-gateway-<profile>.service`) continue running across SSH disconnects
+`allr-gateway-<profile>.service`) continue running across SSH disconnects
 and reboots.
 
 ## Token-conflict safety
@@ -479,17 +479,17 @@ To audit:
 
 ```bash
 grep -H 'TELEGRAM_BOT_TOKEN\|DISCORD_BOT_TOKEN' \
-     ~/.hermes/.env ~/.hermes/profiles/*/.env
+     ~/.allr/.env ~/.allr/profiles/*/.env
 ```
 
 ## Updating the code
 
-`hermes update` pulls the latest code once and syncs new bundled skills into
+`allr update` pulls the latest code once and syncs new bundled skills into
 every profile:
 
 ```bash
-hermes update
-hermes-gateways restart
+allr update
+allr-gateways restart
 ```
 
 User-modified skills are never overwritten.
@@ -498,7 +498,7 @@ User-modified skills are never overwritten.
 
 ### "Could not find service in domain for user gui: 501"
 
-You ran `hermes gateway start` after a previous `hermes gateway stop`. The
+You ran `allr gateway start` after a previous `allr gateway stop`. The
 CLI's `stop` does a full `launchctl unload`, which removes the service from
 launchd's registry. The CLI catches this specific error on `start` and
 automatically re-loads the plist (`↻ launchd job was unloaded; reloading
@@ -510,7 +510,7 @@ If a profile's gateway shows `not running` but a process is still alive:
 
 ```bash
 ps -ef | grep "hermes_cli.*-p <profile>"
-cat ~/.hermes/profiles/<profile>/gateway.pid
+cat ~/.allr/profiles/<profile>/gateway.pid
 kill -TERM <pid>          # graceful
 kill -KILL <pid>          # if that fails after a few seconds
 <profile> gateway start
@@ -520,16 +520,16 @@ kill -KILL <pid>          # if that fails after a few seconds
 
 ```bash
 # macOS
-launchctl unload ~/Library/LaunchAgents/ai.hermes.gateway-<profile>.plist
-launchctl load   ~/Library/LaunchAgents/ai.hermes.gateway-<profile>.plist
+launchctl unload ~/Library/LaunchAgents/work.allr.gateway-<profile>.plist
+launchctl load   ~/Library/LaunchAgents/work.allr.gateway-<profile>.plist
 
 # Linux
-systemctl --user restart hermes-gateway-<profile>.service
+systemctl --user restart allr-gateway-<profile>.service
 ```
 
 ### Health check
 
 ```bash
-hermes doctor                  # default profile
+allr doctor                  # default profile
 hermes -p <profile> doctor     # one profile
 ```

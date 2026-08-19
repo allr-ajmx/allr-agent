@@ -1,7 +1,7 @@
-//! Finding, and if necessary installing, a local Hermes.
+//! Finding, and if necessary installing, a local Allr.
 //!
 //! The Local gateway step used to be a single "Save & reconnect" button over
-//! `local_backend.rs`, whose entire idea of where Hermes lives is `HERMES_BIN` or
+//! `local_backend.rs`, whose entire idea of where Allr lives is `ALLR_BIN` or
 //! bare `"hermes"` on the inherited PATH — discovered only by failing to spawn,
 //! 45-90s into a connect. This module gives that step something to say:
 //!
@@ -60,7 +60,7 @@ mod imp {
 
     fn hermes_home() -> Result<PathBuf, String> {
         crate::plugins::hermes_home()
-            .ok_or_else(|| "could not determine HERMES_HOME on this system".to_string())
+            .ok_or_else(|| "could not determine ALLR_HOME on this system".to_string())
     }
 
     /// Drop an install from the registry.
@@ -158,7 +158,7 @@ mod imp {
     ) -> Result<(), String> {
         let home = hermes_home()?;
         let home_str = home.to_string_lossy().to_string();
-        let install_root = home.join("hermes-agent");
+        let install_root = home.join("allr-agent");
         let root_str = install_root.to_string_lossy().to_string();
 
         let log = |stage: Option<&str>, line: &str, stream: LogStream| {

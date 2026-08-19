@@ -132,7 +132,7 @@ impl WindowBelowSource {
             | Self::Win32EnumWindows => None,
             Self::MacWindowListUntitled => Some(
                 "Window titles are hidden: macOS reveals other applications' titles only with the \
-                 Screen Recording permission, which Hermes does not request for this. Application \
+                 Screen Recording permission, which Allr does not request for this. Application \
                  names, bounds and stacking order still come through.",
             ),
             Self::Nothing => Some(

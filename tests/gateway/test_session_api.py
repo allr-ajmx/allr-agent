@@ -112,7 +112,7 @@ async def test_session_messages_default_to_latest_bounded_page(adapter, session_
 @pytest.mark.asyncio
 async def test_run_agent_binds_api_session_context_for_tool_env(adapter, monkeypatch):
     """API-server request sessions should reach tools and terminal subprocess env."""
-    monkeypatch.setenv("HERMES_SESSION_ID", "stale-session")
+    monkeypatch.setenv("ALLR_SESSION_ID", "stale-session")
     observed = {}
 
     class FakeAgent:
@@ -128,10 +128,10 @@ async def test_run_agent_binds_api_session_context_for_tool_env(adapter, monkeyp
             from tools.environments.local import _make_run_env
 
             observed["task_id"] = task_id
-            observed["context_session_id"] = get_session_env("HERMES_SESSION_ID")
-            observed["context_platform"] = get_session_env("HERMES_SESSION_PLATFORM")
-            observed["context_session_key"] = get_session_env("HERMES_SESSION_KEY")
-            observed["child_session_id"] = _make_run_env({}).get("HERMES_SESSION_ID")
+            observed["context_session_id"] = get_session_env("ALLR_SESSION_ID")
+            observed["context_platform"] = get_session_env("ALLR_SESSION_PLATFORM")
+            observed["context_session_key"] = get_session_env("ALLR_SESSION_KEY")
+            observed["child_session_id"] = _make_run_env({}).get("ALLR_SESSION_ID")
             return {"final_response": "ok"}
 
     def fake_create_agent(**kwargs):

@@ -1,4 +1,4 @@
-# Hermes Universal
+# Allr Universal
 
 Tauri v2 client — desktop, Android and iOS from one codebase.
 
@@ -88,7 +88,7 @@ requests are free; an Android device reaches it either through an `adb reverse` 
 and Vite serves ~1000 separate modules in dev. Whichever link is slower is what you feel on every reload, so
 the transport is a choice worth making on purpose.
 
-`HERMES_DEV_HOST` makes it one. It defaults to `127.0.0.1` — the **USB tunnel**, which `npm run adb:reverse`
+`ALLR_DEV_HOST` makes it one. It defaults to `127.0.0.1` — the **USB tunnel**, which `npm run adb:reverse`
 already maps and which needs no network at all:
 
 ```sh
@@ -100,8 +100,8 @@ To send the same traffic over **Wi-Fi** instead, set it to the machine's LAN add
 since they are separate processes:
 
 ```sh
-env HERMES_DEV_HOST=192.168.1.15 npm run dev:ext:vite
-env HERMES_DEV_HOST=192.168.1.15 npm run dev:ext:android
+env ALLR_DEV_HOST=192.168.1.15 npm run dev:ext:vite
+env ALLR_DEV_HOST=192.168.1.15 npm run dev:ext:android
 ```
 
 Try both once and keep the faster one; which wins depends on the USB controller and the access point, not on
@@ -128,6 +128,23 @@ adb logcat -c && adb logcat | grep -iE '\[vite\]'
   components, and moving that export out restores hot updates.
 - `[vite] optimized dependencies changed. reloading` means a dependency escaped the cold-start scan. Add it to
   `optimizeDeps.include` in `vite.config.ts` — that list exists precisely to keep this line from appearing.
+
+### Android release build
+
+`npm run android:build:release` builds a Play-uploadable AAB at
+`src-tauri/gen/android/app/build/outputs/bundle/universalRelease/app-universal-release.aab`
+(arm64 + armv7; drop `--target` in the script for x86 too). It is signed with the upload key named by
+`src-tauri/gen/android/keystore.properties` (gitignored):
+
+```
+password=<store and key password>
+keyAlias=upload
+storeFile=/absolute/path/to/allr-upload.jks
+```
+
+Without that file the release variant is unsigned and Play Console rejects it. Every upload needs a higher
+`versionCode`, which Tauri derives from the version in `tauri.conf.json` / `package.json` — bump the patch
+before building. `jarsigner -verify <aab>` confirms the signature.
 
 ## Performance harness
 

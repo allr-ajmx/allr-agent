@@ -51,7 +51,7 @@ async def git_scan_repos_route(profile: Optional[str] = None):
     ``projects.record_repos`` policy comes from that same config, read under the
     same ``profile``.
     """
-    # The policy read resolves HERMES_HOME at call time, so it must run inside
+    # The policy read resolves ALLR_HOME at call time, so it must run inside
     # the profile scope. `asyncio.to_thread` copies the contextvar; the executor
     # `_git_op` uses does not, which is why the crawl takes explicit arguments.
     with _config_profile_scope(profile):

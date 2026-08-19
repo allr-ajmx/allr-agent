@@ -1,4 +1,4 @@
-"""``hermes verify`` subcommand parser.
+"""``allr verify`` subcommand parser.
 
 Follows the pattern of ``hermes_cli/subcommands/doctor.py``: parser built
 here, handler injected to avoid importing ``main``.
@@ -21,7 +21,7 @@ def build_verify_parser(subparsers, *, cmd_verify: Callable) -> None:
         help="Detect a project's run recipe and smoke-test it",
         description=(
             "Detect how the current project is built, tested, and started "
-            "(or load the saved manifest at .hermes/environment.json), then "
+            "(or load the saved manifest at .allr/environment.json), then "
             "run a verification pass: bootstrap -> build -> test -> start in "
             "background -> poll readiness -> teardown."
         ),
@@ -40,7 +40,7 @@ def build_verify_parser(subparsers, *, cmd_verify: Callable) -> None:
     verify_parser.add_argument(
         "--save",
         action="store_true",
-        help="Save the recipe as .hermes/environment.json in the project",
+        help="Save the recipe as .allr/environment.json in the project",
     )
     verify_parser.add_argument(
         "--skip-start",

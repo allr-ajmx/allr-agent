@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type * as Hermes from '@/hermes'
+import type * as Allr from '@/hermes'
 import { I18nProvider } from '@/i18n'
 
 import {
@@ -28,7 +28,7 @@ const getGlobalModelOptions = vi.fn()
 // app's REST fallback — the one call a plugin's menu makes. Everything else in
 // `@/hermes` is left alone.
 vi.mock('@/hermes', async importOriginal => ({
-  ...(await importOriginal<typeof Hermes>()),
+  ...(await importOriginal<typeof Allr>()),
   getGlobalModelOptions: (...args: unknown[]) => getGlobalModelOptions(...args)
 }))
 

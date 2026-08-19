@@ -1,7 +1,7 @@
-"""Coding-context awareness — base Hermes, every interactive surface.
+"""Coding-context awareness — base Allr, every interactive surface.
 
-When the user runs Hermes inside a code workspace (CLI, TUI, desktop app, or an
-editor over ACP), Hermes shifts into a **coding posture**. This module is the
+When the user runs Allr inside a code workspace (CLI, TUI, desktop app, or an
+editor over ACP), Allr shifts into a **coding posture**. This module is the
 single place that decides whether we're in that posture and what it implies,
 so the rest of the codebase never re-derives "are we coding?" on its own.
 
@@ -62,7 +62,7 @@ from typing import Any, Optional
 
 from hermes_cli._subprocess_compat import bounded_git_probe
 
-logger = logging.getLogger("hermes.coding_context")
+logger = logging.getLogger("allr.coding_context")
 
 CODING_TOOLSET = "coding"
 
@@ -213,7 +213,7 @@ def _edit_format_line(model: Optional[str]) -> str:
 
 # Operating brief for the coding posture. Tool names referenced here (read_file,
 # search_files, patch, write_file, terminal, todo) are in the coding toolset and
-# in _HERMES_CORE_TOOLS, so they're present on every surface this fires on.
+# in _ALLR_CORE_TOOLS, so they're present on every surface this fires on.
 CODING_AGENT_GUIDANCE = (
     "You are a coding agent pairing with the user inside their codebase. "
     "Operate like a careful senior engineer.\n"
@@ -511,7 +511,7 @@ class RuntimeMode:
         messaging for build notifications, …) keeps it while coding.
 
         Callers apply this only when the user hasn't pinned an explicit
-        selection (``--toolsets``, ``HERMES_TUI_TOOLSETS``, …); they never
+        selection (``--toolsets``, ``ALLR_TUI_TOOLSETS``, …); they never
         override a pin. Returns the profile's toolset plus enabled MCP servers.
         """
         if self.config_mode != "focus":
@@ -624,7 +624,7 @@ def is_coding_context(
     cwd: Optional[str | Path] = None,
     config: Optional[dict[str, Any]] = None,
 ) -> bool:
-    """Whether Hermes should operate in its coding posture right now."""
+    """Whether Allr should operate in its coding posture right now."""
     return resolve_runtime_mode(platform=platform, cwd=cwd, config=config).is_coding
 
 

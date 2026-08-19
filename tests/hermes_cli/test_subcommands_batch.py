@@ -20,7 +20,6 @@ from hermes_cli.subcommands.dashboard import build_dashboard_parser
 from hermes_cli.subcommands.debug import build_debug_parser
 from hermes_cli.subcommands.doctor import build_doctor_parser
 from hermes_cli.subcommands.dump import build_dump_parser
-from hermes_cli.subcommands.gui import build_gui_parser
 from hermes_cli.subcommands.hooks import build_hooks_parser
 from hermes_cli.subcommands.import_cmd import build_import_cmd_parser
 from hermes_cli.subcommands.login import build_login_parser
@@ -70,7 +69,6 @@ SINGLE_HANDLER_CASES = [
     ("version", build_version_parser, "cmd_version", ["version"]),
     ("update", build_update_parser, "cmd_update", ["update"]),
     ("uninstall", build_uninstall_parser, "cmd_uninstall", ["uninstall"]),
-    ("gui", build_gui_parser, "cmd_gui", ["gui"]),
     ("logs", build_logs_parser, "cmd_logs", ["logs"]),
     ("prompt-size", build_prompt_size_parser, "cmd_prompt_size", ["prompt-size"]),
 ]
@@ -79,8 +77,8 @@ SINGLE_HANDLER_CASES = [
 
 
 def test_config_get_unset_subcommands_parse():
-    """`hermes config get/unset` parse key args (and --json for get)."""
-    parser = argparse.ArgumentParser(prog="hermes")
+    """`allr config get/unset` parse key args (and --json for get)."""
+    parser = argparse.ArgumentParser(prog="allr")
     sub = parser.add_subparsers(dest="command")
     handler = _h("config")
     build_config_parser(sub, cmd_config=handler)
@@ -99,11 +97,11 @@ def test_config_get_unset_subcommands_parse():
 
 
 
-# ── deprecated `hermes login` fails gracefully, not with argparse error ────
+# ── deprecated `allr login` fails gracefully, not with argparse error ────
 #
-# `hermes login` is a removed command; its handler (`login_command` in
-# `hermes_cli/auth.py`) prints a deprecation notice pointing at `hermes auth` /
-# `hermes model` and exits 0.  Two behavior contracts guard the UX:
+# `allr login` is a removed command; its handler (`login_command` in
+# `hermes_cli/auth.py`) prints a deprecation notice pointing at `allr auth` /
+# `allr model` and exits 0.  Two behavior contracts guard the UX:
 #   1. ANY `--provider <value>` (including ones the user actually wants, like
 #      `anthropic`) must parse and reach the handler — never crash in argparse
 #      with `invalid choice` before the friendly redirect is printed (#24756).
@@ -111,7 +109,7 @@ def test_config_get_unset_subcommands_parse():
 
 
 def _login_parser():
-    parser = argparse.ArgumentParser(prog="hermes")
+    parser = argparse.ArgumentParser(prog="allr")
     sub = parser.add_subparsers(dest="command")
     build_login_parser(sub, cmd_login=_h("login"))
     return parser
@@ -126,7 +124,7 @@ def test_login_subparser_help_is_suppressed():
     which `help=argparse.SUPPRESS` emits for a top-level subparser on 3.12+.
     The fix omits the `help=` kwarg entirely instead.
     """
-    parser = argparse.ArgumentParser(prog="hermes")
+    parser = argparse.ArgumentParser(prog="allr")
     sub = parser.add_subparsers(dest="command")
     build_login_parser(sub, cmd_login=_h("login"))
     help_text = parser.format_help()

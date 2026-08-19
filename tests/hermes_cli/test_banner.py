@@ -51,7 +51,7 @@ def test_build_welcome_banner_title_falls_back_when_no_tag():
         )
 
     raw = buf.getvalue()
-    assert "Hermes Agent v" in raw, "Version label missing from title"
+    assert "Allr v" in raw, "Version label missing from title"
     assert "\x1b]8;" not in raw, "OSC-8 hyperlink should not be emitted without a tag"
 
 
@@ -61,8 +61,8 @@ def test_build_welcome_banner_title_falls_back_when_no_tag():
 
 def test_build_welcome_banner_non_moa_unchanged(tmp_path, monkeypatch):
     """A normal provider still renders the bare model slug, no MoA prefix."""
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
-    (tmp_path / ".hermes").mkdir()
+    monkeypatch.setenv("ALLR_HOME", str(tmp_path / ".allr"))
+    (tmp_path / ".allr").mkdir()
 
     with (
         patch.object(model_tools, "check_tool_availability", return_value=([], [])),

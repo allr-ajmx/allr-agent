@@ -1,6 +1,6 @@
-//! "Is Hermes installed on this machine, and where?"
+//! "Is Allr installed on this machine, and where?"
 //!
-//! `local_backend.rs` answers this with one line — `HERMES_BIN` or the bare string
+//! `local_backend.rs` answers this with one line — `ALLR_BIN` or the bare string
 //! `"hermes"` handed to the OS PATH — and only discovers the answer by failing to
 //! spawn, 45-90s into a connect attempt. That is the gap this module closes.
 //!
@@ -11,7 +11,7 @@
 //!
 //! The rung that matters most is the login shell. A GUI app launched from Finder
 //! or the Dock inherits a login-less PATH with no `~/.local/bin` and no venv bin —
-//! which is precisely where Hermes installs. `ssh/posix_lifecycle.rs:315`
+//! which is precisely where Allr installs. `ssh/posix_lifecycle.rs:315`
 //! documents the identical trap for `ssh host cmd`; the fix is the same, and the
 //! failure it prevents is invisible from a terminal-launched dev build.
 
@@ -23,9 +23,9 @@ use serde::Serialize;
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum InstallKind {
-    /// An install this app manages, at `<hermes_home>/hermes-agent`.
+    /// An install this app manages, at `<hermes_home>/allr-agent`.
     Managed,
-    /// Some other Hermes the user already had — on PATH or at a known location.
+    /// Some other Allr the user already had — on PATH or at a known location.
     Path,
     /// Nothing usable. A NORMAL state, never an error: it is the whole reason
     /// the install screen exists.
@@ -94,7 +94,7 @@ pub fn read_marker(root: &Path) -> Option<serde_json::Value> {
     marker_is_valid(&value).then_some(value)
 }
 
-/// Does `root` look like a Hermes checkout we could actually run?
+/// Does `root` look like a Allr checkout we could actually run?
 ///
 /// Mirrors Electron's `isHermesSourceRoot` + venv check. Deliberately structural
 /// rather than executing anything: this runs on every visit to the Local step, and
@@ -107,7 +107,7 @@ pub fn usable_root(root: &Path) -> bool {
 /// The `hermes` executable inside a checkout's venv, if present.
 pub fn venv_hermes(root: &Path) -> Option<PathBuf> {
     let candidate = if cfg!(target_os = "windows") {
-        root.join("venv").join("Scripts").join("hermes.exe")
+        root.join("venv").join("Scripts").join("allr.exe")
     } else {
         root.join("venv").join("bin").join("hermes")
     };
@@ -116,13 +116,13 @@ pub fn venv_hermes(root: &Path) -> Option<PathBuf> {
 }
 
 /// Well-known locations to try after PATH, mirroring
-/// `ssh/posix_lifecycle.rs`'s `FALLBACK_HERMES_PATHS` — the same list, for the
+/// `ssh/posix_lifecycle.rs`'s `FALLBACK_ALLR_PATHS` — the same list, for the
 /// same reason, just resolved locally instead of over a channel.
 pub fn fallback_candidates(home: Option<&Path>, hermes_home: Option<&Path>) -> Vec<PathBuf> {
     let mut out = Vec::new();
 
     if let Some(hermes_home) = hermes_home {
-        let root = hermes_home.join("hermes-agent");
+        let root = hermes_home.join("allr-agent");
 
         if let Some(bin) = venv_hermes(&root) {
             out.push(bin);
@@ -135,7 +135,7 @@ pub fn fallback_candidates(home: Option<&Path>, hermes_home: Option<&Path>) -> V
                 home.join("AppData")
                     .join("Local")
                     .join("bin")
-                    .join("hermes.exe"),
+                    .join("allr.exe"),
             );
         } else {
             out.push(home.join(".local").join("bin").join("hermes"));
@@ -143,8 +143,8 @@ pub fn fallback_candidates(home: Option<&Path>, hermes_home: Option<&Path>) -> V
     }
 
     if !cfg!(target_os = "windows") {
-        out.push(PathBuf::from("/usr/local/bin/hermes"));
-        out.push(PathBuf::from("/opt/homebrew/bin/hermes"));
+        out.push(PathBuf::from("/usr/local/bin/allr"));
+        out.push(PathBuf::from("/opt/homebrew/bin/allr"));
     }
 
     out
@@ -183,7 +183,7 @@ mod imp {
     /// Run `<cmd> --version`, returning its first line when it exits 0.
     ///
     /// This is the validation step the ladder is built around: it is what makes
-    /// "there is a file called hermes here" into "there is a working Hermes here".
+    /// "there is a file called hermes here" into "there is a working Allr here".
     async fn probe_version(cmd: &Path) -> Option<String> {
         let mut command = Command::new(cmd);
 
@@ -264,10 +264,10 @@ mod imp {
     pub async fn detect() -> LocalInstall {
         let hermes_home = crate::plugins::hermes_home();
 
-        // Rung 1: HERMES_BIN. Honoured strictly, because it is exactly what
+        // Rung 1: ALLR_BIN. Honoured strictly, because it is exactly what
         // local_backend.rs will spawn — reporting anything else here would show
         // the user an install the connect path is not going to use.
-        if let Some(explicit) = std::env::var("HERMES_BIN")
+        if let Some(explicit) = std::env::var("ALLR_BIN")
             .ok()
             .map(|v| v.trim().to_string())
             .filter(|v| !v.is_empty())
@@ -285,7 +285,7 @@ mod imp {
         }
 
         // Rung 2: the managed checkout. Marker is provenance; usability decides.
-        if let Some(root) = hermes_home.as_ref().map(|h| h.join("hermes-agent")) {
+        if let Some(root) = hermes_home.as_ref().map(|h| h.join("allr-agent")) {
             let marker = read_marker(&root);
 
             if usable_root(&root) {
@@ -426,7 +426,7 @@ mod tests {
     fn fallbacks_lead_with_the_managed_venv() {
         let home = PathBuf::from("/home/u");
         let hermes_home = std::env::temp_dir().join("hermes-detect-fallback");
-        let root = hermes_home.join("hermes-agent");
+        let root = hermes_home.join("allr-agent");
         let bin_dir = if cfg!(target_os = "windows") {
             root.join("venv").join("Scripts")
         } else {
@@ -437,7 +437,7 @@ mod tests {
         std::fs::create_dir_all(&bin_dir).expect("mkdir");
         std::fs::write(
             bin_dir.join(if cfg!(target_os = "windows") {
-                "hermes.exe"
+                "allr.exe"
             } else {
                 "hermes"
             }),

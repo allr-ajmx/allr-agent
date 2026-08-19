@@ -6,7 +6,7 @@
 #
 # Source filters (pythonSrc, per-package npm srcs) reduce rebuild scope so
 # that e.g. a .tsx change doesn't trigger a Python venv rebuild, and a .py
-# change doesn't trigger a TUI/Web/Desktop rebuild.  Each derivation gets a
+# change doesn't trigger a TUI/Web rebuild.  Each derivation gets a
 # filtered src that only includes files it actually needs, while keeping
 # the repo-root directory layout intact for buildNpmPackage /
 # npmConfigHook workspace resolution.
@@ -94,14 +94,14 @@ let
 
   # Top-level directory of each workspace member, deduplicated.  Used to
   # exclude JS/TS workspace trees from the Python source filter.  E.g.
-  # apps/desktop + apps/shared + ui-tui + web → [ "apps" "ui-tui" "web" ].
+  # apps/hermes-universal + apps/shared + ui-tui + web → [ "apps" "ui-tui" "web" ].
   jsWorkspaceTopDirs = lib.unique (
     map (d: builtins.head (lib.splitString "/" d)) workspaceMemberDirs
   );
 
   # ── Source filters for reducing rebuild scope ──────────────────────
   # Changing a .tsx/.mjs file should NOT trigger a Python venv rebuild,
-  # and changing a .py file should NOT trigger a TUI/Web/Desktop rebuild.
+  # and changing a .py file should NOT trigger a TUI/Web rebuild.
 
   # Python source: everything except JS/TS/docs/infra directories.
   pythonSrc = lib.cleanSourceWith {
@@ -135,16 +135,16 @@ let
             "plans"
             # Nix build definitions (Python build doesn't need these)
             "nix"
-            # Skills are shipped via HERMES_BUNDLED_SKILLS /
-            # HERMES_OPTIONAL_SKILLS (see hermes-agent.nix), not via the
+            # Skills are shipped via ALLR_BUNDLED_SKILLS /
+            # ALLR_OPTIONAL_SKILLS (see allr-agent.nix), not via the
             # wheel's data_files — setup.py's _data_file_tree returns []
             # for a missing dir, so the wheel builds fine without them.
             # This keeps SKILL.md edits from rebuilding the Python venv.
             "skills"
             "optional-skills"
             # locales/ and optional-mcps/ are bare data dirs (no
-            # __init__.py) shipped via symlinks + HERMES_BUNDLED_LOCALES
-            # / HERMES_OPTIONAL_MCPS, not via the wheel. Excluding them
+            # __init__.py) shipped via symlinks + ALLR_BUNDLED_LOCALES
+            # / ALLR_OPTIONAL_MCPS, not via the wheel. Excluding them
             # keeps catalog edits from rebuilding the Python venv.
             "locales"
             "optional-mcps"
@@ -169,7 +169,7 @@ let
           "SECURITY.md"
           "README.zh-CN.md"
           ".gitignore"
-          "setup-hermes.sh"
+          "setup-allr.sh"
         ];
       in
       if relPath == "" then
@@ -231,11 +231,11 @@ let
   # its first entry is the package's own folder (→ packageJsonPath), and
   # all entries scope the filtered src.  Packages that import source from
   # another workspace member (file: deps) must list that member's dir too,
-  # e.g. apps/desktop depends on apps/shared.
+  # e.g. apps/hermes-universal depends on apps/shared.
   #
   # Usage:
   #   hermesNpmLib.buildNpmPackage {
-  #     dirs = [ "apps/desktop" "apps/shared" ];
+  #     dirs = [ "apps/hermes-universal" "apps/shared" ];
   #     buildPhase = '' ... '';
   #     installPhase = '' ... '';
   #   }
@@ -302,7 +302,7 @@ in
 
     # importNpmLock reads hashes from the lockfile itself — rebuild every
     # npm package to verify the new lockfile resolves offline.
-    nix build .#tui .#web .#desktop
+    nix build .#tui .#web
     echo "Lockfile updated and all npm packages built."
   '';
 

@@ -261,7 +261,7 @@ export function routeGatewayEvent(event: GatewayEvent): void {
       showAgentNotice(notice)
 
       // The urgent pair (access paused / restored) also breaks through as a
-      // native OS notification when Hermes is backgrounded; dispatch is gated by
+      // native OS notification when Allr is backgrounded; dispatch is gated by
       // the user's notification prefs + the backgrounded check.
       const native = nativeNoticeInput(notice, translateNow('notifications.native.creditsTitle'))
 
@@ -290,7 +290,7 @@ export function routeGatewayEvent(event: GatewayEvent): void {
       // the skin is nested, on `skin.changed` the payload IS the skin.
       ingestBackendSkin((payload as { skin?: HermesSkin }).skin, { apply: false })
     } else if (event.type === 'skin.changed') {
-      // A runtime switch — Hermes activating a skin it authored, or `/skin` on
+      // A runtime switch — Allr activating a skin it authored, or `/skin` on
       // another surface. This one repaints.
       ingestBackendSkin(payload as HermesSkin, { apply: true })
     }

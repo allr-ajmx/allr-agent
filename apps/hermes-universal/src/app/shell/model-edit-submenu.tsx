@@ -12,7 +12,7 @@ import { Switch } from '@/components/ui/switch'
 import { useI18n } from '@/i18n'
 import { normalize } from '@/lib/text'
 
-/** Hermes' real reasoning levels (see VALID_REASONING_EFFORTS); `none` is owned
+/** Allr' real reasoning levels (see VALID_REASONING_EFFORTS); `none` is owned
  *  by the Thinking toggle, not the radio. Each value doubles as its
  *  `t.shell.modelOptions` copy key. */
 export const REASONING_EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const
@@ -170,7 +170,7 @@ export function ModelEditSubmenu({
 }
 
 function isThinkingEnabled(effort: string): boolean {
-  // Empty = Hermes default (medium) = on; only an explicit "none" is off.
+  // Empty = Allr default (medium) = on; only an explicit "none" is off.
   return normalize(effort || DEFAULT_REASONING_EFFORT) !== 'none'
 }
 

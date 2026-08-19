@@ -23,7 +23,7 @@ const reclaimSessionTransport = vi.fn(async (_storedId: string) => undefined)
 const notifyError = vi.fn()
 const listen = vi.fn()
 
-/** Every registered `hermes://tile-window-closed` handler. */
+/** Every registered `allr://tile-window-closed` handler. */
 const closedHandlers: ((event: { payload: string }) => void)[] = []
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: (cmd: string, args: unknown) => invoke(cmd, args) }))
@@ -164,6 +164,6 @@ describe('a closed pop-out hands its session back', () => {
 
     // Stacked listeners would resume once per pop-out ever opened.
     expect(listen).toHaveBeenCalledTimes(1)
-    expect(listen).toHaveBeenCalledWith('hermes://tile-window-closed')
+    expect(listen).toHaveBeenCalledWith('allr://tile-window-closed')
   })
 })

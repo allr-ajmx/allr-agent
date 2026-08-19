@@ -42,7 +42,7 @@ const nousTint = (pct: number) => `color-mix(in srgb, ${NOUS_BLUE} ${pct}%, #FFF
 const nousTintTransparent = (pct: number) => `color-mix(in srgb, ${NOUS_BLUE} ${pct}%, transparent)`
 
 /**
- * Nous — canonical Hermes desktop identity. The palette keeps the current
+ * Nous — canonical Allr desktop identity. The palette keeps the current
  * glass geometry neutral, then lets the old bb/gui blue and psyche cream
  * return as accent seeds.
  */
@@ -107,6 +107,126 @@ export const nousTheme: DesktopTheme = {
   typography: {
     // Courier Prime is self-hosted (@font-face in styles.css) — no fontUrl.
     fontSans: SYSTEM_SANS,
+    fontMono: `"Courier Prime", ${SYSTEM_MONO}`
+  }
+}
+
+// ─── Allr ───────────────────────────────────────────────────────────────────
+// Palette lifted from the Allr brand book. Two rules from that document drive
+// the mapping below, and they are the reason this is not a straight hex swap:
+//
+//   • GREEN IS EARNED — completion, live status, primary CTA. Never decoration.
+//   • HONEY IS ANTICIPATION — in-progress, focus rings, underlines.
+//
+// In this app `primary` paints buttons and CTAs, while `midground` (aliased to
+// `--ui-accent`) paints focus rings, the streaming cursor, active-session pills
+// and the branded scrollbar — all of which mean "working on it". So primary is
+// green and midground/ring is honey, not the other way round.
+//
+// Third rule, applied throughout: ink is never pure black and paper is never
+// pure white. `card` is the sole `#FFFFFF`, and it is a surface, never a text
+// colour.
+const ALLR_PAPER = '#FBF8F2'
+const ALLR_BODY = '#F7F1E6' // the site's actual page background — warmer than paper
+const ALLR_INK = '#223B33' // deep pine
+const ALLR_INK_SOFT = '#5C7168'
+const ALLR_HONEY = '#E9A83E' // lamplight
+const ALLR_HONEY_DEEP = '#B77E1F'
+const ALLR_HONEY_TINT = '#FBEFD8'
+const ALLR_HONEY_LINE = '#F0DCB4'
+// The brand's "done" green is #2E9E63; the theme uses green-deep so small white
+// label text on primary controls stays legible.
+const ALLR_GREEN_DEEP = '#1E7A49'
+const ALLR_SAGE_TINT = '#ECF2EC'
+const ALLR_CLAY = '#A6543C'
+
+/** Strokes and dividers are ink at low alpha, so they stay pine-tinted rather
+ *  than going grey against the warm surfaces. */
+const allrInkTransparent = (pct: number) => `color-mix(in srgb, ${ALLR_INK} ${pct}%, transparent)`
+const allrHoneyTint = (pct: number) => `color-mix(in srgb, ${ALLR_HONEY} ${pct}%, #FFFFFF)`
+
+/**
+ * Allr — warm evening paper under lamplight. The brand ships a single light
+ * theme, so the dark variant below is ours: rather than let the synth pass
+ * generate a neutral grey dark (which would read as a different product), it is
+ * built by inverting around the pine ink the light theme already uses for text,
+ * and keeping honey as the accent so focus and progress feel identical in both.
+ */
+export const allrTheme: DesktopTheme = {
+  name: 'allr',
+  label: 'Allr',
+  description: 'Warm paper, honey and green',
+  colors: {
+    background: ALLR_PAPER,
+    foreground: ALLR_INK,
+    card: '#FFFFFF',
+    cardForeground: ALLR_INK,
+    muted: allrHoneyTint(8),
+    mutedForeground: ALLR_INK_SOFT,
+    popover: '#FFFFFF',
+    popoverForeground: ALLR_INK,
+    // The brand CTA is #2E9E63, but white-on-that is 3.39:1 — fine for the
+    // site's 1.05rem bold buttons, short of AA for this app's 13px controls.
+    // Green-deep is the brand's own CTA hover colour and clears 5.3:1.
+    primary: ALLR_GREEN_DEEP,
+    primaryForeground: '#FFFFFF',
+    secondary: ALLR_HONEY_TINT,
+    secondaryForeground: ALLR_INK,
+    accent: ALLR_SAGE_TINT,
+    accentForeground: ALLR_GREEN_DEEP,
+    border: allrInkTransparent(14),
+    input: allrInkTransparent(20),
+    // Honey-DEEP rather than honey in light mode. #E9A83E against paper is
+    // 1.95:1 — fine as a 3px outline on a marketing page, invisible as this
+    // app's 1px focus rings, streaming cursor and accent text. #B77E1F is the
+    // brand's own darker honey and clears the 3:1 non-text threshold.
+    ring: ALLR_HONEY_DEEP,
+    midground: ALLR_HONEY_DEEP,
+    composerRing: ALLR_HONEY_DEEP,
+    destructive: ALLR_CLAY,
+    destructiveForeground: '#FFFFFF',
+    sidebarBackground: ALLR_BODY,
+    sidebarBorder: allrInkTransparent(11),
+    userBubble: ALLR_HONEY_TINT,
+    userBubbleBorder: ALLR_HONEY_LINE
+  },
+  darkColors: {
+    background: '#16241F',
+    foreground: '#F0E9DA',
+    card: ALLR_INK,
+    cardForeground: '#F0E9DA',
+    muted: '#2B4139',
+    mutedForeground: '#A9BDB2',
+    popover: ALLR_INK,
+    popoverForeground: '#F0E9DA',
+    // Lifted off #2E9E63 — the brand green is tuned for white and drops below
+    // 4.5:1 against pine.
+    primary: '#45B87F',
+    primaryForeground: '#0F1C17',
+    secondary: '#2E4A40',
+    secondaryForeground: '#F0E9DA',
+    accent: '#2E4A40',
+    accentForeground: '#F6C56B',
+    border: '#2F4A40',
+    input: '#3A574C',
+    ring: ALLR_HONEY,
+    midground: ALLR_HONEY,
+    composerRing: ALLR_HONEY,
+    destructive: '#D98A72',
+    destructiveForeground: '#1B0F0B',
+    sidebarBackground: '#101C18',
+    sidebarBorder: '#2F4A40',
+    userBubble: '#2A4239',
+    userBubbleBorder: '#3E5D51'
+  },
+  typography: {
+    // Nunito Sans and Courier Prime are both vendored (@font-face in
+    // styles.css) — no fontUrl. The system stack stays in the tail so the
+    // subset faces have something to fall through to outside latin/latin-ext.
+    fontSans: `"Nunito Sans", ${SYSTEM_SANS}`,
+    // The brand book flags mono as an open gap. Courier Prime is the warm
+    // typewriter face already in the bundle — it suits paper far better than
+    // the grid-y developer monos.
     fontMono: `"Courier Prime", ${SYSTEM_MONO}`
   }
 }
@@ -296,6 +416,7 @@ export const slateTheme: DesktopTheme = {
 }
 
 export const BUILTIN_THEMES: Record<string, DesktopTheme> = {
+  allr: allrTheme,
   nous: nousTheme,
   midnight: midnightTheme,
   ember: emberTheme,
@@ -307,4 +428,4 @@ export const BUILTIN_THEMES: Record<string, DesktopTheme> = {
 export const BUILTIN_THEME_LIST = Object.values(BUILTIN_THEMES)
 
 /** Skin used when nothing is persisted or the persisted name is retired. */
-export const DEFAULT_SKIN_NAME = 'nous'
+export const DEFAULT_SKIN_NAME = 'allr'

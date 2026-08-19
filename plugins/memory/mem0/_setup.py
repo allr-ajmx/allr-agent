@@ -313,13 +313,13 @@ def _setup_platform(hermes_home: str, config: dict, flags: dict[str, str]) -> No
     provider_config["host"] = ""
     # The json-file clear above can't help when the host comes from the
     # environment: _load_config() seeds ``host`` from MEM0_HOST, and the
-    # docs tell self-hosted users to put MEM0_HOST in ~/.hermes/.env. Warn
+    # docs tell self-hosted users to put MEM0_HOST in ~/.allr/.env. Warn
     # so the user knows platform mode won't take effect until it's removed.
     if os.environ.get("MEM0_HOST", "").strip():
         print(
             "\n  ⚠ MEM0_HOST is set in your environment "
             f"({os.environ['MEM0_HOST']}). It overrides platform mode — "
-            "remove it from ~/.hermes/.env (or unset it) or Hermes will keep "
+            "remove it from ~/.allr/.env (or unset it) or Allr will keep "
             "routing to the self-hosted server."
         )
 
@@ -962,7 +962,7 @@ def _check_min_dep_version() -> None:
 
 
 def post_setup(hermes_home: str, config: dict) -> None:
-    """Entry point called by hermes memory setup framework.
+    """Entry point called by allr memory setup framework.
 
     Routes on --mode (platform / selfhosted / oss); with no flag it shows an
     interactive picker with all three modes. Platform keeps the framework's

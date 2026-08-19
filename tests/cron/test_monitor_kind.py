@@ -30,13 +30,13 @@ import pytest
 
 @pytest.fixture
 def hermes_env(tmp_path, monkeypatch):
-    """Isolate HERMES_HOME for each test so jobs/scripts/snapshots don't leak."""
-    home = tmp_path / ".hermes"
+    """Isolate ALLR_HOME for each test so jobs/scripts/snapshots don't leak."""
+    home = tmp_path / ".allr"
     home.mkdir()
     (home / "scripts").mkdir()
     (home / "cron").mkdir()
 
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("ALLR_HOME", str(home))
 
     # Reload modules that cache get_hermes_home() at import time.
     import importlib
@@ -100,7 +100,7 @@ def _install_agent_stubs(monkeypatch, observed: dict):
     monkeypatch.setattr(sched, "_resolve_origin", lambda job: None)
     monkeypatch.setattr(sched, "_resolve_delivery_target", lambda job: None)
     monkeypatch.setattr(sched, "_resolve_cron_enabled_toolsets", lambda job, cfg: None)
-    monkeypatch.setenv("HERMES_CRON_TIMEOUT", "0")
+    monkeypatch.setenv("ALLR_CRON_TIMEOUT", "0")
 
     import dotenv
     monkeypatch.setattr(dotenv, "load_dotenv", lambda *_a, **_kw: True)

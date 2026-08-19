@@ -1,22 +1,22 @@
 ---
 name: honcho
-description: Configure and troubleshoot Honcho memory for Hermes.
+description: Configure and troubleshoot Honcho memory for Allr.
 version: 2.0.0
-author: Hermes Agent
+author: Allr
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
   hermes:
     tags: [Honcho, Memory, Profiles, Observation, Dialectic, User-Modeling, Session-Summary]
     homepage: https://docs.honcho.dev
-    related_skills: [hermes-agent]
+    related_skills: [allr-agent]
 prerequisites:
   pip: [honcho-ai]
 ---
 
-# Honcho Memory for Hermes
+# Honcho Memory for Allr
 
-Honcho provides AI-native cross-session user modeling. It learns who the user is across conversations and gives every Hermes profile its own peer identity while sharing a unified view of the user.
+Honcho provides AI-native cross-session user modeling. It learns who the user is across conversations and gives every Allr profile its own peer identity while sharing a unified view of the user.
 
 ## When to Use
 
@@ -32,14 +32,14 @@ Honcho provides AI-native cross-session user modeling. It learns who the user is
 ### Cloud (app.honcho.dev)
 
 ```bash
-hermes memory setup honcho
+allr memory setup honcho
 # select "cloud", paste API key from https://app.honcho.dev
 ```
 
 ### Self-hosted
 
 ```bash
-hermes memory setup honcho
+allr memory setup honcho
 # select "local", enter base URL (e.g. http://localhost:8000)
 ```
 
@@ -48,7 +48,7 @@ See: https://docs.honcho.dev/v3/guides/integrations/hermes#running-honcho-locall
 ### Verify
 
 ```bash
-hermes honcho status    # shows resolved config, connection test, peer info
+allr honcho status    # shows resolved config, connection test, peer info
 ```
 
 ## Architecture
@@ -59,7 +59,7 @@ When Honcho injects context into the system prompt (in `hybrid` or `context` rec
 
 1. **Session summary** -- a short digest of the current session so far (placed first so the model has immediate conversational continuity)
 2. **User representation** -- Honcho's accumulated model of the user (preferences, facts, patterns)
-3. **AI peer card** -- the identity card for this Hermes profile's AI peer
+3. **AI peer card** -- the identity card for this Allr profile's AI peer
 
 The session summary is generated automatically by Honcho at the start of each turn (when a prior session exists). It gives the model a warm start without replaying full history.
 
@@ -76,10 +76,10 @@ You do not need to configure this -- it is automatic based on session state.
 
 ### Peers
 
-Honcho models conversations as interactions between **peers**. Hermes creates two peers per session:
+Honcho models conversations as interactions between **peers**. Allr creates two peers per session:
 
 - **User peer** (`peerName`): represents the human. Honcho builds a user representation from observed messages.
-- **AI peer** (`aiPeer`): represents this Hermes instance. Each profile gets its own AI peer so agents develop independent views.
+- **AI peer** (`aiPeer`): represents this Allr instance. Each profile gets its own AI peer so agents develop independent views.
 
 ### Observation
 
@@ -120,10 +120,10 @@ Honcho sessions scope where messages and observations land. Strategy options:
 |----------|----------|
 | `per-directory` (default) | One session per working directory |
 | `per-repo` | One session per git repository root |
-| `per-session` | New Honcho session each Hermes run |
+| `per-session` | New Honcho session each Allr run |
 | `global` | Single session across all directories |
 
-Manual override: `hermes honcho map my-project-name`
+Manual override: `allr honcho map my-project-name`
 
 ### Recall Modes
 
@@ -196,7 +196,7 @@ Higher levels produce richer synthesis but cost more tokens on Honcho's backend.
 
 ## Multi-Profile Setup
 
-Each Hermes profile gets its own Honcho AI peer while sharing the same workspace (user context). This means:
+Each Allr profile gets its own Honcho AI peer while sharing the same workspace (user context). This means:
 
 - All profiles see the same user representation
 - Each profile builds its own AI identity and observations
@@ -205,7 +205,7 @@ Each Hermes profile gets its own Honcho AI peer while sharing the same workspace
 ### Create a profile with Honcho peer
 
 ```bash
-hermes profile create coder --clone
+allr profile create coder --clone
 # creates host block hermes.coder, AI peer "coder", inherits config from default
 ```
 
@@ -218,7 +218,7 @@ What `--clone` does for Honcho:
 ### Backfill existing profiles
 
 ```bash
-hermes honcho sync    # creates host blocks for all profiles that don't have one yet
+allr honcho sync    # creates host blocks for all profiles that don't have one yet
 ```
 
 ### Per-profile config
@@ -288,7 +288,7 @@ honcho_conclude delete_id="abc123"    # PII removal
 
 ## Agent Usage Patterns
 
-Guidelines for Hermes when Honcho memory is active.
+Guidelines for Allr when Honcho memory is active.
 
 ### On conversation start
 
@@ -337,7 +337,7 @@ In `hybrid` and `context` modes, base context (user representation + card + sess
 
 ## Config Reference
 
-Config file: `$HERMES_HOME/honcho.json` (profile-local) or `~/.honcho/config.json` (global).
+Config file: `$ALLR_HOME/honcho.json` (profile-local) or `~/.honcho/config.json` (global).
 
 ### Key settings
 
@@ -389,13 +389,13 @@ This fix addresses edge cases where raw user conclusions containing markup or sp
 ## Troubleshooting
 
 ### "Honcho not configured"
-Run `hermes honcho setup`. Ensure `memory.provider: honcho` is in `~/.hermes/config.yaml`.
+Run `allr honcho setup`. Ensure `memory.provider: honcho` is in `~/.allr/config.yaml`.
 
 ### Memory not persisting across sessions
-Check `hermes honcho status` -- verify `saveMessages: true` and `writeFrequency` isn't `session` (which only writes on exit).
+Check `allr honcho status` -- verify `saveMessages: true` and `writeFrequency` isn't `session` (which only writes on exit).
 
 ### Profile not getting its own peer
-Use `--clone` when creating: `hermes profile create <name> --clone`. For existing profiles: `hermes honcho sync`.
+Use `--clone` when creating: `allr profile create <name> --clone`. For existing profiles: `allr honcho sync`.
 
 ### Observation changes in dashboard not reflected
 Observation config is synced from the server on each session init. Start a new session after changing settings in the Honcho UI.
@@ -413,19 +413,19 @@ Session summary requires at least one prior turn in the current Honcho session. 
 
 | Command | Description |
 |---------|-------------|
-| `hermes honcho setup` | Interactive setup wizard (cloud/local, identity, observation, recall, sessions) |
-| `hermes honcho status` | Show resolved config, connection test, peer info for active profile |
-| `hermes honcho enable` | Enable Honcho for the active profile (creates host block if needed) |
-| `hermes honcho disable` | Disable Honcho for the active profile |
-| `hermes honcho peer` | Show or update peer names (`--user <name>`, `--ai <name>`, `--reasoning <level>`) |
-| `hermes honcho peers` | Show peer identities across all profiles |
-| `hermes honcho mode` | Show or set recall mode (`hybrid`, `context`, `tools`) |
-| `hermes honcho tokens` | Show or set token budgets (`--context <N>`, `--dialectic <N>`) |
-| `hermes honcho sessions` | List known directory-to-session-name mappings |
-| `hermes honcho map <name>` | Map current working directory to a Honcho session name |
-| `hermes honcho identity` | Seed AI peer identity or show both peer representations |
-| `hermes honcho sync` | Create host blocks for all Hermes profiles that don't have one yet |
-| `hermes honcho migrate` | Step-by-step migration guide from OpenClaw native memory to Hermes + Honcho |
-| `hermes memory setup` | Generic memory provider picker (selecting "honcho" runs the same wizard) |
-| `hermes memory status` | Show active memory provider and config |
-| `hermes memory off` | Disable external memory provider |
+| `allr honcho setup` | Interactive setup wizard (cloud/local, identity, observation, recall, sessions) |
+| `allr honcho status` | Show resolved config, connection test, peer info for active profile |
+| `allr honcho enable` | Enable Honcho for the active profile (creates host block if needed) |
+| `allr honcho disable` | Disable Honcho for the active profile |
+| `allr honcho peer` | Show or update peer names (`--user <name>`, `--ai <name>`, `--reasoning <level>`) |
+| `allr honcho peers` | Show peer identities across all profiles |
+| `allr honcho mode` | Show or set recall mode (`hybrid`, `context`, `tools`) |
+| `allr honcho tokens` | Show or set token budgets (`--context <N>`, `--dialectic <N>`) |
+| `allr honcho sessions` | List known directory-to-session-name mappings |
+| `allr honcho map <name>` | Map current working directory to a Honcho session name |
+| `allr honcho identity` | Seed AI peer identity or show both peer representations |
+| `allr honcho sync` | Create host blocks for all Allr profiles that don't have one yet |
+| `allr honcho migrate` | Step-by-step migration guide from OpenClaw native memory to Allr + Honcho |
+| `allr memory setup` | Generic memory provider picker (selecting "honcho" runs the same wizard) |
+| `allr memory status` | Show active memory provider and config |
+| `allr memory off` | Disable external memory provider |

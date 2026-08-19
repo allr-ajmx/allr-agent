@@ -52,7 +52,7 @@ struct OwnershipProof {
 /// Classify a proof body against the nonce we expect.
 ///
 /// Split out from the request so the decision is testable without a server. All
-/// three fields must line up: `ok` alone would be satisfied by any Hermes, and
+/// three fields must line up: `ok` alone would be satisfied by any Allr, and
 /// the nonce alone would be satisfied by an install too old to honour the rest
 /// of the ownership contract.
 pub fn classify_proof(body: &str, expected_nonce: &str) -> ReuseClassification {
@@ -86,21 +86,22 @@ pub async fn probe_reuse_proof(
     token: &str,
     spawn_nonce: &str,
 ) -> Result<ReuseClassification, SshError> {
-    let response = client
-        .get(format!("{base_url}/api/ssh/ownership"))
-        .header("X-Hermes-Session-Token", token)
-        .timeout(PROBE_TIMEOUT)
-        .send()
-        .await
-        .map_err(|e| {
-            // A transport failure here is NOT evidence about ownership — the
-            // tunnel may simply have blipped. Saying "stale" would destroy a
-            // healthy backend, so this stays transient and the caller retries.
-            SshError::new(
-                SshErrorKind::TransientTransportError,
-                format!("Could not verify the existing SSH backend: {e}"),
-            )
-        })?;
+    let response = crate::transport::with_session_token(
+        client.get(format!("{base_url}/api/ssh/ownership")),
+        token,
+    )
+    .timeout(PROBE_TIMEOUT)
+    .send()
+    .await
+    .map_err(|e| {
+        // A transport failure here is NOT evidence about ownership — the
+        // tunnel may simply have blipped. Saying "stale" would destroy a
+        // healthy backend, so this stays transient and the caller retries.
+        SshError::new(
+            SshErrorKind::TransientTransportError,
+            format!("Could not verify the existing SSH backend: {e}"),
+        )
+    })?;
 
     if status_is_stale(response.status().as_u16()) {
         return Ok(ReuseClassification::AuthenticatedStale);
@@ -139,14 +140,15 @@ pub async fn wait_for_hermes(
             ));
         }
 
-        let ok = client
-            .get(format!("{base_url}/api/status"))
-            .header("X-Hermes-Session-Token", token)
-            .timeout(Duration::from_secs(3))
-            .send()
-            .await
-            .map(|r| r.status().is_success())
-            .unwrap_or(false);
+        let ok = crate::transport::with_session_token(
+            client.get(format!("{base_url}/api/status")),
+            token,
+        )
+        .timeout(Duration::from_secs(3))
+        .send()
+        .await
+        .map(|r| r.status().is_success())
+        .unwrap_or(false);
 
         if ok {
             return Ok(());
@@ -162,7 +164,7 @@ pub async fn wait_for_hermes(
 /// credential; a backend may serve a different one, and the served token is what
 /// authorizes `/api/ws`.
 pub fn extract_served_token(html: &str) -> Option<String> {
-    let marker = "window.__HERMES_SESSION_TOKEN__";
+    let marker = "window.__ALLR_SESSION_TOKEN__";
     let at = html.find(marker)?;
     let rest = &html[at + marker.len()..];
 
@@ -247,7 +249,7 @@ mod tests {
 
     #[test]
     fn every_field_must_line_up() {
-        // `ok` alone would be satisfied by any Hermes; the nonce alone would be
+        // `ok` alone would be satisfied by any Allr; the nonce alone would be
         // satisfied by an install too old to honour the rest of the contract.
         let cases = [
             r#"{"ok":false,"sshOwnerNonce":"0123456789abcdef","protocolVersion":1}"#,
@@ -298,17 +300,17 @@ mod tests {
 
     #[test]
     fn extracts_the_served_token_from_the_index_page() {
-        let html = r#"<script>window.__HERMES_SESSION_TOKEN__ = "abc123";</script>"#;
+        let html = r#"<script>window.__ALLR_SESSION_TOKEN__ = "abc123";</script>"#;
         assert_eq!(extract_served_token(html).as_deref(), Some("abc123"));
 
         // No spaces around the assignment.
-        let tight = r#"window.__HERMES_SESSION_TOKEN__="def456""#;
+        let tight = r#"window.__ALLR_SESSION_TOKEN__="def456""#;
         assert_eq!(extract_served_token(tight).as_deref(), Some("def456"));
     }
 
     #[test]
     fn served_token_extraction_handles_escapes() {
-        let html = r#"window.__HERMES_SESSION_TOKEN__ = "a\"b\\c""#;
+        let html = r#"window.__ALLR_SESSION_TOKEN__ = "a\"b\\c""#;
         assert_eq!(extract_served_token(html).as_deref(), Some(r#"a"b\c"#));
     }
 
@@ -318,7 +320,7 @@ mod tests {
         assert_eq!(extract_served_token("<html><body>hi</body></html>"), None);
         // An unterminated literal is not a token.
         assert_eq!(
-            extract_served_token(r#"window.__HERMES_SESSION_TOKEN__ = "unclosed"#),
+            extract_served_token(r#"window.__ALLR_SESSION_TOKEN__ = "unclosed"#),
             None
         );
     }
@@ -327,7 +329,7 @@ mod tests {
     fn served_token_extraction_ignores_a_mere_mention() {
         // A page that talks about the marker without assigning it must not be
         // mined for whatever string happens to follow.
-        let html = r#"<p>set window.__HERMES_SESSION_TOKEN__ from your "config" file</p>"#;
+        let html = r#"<p>set window.__ALLR_SESSION_TOKEN__ from your "config" file</p>"#;
         assert_eq!(extract_served_token(html), None);
     }
 

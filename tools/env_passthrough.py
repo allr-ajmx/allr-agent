@@ -48,8 +48,8 @@ _config_passthrough: frozenset[str] | None = None
 
 
 def _is_hermes_provider_credential(name: str) -> bool:
-    """True if ``name`` is a Hermes-managed provider credential (API key,
-    token, or similar) per ``_HERMES_PROVIDER_ENV_BLOCKLIST``.
+    """True if ``name`` is an Allr-managed provider credential (API key,
+    token, or similar) per ``_ALLR_PROVIDER_ENV_BLOCKLIST``.
 
     Skill-declared ``required_environment_variables`` frontmatter must
     not be able to override this list — that was the bypass in
@@ -58,18 +58,18 @@ def _is_hermes_provider_credential(name: str) -> bool:
     the credential in the ``execute_code`` child process, defeating the
     sandbox's scrubbing guarantee.
 
-    Non-Hermes API keys (TENOR_API_KEY, NOTION_TOKEN, etc.) are NOT
+    Non-Allr API keys (TENOR_API_KEY, NOTION_TOKEN, etc.) are NOT
     in the blocklist and remain legitimately registerable — skills that
     wrap third-party APIs still work.
 
     Fail closed: if the authoritative blocklist cannot be imported (partial
     install, import-time error, etc.) we treat the name as a protected
     provider credential and refuse passthrough, rather than fall open and
-    let a skill tunnel a Hermes credential into the execute_code child.
+    let a skill tunnel an Allr credential into the execute_code child.
     """
     try:
         from tools.environments.local import (
-            _HERMES_PROVIDER_ENV_BLOCKLIST,
+            _ALLR_PROVIDER_ENV_BLOCKLIST,
             _is_hermes_internal_secret,
         )
     except Exception as e:
@@ -80,14 +80,14 @@ def _is_hermes_provider_credential(name: str) -> bool:
             e,
         )
         return True
-    # Dynamically-generated Hermes-internal secrets (AUXILIARY_*_API_KEY /
+    # Dynamically-generated Allr-internal secrets (AUXILIARY_*_API_KEY /
     # _BASE_URL side-LLM credentials, GATEWAY_RELAY_* relay-auth) are provider
     # credentials the static blocklist can't enumerate — they're injected per
     # task/relay at gateway startup. A skill must not be able to register them
     # as passthrough and tunnel them into an execute_code / terminal child.
     if _is_hermes_internal_secret(name):
         return True
-    return name in _HERMES_PROVIDER_ENV_BLOCKLIST
+    return name in _ALLR_PROVIDER_ENV_BLOCKLIST
 
 
 def register_env_passthrough(var_names: Iterable[str]) -> None:
@@ -95,15 +95,15 @@ def register_env_passthrough(var_names: Iterable[str]) -> None:
 
     Typically called when a skill declares ``required_environment_variables``.
 
-    Variables that are Hermes-managed provider credentials (from
-    ``_HERMES_PROVIDER_ENV_BLOCKLIST``) are rejected here to preserve
+    Variables that are Allr-managed provider credentials (from
+    ``_ALLR_PROVIDER_ENV_BLOCKLIST``) are rejected here to preserve
     the ``execute_code`` sandbox's credential-scrubbing guarantee per
-    GHSA-rhgp-j443-p4rf. A skill that needs to talk to a Hermes-managed
+    GHSA-rhgp-j443-p4rf. A skill that needs to talk to an Allr-managed
     provider should do so via the agent's main-process tools (web_search,
     web_extract, etc.) where the credential remains safely in the main
     process.
 
-    Non-Hermes third-party API keys (TENOR_API_KEY, NOTION_TOKEN, etc.)
+    Non-Allr third-party API keys (TENOR_API_KEY, NOTION_TOKEN, etc.)
     pass through normally — they were never in the sandbox scrub list.
     """
     for name in var_names:
@@ -112,8 +112,8 @@ def register_env_passthrough(var_names: Iterable[str]) -> None:
             continue
         if _is_hermes_provider_credential(name):
             logger.warning(
-                "env passthrough: refusing to register Hermes provider "
-                "credential %r (blocked by _HERMES_PROVIDER_ENV_BLOCKLIST). "
+                "env passthrough: refusing to register Allr provider "
+                "credential %r (blocked by _ALLR_PROVIDER_ENV_BLOCKLIST). "
                 "Skills must not override the execute_code sandbox's "
                 "credential scrubbing; see GHSA-rhgp-j443-p4rf.",
                 name,
@@ -140,15 +140,15 @@ def _load_config_passthrough() -> frozenset[str]:
                     continue
                 name = item.strip()
                 # Mirror the skill-path filter in register_env_passthrough:
-                # Hermes-managed provider credentials must not be passed
+                # Allr-managed provider credentials must not be passed
                 # through to execute_code / terminal children, regardless of
                 # whether the request came from a skill or from config.yaml.
                 # See GHSA-rhgp-j443-p4rf.
                 if _is_hermes_provider_credential(name):
                     logger.warning(
-                        "env passthrough: refusing to register Hermes "
+                        "env passthrough: refusing to register Allr "
                         "provider credential %r from config.yaml (blocked "
-                        "by _HERMES_PROVIDER_ENV_BLOCKLIST). Operator "
+                        "by _ALLR_PROVIDER_ENV_BLOCKLIST). Operator "
                         "configuration must not override the execute_code "
                         "sandbox's credential scrubbing; see "
                         "GHSA-rhgp-j443-p4rf.",

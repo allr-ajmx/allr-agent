@@ -30,9 +30,9 @@ def _response(content: str = "ok"):
 
 @pytest.fixture
 def hermes_home(tmp_path, monkeypatch):
-    home = tmp_path / ".hermes"
+    home = tmp_path / ".allr"
     home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("ALLR_HOME", str(home))
     return home
 
 

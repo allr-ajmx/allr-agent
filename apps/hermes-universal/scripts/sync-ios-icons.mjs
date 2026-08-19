@@ -15,7 +15,7 @@
  *     xcodegen on every build but never re-copies them.
  *
  * So after any `tauri icon` run the iOS catalog keeps compiling the icons from
- * whenever `ios init` last ran. That is exactly how the Aug-15 "Hermes (MJX)"
+ * whenever `ios init` last ran. That is exactly how the Aug-15 "Allr"
  * rebrand shipped an iOS build still wearing the default Tauri logo from Aug 3:
  * every build was green, the Xcode wiring was correct
  * (`ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon`, `Assets.xcassets` in the

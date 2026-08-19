@@ -23,7 +23,7 @@ const listenMock = vi.mocked(listen)
 
 const STAGES = [
   { name: 'prerequisites', title: 'System prerequisites' },
-  { name: 'repository', title: 'Download Hermes Agent' },
+  { name: 'repository', title: 'Download Allr' },
   { name: 'venv', title: 'Create Python virtual environment' }
 ]
 
@@ -168,7 +168,7 @@ describe('stepping back inside the local flow', () => {
 describe('detection', () => {
   it('reports found for a real install', async () => {
     invokeMock.mockResolvedValue({
-      command: '/usr/local/bin/hermes',
+      command: '/usr/local/bin/allr',
       hasMarker: false,
       kind: 'path',
       root: null,

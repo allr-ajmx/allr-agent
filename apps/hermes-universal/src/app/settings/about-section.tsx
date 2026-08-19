@@ -1,6 +1,7 @@
 import { getVersion } from '@tauri-apps/api/app'
 import { useEffect, useState } from 'react'
 
+import { Wordmark } from '@/components/brand/wordmark'
 import { Button } from '@/components/ui/button'
 import { type Translations, useI18n } from '@/i18n'
 import { openExternalLink } from '@/lib/external-link'
@@ -14,7 +15,7 @@ import { $appUpdate, $appUpdateChecking, $appUpdateFailed, runUpdateCheck } from
 
 import { ListRow, SectionHeading, SettingsContent } from './primitives'
 
-const RELEASE_NOTES_URL = 'https://github.com/NousResearch/hermes-agent/releases'
+const RELEASE_NOTES_URL = 'https://github.com/allr-ajmx/allr-agent/releases'
 
 // About (Jc12 / MJX-16): app version + backend version + release notes, plus the
 // update check (MJX-6). Where an update comes from is the native side's problem
@@ -98,7 +99,7 @@ export function AboutSection() {
   return (
     <SettingsContent>
       <div className="flex flex-col items-center gap-1 pt-8 pb-4 text-center">
-        <div className="text-lg font-bold tracking-[0.18em] text-primary uppercase">{a.heading}</div>
+        <Wordmark size="md" />
         <div className="text-sm text-muted-foreground">{appVersion ? a.version(appVersion) : a.versionUnavailable}</div>
       </div>
 

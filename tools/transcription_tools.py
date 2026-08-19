@@ -73,7 +73,7 @@ def _resolve_provider_key(env_var: str, provider_id: str) -> str:
 
     Delegates to ``tools.tool_backend_helpers.resolve_provider_secret`` —
     the single owner of STT/TTS key resolution (config > env/.env > the
-    credential pool populated by ``hermes auth add <provider_id>``).
+    credential pool populated by ``allr auth add <provider_id>``).
     Resolved at call time so tests that reload the helpers module see the
     live function.
     """
@@ -113,8 +113,8 @@ DEFAULT_STT_MODEL = os.getenv("STT_OPENAI_MODEL", "whisper-1")
 DEFAULT_GROQ_STT_MODEL = os.getenv("STT_GROQ_MODEL", "whisper-large-v3-turbo")
 DEFAULT_MISTRAL_STT_MODEL = os.getenv("STT_MISTRAL_MODEL", "voxtral-mini-latest")
 DEFAULT_ELEVENLABS_STT_MODEL = os.getenv("STT_ELEVENLABS_MODEL", "scribe_v2")
-LOCAL_STT_COMMAND_ENV = "HERMES_LOCAL_STT_COMMAND"
-LOCAL_STT_LANGUAGE_ENV = "HERMES_LOCAL_STT_LANGUAGE"
+LOCAL_STT_COMMAND_ENV = "ALLR_LOCAL_STT_COMMAND"
+LOCAL_STT_LANGUAGE_ENV = "ALLR_LOCAL_STT_LANGUAGE"
 COMMON_LOCAL_BIN_DIRS = ("/opt/homebrew/bin", "/usr/local/bin")
 
 GROQ_BASE_URL = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
@@ -190,7 +190,7 @@ def _resolve_stt_language(
       1. ``stt.<provider>.language`` (plus any *extra_keys* aliases, e.g.
          ElevenLabs' historical ``language_code``)
       2. ``stt.language``           — global default for every provider
-      3. ``HERMES_LOCAL_STT_LANGUAGE`` env var (legacy escape hatch)
+      3. ``ALLR_LOCAL_STT_LANGUAGE`` env var (legacy escape hatch)
       4. ``None``                   — let the provider auto-detect
 
     Returns a stripped ISO-639-1-ish code or None. Never returns "".
@@ -360,7 +360,7 @@ def _try_lazy_install_stt() -> bool:
     except Exception as exc:
         logger.warning(
             "Lazy install of faster-whisper failed: %s. "
-            "This is often a permission issue: the Hermes process user cannot "
+            "This is often a permission issue: the Allr process user cannot "
             "write to the virtual environment. Try running manually as the "
             "venv owner: `stat -c '%%u' '$(dirname $(dirname $(which python3)))'` "
             "then `su - <owner> -c 'VIRTUAL_ENV=/opt/hermes/.venv "
@@ -404,7 +404,7 @@ BUILTIN_STT_PROVIDERS = frozenset({
 #   3. Plugin-registered TranscriptionProvider  → plugin dispatch.
 #   4. No match                                 → "No STT provider available".
 #
-# The single-env-var ``HERMES_LOCAL_STT_COMMAND`` escape hatch is preserved
+# The single-env-var ``ALLR_LOCAL_STT_COMMAND`` escape hatch is preserved
 # untouched via the built-in ``local_command`` path. Use the command-provider
 # registry when you want MULTIPLE shell-driven STT engines, or you want a
 # named provider you can pick via ``stt.provider`` in config.yaml.
@@ -485,7 +485,7 @@ def _resolve_command_stt_provider_config(
 
 
 def _is_local_stt_provider(provider: str, stt_config: Dict[str, Any]) -> bool:
-    """Return whether *provider* is exempt from Hermes's remote upload cap."""
+    """Return whether *provider* is exempt from Allr's remote upload cap."""
     key = (provider or "").lower().strip()
     if key in {"local", "local_command"}:
         return True
@@ -610,7 +610,7 @@ def _render_command_stt_template(
 
     def replace_match(match: "re.Match[str]") -> str:
         name = match.group("double") or match.group("single")
-        token = f"__HERMES_STT_PLACEHOLDER_{len(replacements)}__"
+        token = f"__ALLR_STT_PLACEHOLDER_{len(replacements)}__"
         replacements.append((
             token,
             _quote_command_stt_placeholder(
@@ -696,7 +696,7 @@ def _command_stt_env_passthrough(config: Dict[str, Any]) -> list:
     """Return the provider's ``env_passthrough`` allowlist (opt-out of scrub).
 
     Command providers legitimately reference their own API keys in the shell
-    template (curl one-liners). The child env is scrubbed of Hermes secrets by
+    template (curl one-liners). The child env is scrubbed of Allr secrets by
     default; ``env_passthrough: [MY_API_KEY, ...]`` copies the named variables
     back from the parent environment so a trusted template keeps working.
     Mirrors ``tools.tts_tool._command_provider_env_passthrough``.
@@ -718,7 +718,7 @@ def _run_command_stt(
     timeout, reset whenever the command emits output on stdout/stderr —
     a slow-but-alive provider survives, a silently stalled one is killed
     (same progress-based stuck detection as the TTS runner, #50081).
-    Child env is scrubbed of Hermes secrets (salvage of #56332) while still
+    Child env is scrubbed of Allr secrets (salvage of #56332) while still
     propagating delegated-child lineage markers when applicable.
     """
     from agent.delegation_context import delegated_child_subprocess_env
@@ -1029,7 +1029,7 @@ def _get_provider(stt_config: dict) -> str:
                 return "local"
             logger.warning(
                 "STT provider 'local' configured but unavailable "
-                "(install faster-whisper or set HERMES_LOCAL_STT_COMMAND)"
+                "(install faster-whisper or set ALLR_LOCAL_STT_COMMAND)"
             )
             return "none"
 
@@ -1151,7 +1151,7 @@ def _unregistered_stt_provider_error(provider: str) -> Dict[str, Any]:
         "error_type": "provider_not_registered",
         "error": (
             f"stt.provider='{key}' is set but no built-in, command, or plugin "
-            "provider registered that name. Run `hermes plugins list` to see "
+            "provider registered that name. Run `allr plugins list` to see "
             "installed STT plugins, or configure a command provider under "
             f"`stt.providers.{key}.command`."
         ),
@@ -1907,7 +1907,7 @@ def _transcribe_local_command(file_path: str, model_name: str) -> Dict[str, Any]
                 language=shlex.quote(language),
                 model=shlex.quote(normalized_model),
             )
-            # Scrub Hermes secrets from the child env (sibling path to #56332 /
+            # Scrub Allr secrets from the child env (sibling path to #56332 /
             # _run_command_stt — this local-whisper path previously inherited
             # the full process environment).
             from tools.environments.local import hermes_subprocess_env
@@ -1967,7 +1967,7 @@ def _transcribe_groq(file_path: str, model_name: str) -> Dict[str, Any]:
 
     Honours an optional ISO-639-1 language hint resolved from
     ``stt.groq.language`` > ``stt.language`` (config.yaml) >
-    ``HERMES_LOCAL_STT_LANGUAGE`` (env). When none is set, Groq
+    ``ALLR_LOCAL_STT_LANGUAGE`` (env). When none is set, Groq
     Whisper auto-detects.
     """
     api_key = _resolve_provider_key("GROQ_API_KEY", "groq")
@@ -2219,7 +2219,7 @@ def _transcribe_xai(file_path: str, model_name: str) -> Dict[str, Any]:
         return {
             "success": False,
             "transcript": "",
-            "error": "No xAI credentials found. Configure xAI OAuth in `hermes model` or set XAI_API_KEY",
+            "error": "No xAI credentials found. Configure xAI OAuth in `allr model` or set XAI_API_KEY",
         }
 
     stt_config = _load_stt_config()

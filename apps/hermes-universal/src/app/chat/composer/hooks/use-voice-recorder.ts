@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { useI18n } from '@/i18n'
+import { sessionTokenHeaders } from '@/lib/session-token-header'
 import { $connection } from '@/store/connection'
 import { notify, notifyError } from '@/store/notifications'
 import { voiceInputGain } from '@/store/voice-prefs'
@@ -48,13 +49,7 @@ function currentTarget(): VoiceTarget | null {
     return null
   }
 
-  const headers: Record<string, string> = {}
-
-  if (conn.token) {
-    headers['X-Hermes-Session-Token'] = conn.token
-  }
-
-  return { baseUrl: conn.baseUrl, headers }
+  return { baseUrl: conn.baseUrl, headers: sessionTokenHeaders(conn.token) }
 }
 
 export function useVoiceRecorder({

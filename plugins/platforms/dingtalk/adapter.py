@@ -1094,7 +1094,7 @@ class DingTalkAdapter(BasePlatformAdapter):
 
         payload = {
             "msgtype": "markdown",
-            "markdown": {"title": "Hermes", "text": normalized},
+            "markdown": {"title": "Allr", "text": normalized},
         }
 
         try:
@@ -1908,7 +1908,7 @@ def _build_adapter(config):
 
 
 def register(ctx) -> None:
-    """Plugin entry point — called by the Hermes plugin system."""
+    """Plugin entry point — called by the Allr plugin system."""
     ctx.register_platform(
         name="dingtalk",
         label="DingTalk",

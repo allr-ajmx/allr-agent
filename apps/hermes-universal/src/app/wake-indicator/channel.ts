@@ -24,9 +24,9 @@ import { IS_TAURI } from '@/lib/platform'
 import type { WakeIndicatorState } from '@/store/wake-indicator'
 
 /** The state on its way to the window that draws it. */
-export const WAKE_INDICATOR_STATE_EVENT = 'hermes://wake-indicator-state'
+export const WAKE_INDICATOR_STATE_EVENT = 'allr://wake-indicator-state'
 /** "I'm up — tell me what to show." */
-export const WAKE_INDICATOR_HELLO_EVENT = 'hermes://wake-indicator-hello'
+export const WAKE_INDICATOR_HELLO_EVENT = 'allr://wake-indicator-hello'
 
 /** A no-op unlisten, so callers off Tauri (tests, web) still get a disposer. */
 const NOOP: UnlistenFn = () => {}

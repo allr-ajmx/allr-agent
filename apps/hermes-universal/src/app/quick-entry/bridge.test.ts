@@ -80,7 +80,7 @@ vi.mock('./quick-entry', () => ({ QUICK_ENTRY_SURFACE: 'quick' }))
 
 vi.mock('@/store/windows', () => ({
   isSecondaryWindow: () => secondaryWindow,
-  SATELLITE_WINDOW_CLOSED_EVENT: 'hermes://satellite-window-closed',
+  SATELLITE_WINDOW_CLOSED_EVENT: 'allr://satellite-window-closed',
   satelliteSurfaceFromLabel: (label: string) => (label.startsWith('sat-') ? label.slice(4) : null)
 }))
 

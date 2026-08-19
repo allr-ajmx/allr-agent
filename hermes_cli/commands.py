@@ -1,4 +1,4 @@
-"""Slash command definitions and autocomplete for the Hermes CLI.
+"""Slash command definitions and autocomplete for the Allr CLI.
 
 Central registry for all slash commands. Every consumer -- CLI help, gateway
 dispatch, Telegram BotCommands, Slack subcommand mapping, autocomplete --
@@ -131,7 +131,7 @@ COMMAND_REGISTRY: list[CommandDef] = [
                aliases=("compact",), args_hint="[here [N] | focus topic | --preview|--dry-run]"),
     CommandDef("rollback", "List or restore filesystem checkpoints", "Session",
                args_hint="[number]"),
-    CommandDef("snapshot", "Create or restore state snapshots of Hermes config/state", "Session",
+    CommandDef("snapshot", "Create or restore state snapshots of Allr config/state", "Session",
                cli_only=True, aliases=("snap",), args_hint="[create|restore <id>|prune]"),
     CommandDef("export", "Export a profile (config, skills, theme) to a shareable archive", "Configuration",
                cli_only=True, args_hint="[profile] [-o output.tar.gz]"),
@@ -159,7 +159,7 @@ COMMAND_REGISTRY: list[CommandDef] = [
                busy_policy="dispatch", busy_handler="queue"),
     CommandDef("steer", "Inject a message after the next tool call without interrupting", "Session",
                args_hint="<prompt>", busy_policy="dispatch", busy_handler="steer"),
-    CommandDef("goal", "Set a standing goal Hermes works on across turns until achieved", "Session",
+    CommandDef("goal", "Set a standing goal Allr works on across turns until achieved", "Session",
                args_hint="[text | draft <text> | show | gate add <cmd> | pause | resume | clear | status | wait <pid> | unwait]",
                busy_policy="dispatch", busy_handler="goal"),
     CommandDef("heartbeat", "Set a recurring prompt that re-enters this session when idle", "Session",
@@ -244,10 +244,10 @@ COMMAND_REGISTRY: list[CommandDef] = [
                subcommands=INDICATOR_STYLES),
     CommandDef("voice", "Toggle voice mode", "Configuration",
                args_hint="[on|off|tts|status]", subcommands=("on", "off", "tts", "status")),
-    CommandDef("wake", "Toggle the 'Hey Hermes' wake word listener", "Configuration",
+    CommandDef("wake", "Toggle the 'Hey Allr' wake word listener", "Configuration",
                cli_only=True, args_hint="[on|off|status]",
                subcommands=("on", "off", "status")),
-    CommandDef("busy", "Control what Enter does while Hermes is working", "Configuration",
+    CommandDef("busy", "Control what Enter does while Allr is working", "Configuration",
                cli_only=True, args_hint="[queue|steer|interrupt|status]",
                subcommands=("queue", "steer", "interrupt", "status")),
 
@@ -299,7 +299,7 @@ COMMAND_REGISTRY: list[CommandDef] = [
                cli_only=True),
     CommandDef("reload-mcp", "Reload MCP servers from config", "Tools & Skills",
                aliases=("reload_mcp",)),
-    CommandDef("reload-skills", "Re-scan ~/.hermes/skills/ for newly installed or removed skills",
+    CommandDef("reload-skills", "Re-scan ~/.allr/skills/ for newly installed or removed skills",
                "Tools & Skills", aliases=("reload_skills",)),
     CommandDef("browser", "Connect browser tools to your live Chromium-family browser via CDP", "Tools & Skills",
                cli_only=True, args_hint="[connect|disconnect|status]",
@@ -332,9 +332,9 @@ COMMAND_REGISTRY: list[CommandDef] = [
                cli_only=True),
     CommandDef("image", "Attach a local image file for your next prompt", "Info",
                cli_only=True, args_hint="<path>"),
-    CommandDef("update", "Update Hermes Agent to the latest version", "Info",
+    CommandDef("update", "Update Allr to the latest version", "Info",
                busy_policy="dispatch"),
-    CommandDef("version", "Show Hermes Agent version", "Info", aliases=("v",),
+    CommandDef("version", "Show Allr version", "Info", aliases=("v",),
                busy_policy="dispatch", execute="version"),
     CommandDef("debug", "Upload debug report (system info + logs) and get shareable links", "Info",
                args_hint="[nous|local]"),
@@ -634,7 +634,7 @@ def telegram_bot_commands() -> list[tuple[str, str]]:
     return result
 
 
-# Telegram allows up to 100 BotCommands. Hermes ships ~50 built-in commands;
+# Telegram allows up to 100 BotCommands. Allr ships ~50 built-in commands;
 # a 60-slot default keeps every built-in plus common skill commands visible in
 # the `/` menu while staying comfortably under Telegram's ~4KB payload limit.
 # Users can tune this via platforms.telegram.extra.command_menu.max_commands.
@@ -674,7 +674,7 @@ _TELEGRAM_MENU_PRIORITY = (
 )
 """Built-in commands that should stay visible in Telegram's capped menu.
 
-Telegram only displays a small BotCommand menu in practice.  The full Hermes
+Telegram only displays a small BotCommand menu in practice.  The full Allr
 registry is still dispatchable when typed manually, but operational commands
 need to survive the visible menu cap ahead of lower-priority built-ins.
 """
@@ -936,7 +936,7 @@ def _collect_gateway_skill_entries(
         # user-configured ``skills.external_dirs``. Ensure each prefix ends
         # with ``/`` so ``/my-skills`` does not also match ``/my-skills-extra``.
         # Without this widening, external skills are visible in
-        # ``hermes skills list`` and the agent's ``/skill-name`` dispatch but
+        # ``allr skills list`` and the agent's ``/skill-name`` dispatch but
         # silently excluded from gateway slash menus (#8110).
         _allowed_prefixes = [_skills_dir.rstrip("/") + "/"]
         _allowed_prefixes.extend(
@@ -993,7 +993,7 @@ def telegram_menu_commands(max_commands: int = 100) -> tuple[list[tuple[str, str
 
     Skills are the only tier that gets trimmed when the cap is hit.
     User-installed hub skills are excluded — accessible via /skills.
-    Skills disabled for the ``"telegram"`` platform (via ``hermes skills
+    Skills disabled for the ``"telegram"`` platform (via ``allr skills
     config``) are excluded from the menu entirely.
 
     Returns:
@@ -1062,7 +1062,7 @@ def discord_skill_commands_by_category(
     Scan roots include the local ``SKILLS_DIR`` **and** any configured
     ``skills.external_dirs`` — matching the widened filter applied to the
     flat ``discord_skill_commands()`` collector in #18741. Without this
-    parity, external-dir skills are visible via ``hermes skills list`` and
+    parity, external-dir skills are visible via ``allr skills list`` and
     the agent's ``/skill-name`` dispatch but silently absent from Discord's
     ``/skill`` autocomplete.
 
@@ -1253,21 +1253,21 @@ _SLACK_PRIORITY_ALIASES = ("btw", "bg")
 # "Slack-via-/hermes" decision, not a silent clamp.
 #   - topup: the billing/balance surface; reached via /hermes topup on Slack.
 #     (the rehaul folded the old /credits + /billing surfaces into /topup.)
-#   - moa: high-cost slash mode, available through /hermes moa to avoid
+#   - moa: high-cost slash mode, available through /allr moa to avoid
 #     displacing existing native Slack slash commands at the 50-command cap.
-#   - debug: the log/report upload surface; reached via /hermes debug on Slack.
-#   - egress: Docker-only proxy status; reachable as /hermes egress on Slack.
+#   - debug: the log/report upload surface; reached via /allr debug on Slack.
+#   - egress: Docker-only proxy status; reachable as /allr egress on Slack.
 #   - init: repo-scan AGENTS.md bootstrap — a cwd-centric dev command that is
 #     rare from Slack; reachable as /hermes init. Without this entry, adding
 #     /init clamps /version off the native list and breaks Telegram parity.
-#   - version: low-frequency info command; reachable as /hermes version on
+#   - version: low-frequency info command; reachable as /allr version on
 #     Slack. Demoted when /context claimed a native slot (context is a
 #     recurring inspection surface; version is a one-off lookup); the demotion
 #     also absorbs the native slot /approvals now consumes at the 50-cap.
 #   - diff: git working-tree diff; reached via /hermes diff on Slack so it
 #     doesn't displace an existing native slash at the 50-command cap.
 #   - update: low-frequency self-update maintenance command; reached via
-#     /hermes update on Slack. Demoted to free the native slot /approvals now
+#     /allr update on Slack. Demoted to free the native slot /approvals now
 #     claims — without this entry /approvals tips the registry past the 50-cap
 #     and silently clamps /update off, breaking Telegram parity.
 #   - heartbeat: session heartbeat management; reached via /hermes heartbeat
@@ -1275,9 +1275,9 @@ _SLACK_PRIORITY_ALIASES = ("btw", "bg")
 #   - refine: on-demand memory/skill review; reached via /hermes refine on
 #     Slack. Added at the 50-cap — a native slot would clamp an existing
 #     native slash.
-#   - pause: global emergency stop; reached via /hermes pause [off] on
+#   - pause: global emergency stop; reached via /allr pause [off] on
 #     Slack. Added at the 50-cap — a native slot would clamp /platform.
-_SLACK_VIA_HERMES_ONLY = frozenset({"topup", "moa", "debug", "egress", "init", "version", "diff", "update", "heartbeat", "refine", "pause"})
+_SLACK_VIA_ALLR_ONLY = frozenset({"topup", "moa", "debug", "egress", "init", "version", "diff", "update", "heartbeat", "refine", "pause"})
 
 
 def _sanitize_slack_name(raw: str) -> str:
@@ -1318,7 +1318,7 @@ def slack_native_slashes() -> list[tuple[str, str, str]]:
     seen: set[str] = set()
 
     # Reserve /hermes as the catch-all top-level command.
-    entries.append(("hermes", "Talk to Hermes or run a subcommand", "[subcommand] [args]"))
+    entries.append(("hermes", "Talk to Allr or run a subcommand", "[subcommand] [args]"))
     seen.add("hermes")
 
     def _add(name: str, desc: str, hint: str) -> None:
@@ -1327,8 +1327,8 @@ def slack_native_slashes() -> list[tuple[str, str, str]]:
             return
         if slack_name in _SLACK_RESERVED_COMMANDS:
             return
-        if slack_name in _SLACK_VIA_HERMES_ONLY:
-            # Intentionally Slack-via-/hermes only (see _SLACK_VIA_HERMES_ONLY).
+        if slack_name in _SLACK_VIA_ALLR_ONLY:
+            # Intentionally Slack-via-/hermes only (see _SLACK_VIA_ALLR_ONLY).
             return
         if len(entries) >= _SLACK_MAX_SLASH_COMMANDS:
             return
@@ -1373,7 +1373,7 @@ def slack_native_slashes() -> list[tuple[str, str, str]]:
     return entries
 
 
-def slack_app_manifest(request_url: str = "https://hermes-agent.local/slack/commands") -> dict[str, Any]:
+def slack_app_manifest(request_url: str = "https://allr-agent.local/slack/commands") -> dict[str, Any]:
     """Generate a Slack app manifest with all gateway commands as slashes.
 
     ``request_url`` is required by Slack's manifest schema for every slash

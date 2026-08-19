@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Google Workspace API CLI for Hermes Agent.
+"""Google Workspace API CLI for Allr.
 
 Uses the Google Workspace CLI (`gws`) when available, but preserves the
-existing Hermes-facing JSON contract and falls back to the Python client
+existing Allr-facing JSON contract and falls back to the Python client
 libraries if `gws` is not installed.
 
 Usage:
@@ -38,9 +38,9 @@ if _SCRIPTS_DIR not in sys.path:
 
 from _hermes_home import get_hermes_home
 
-HERMES_HOME = get_hermes_home()
-TOKEN_PATH = HERMES_HOME / "google_token.json"
-CLIENT_SECRET_PATH = HERMES_HOME / "google_client_secret.json"
+ALLR_HOME = get_hermes_home()
+TOKEN_PATH = ALLR_HOME / "google_token.json"
+CLIENT_SECRET_PATH = ALLR_HOME / "google_client_secret.json"
 
 SCOPES = [
     "https://www.googleapis.com/auth/gmail.readonly",
@@ -80,7 +80,7 @@ def _stored_token_scopes() -> list[str]:
 
 
 def _gws_binary() -> str | None:
-    override = os.getenv("HERMES_GWS_BIN")
+    override = os.getenv("ALLR_GWS_BIN")
     if override:
         return override
     return shutil.which("gws")
@@ -1052,7 +1052,7 @@ def _docs_insert_text(doc_id: str, text: str, index: int) -> None:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Google Workspace API for Hermes Agent")
+    parser = argparse.ArgumentParser(description="Google Workspace API for Allr")
     sub = parser.add_subparsers(dest="service", required=True)
 
     # --- Gmail ---

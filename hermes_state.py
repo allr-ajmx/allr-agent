@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-SQLite State Store for Hermes Agent.
+SQLite State Store for Allr.
 
 Provides persistent session storage with FTS5 full-text search, replacing
 the per-session JSONL file approach. Stores session metadata, full message
@@ -403,8 +403,8 @@ def _default_db_path() -> Path:
     """Resolve the default state DB path at call time.
 
     ``DEFAULT_DB_PATH`` is computed when this module is first imported, which
-    freezes the developer's real ``~/.hermes`` even when a test fixture later
-    redirects ``HERMES_HOME`` — importing this module during collection was
+    freezes the developer's real ``~/.allr`` even when a test fixture later
+    redirects ``ALLR_HOME`` — importing this module during collection was
     enough to point every default ``SessionDB()`` at the real state.db.
 
     Precedence:
@@ -412,7 +412,7 @@ def _default_db_path() -> Path:
     1. A deliberately re-pointed ``DEFAULT_DB_PATH`` (differs from the
        import-time snapshot — the established test escape hatch) wins.
     2. Otherwise resolve ``get_hermes_home()`` fresh so a runtime
-       ``HERMES_HOME`` redirect takes effect regardless of import order.
+       ``ALLR_HOME`` redirect takes effect regardless of import order.
     """
     if DEFAULT_DB_PATH != _IMPORT_DEFAULT_DB_PATH:
         return DEFAULT_DB_PATH
@@ -423,15 +423,15 @@ def _default_db_path() -> Path:
 # Live-DB test-isolation guard
 # ---------------------------------------------------------------------------
 # Forensic evidence (Aug 2026, live developer machine): the production
-# ~/.hermes/state.db accumulated pytest fixture rows — sessions with
+# ~/.allr/state.db accumulated pytest fixture rows — sessions with
 # chat_id='chat-1'/'123'/'wx-chat' and gateway_routing scopes literally under
 # /tmp/pytest-of-*/ — and a pytest-spawned process flipped the journal mode
 # out from under the WAL-mode gateway writer, destroying committed
 # transcripts ("Persisted transcript lagged live cached history ... possible
-# FTS write corruption").  The hermetic conftest redirects HERMES_HOME per
+# FTS write corruption").  The hermetic conftest redirects ALLR_HOME per
 # test, but any escape (a session-scoped fixture running before the autouse
-# fixture, a subprocess child launched without HERMES_HOME, a stale worktree
-# without the re-pin, or a developer shell that exports HERMES_HOME to the
+# fixture, a subprocess child launched without ALLR_HOME, a stale worktree
+# without the re-pin, or a developer shell that exports ALLR_HOME to the
 # real home so the conftest session sandbox is skipped) silently fell
 # through to the real database.
 #
@@ -448,13 +448,13 @@ def _default_db_path() -> Path:
 _STATE_DB_GUARD_BYPASS = False
 
 #: Additional production roots to refuse (beyond the platform default
-#: ``~/.hermes``).  The test conftest injects the pre-sandbox production
-#: root here so custom-``HERMES_HOME`` deployments are covered too.
+#: ``~/.allr``).  The test conftest injects the pre-sandbox production
+#: root here so custom-``ALLR_HOME`` deployments are covered too.
 _STATE_DB_GUARD_EXTRA_DENY_ROOTS: Tuple[Path, ...] = ()
 
 
 def _real_platform_state_root() -> Optional[Path]:
-    """Resolve the REAL platform-default Hermes root for the guard.
+    """Resolve the REAL platform-default Allr root for the guard.
 
     Deliberately avoids ``Path.home()`` / ``hermes_constants``: tests
     routinely monkeypatch ``Path.home`` to a tempdir, and ``hermes_state``
@@ -473,7 +473,7 @@ def _real_platform_state_root() -> Optional[Path]:
                 else Path(os.path.expanduser("~")) / "AppData" / "Local" / "hermes"
             )
         else:
-            root = Path(os.path.expanduser("~")) / ".hermes"
+            root = Path(os.path.expanduser("~")) / ".allr"
         return root.resolve()
     except Exception:
         return None
@@ -501,12 +501,12 @@ def _production_state_roots() -> List[Path]:
 
 
 def _is_production_state_db(resolved: Path, root: Path) -> bool:
-    """True when *resolved* is a DB file of the real Hermes home *root*.
+    """True when *resolved* is a DB file of the real Allr home *root*.
 
     Matches files directly in the root (``<root>/state.db``) and profile
     homes (``<root>/profiles/<name>/state.db``).  Deliberately does NOT
     match deeper scratch paths (e.g. repo worktrees that happen to live
-    under ``~/.hermes/hermes-agent/...``) so hermetic tests using unusual
+    under ``~/.allr/allr-agent/...``) so hermetic tests using unusual
     tempdirs cannot false-positive.
     """
     if resolved.parent == root:
@@ -524,7 +524,7 @@ def _ensure_test_isolation(db_path: Path) -> None:
 
     Raises ``RuntimeError`` before any connection, mkdir, journal-mode
     pragma, or byte probe can touch the live database.  No-op outside
-    pytest and for hermetic (tmp ``HERMES_HOME``) paths.
+    pytest and for hermetic (tmp ``ALLR_HOME``) paths.
     """
     if _STATE_DB_GUARD_BYPASS or not _running_under_pytest():
         return
@@ -536,10 +536,10 @@ def _ensure_test_isolation(db_path: Path) -> None:
         if _is_production_state_db(resolved, root):
             raise RuntimeError(
                 "live-system guard: test attempted to open production "
-                f"state.db at {resolved} (under real Hermes root {root}). "
-                "Tests must run against a temporary HERMES_HOME — pass an "
+                f"state.db at {resolved} (under real Allr root {root}). "
+                "Tests must run against a temporary ALLR_HOME — pass an "
                 "explicit tmp db_path or let the hermetic conftest redirect "
-                "HERMES_HOME. If this test genuinely needs the live "
+                "ALLR_HOME. If this test genuinely needs the live "
                 "database, mark it with "
                 "@pytest.mark.live_system_guard_bypass."
             )
@@ -1196,7 +1196,7 @@ def _wal_reset_repair_hint() -> str:
     """Return a context-appropriate hint for repairing the SQLite runtime.
 
     Uses the codebase's install-type detection so the hint matches what
-    ``hermes update`` can actually do for this install (#75153).
+    ``allr update`` can actually do for this install (#75153).
     """
     try:
         from hermes_cli.config import (
@@ -1207,7 +1207,7 @@ def _wal_reset_repair_hint() -> str:
         method = detect_install_method(get_project_root())
         cmd = recommended_update_command_for_method(method)
         if method in {"git", "unknown"}:
-            return f"Hermes-managed installs can repair the embedded runtime with `{cmd}`"
+            return f"Allr-managed installs can repair the embedded runtime with `{cmd}`"
         if method == "docker":
             return f"update the container image with `{cmd}`"
         # nix/nixos
@@ -1216,7 +1216,7 @@ def _wal_reset_repair_hint() -> str:
         pass
     return (
         "install a Python build bundled with SQLite 3.51.3+ "
-        "(or backports 3.50.7 / 3.44.6) and restart Hermes"
+        "(or backports 3.50.7 / 3.44.6) and restart Allr"
     )
 
 
@@ -1245,7 +1245,7 @@ def _log_wal_reset_bug_once(
         )
     else:
         action = "using journal_mode=DELETE instead of enabling WAL"
-    # Check whether this is a Hermes-managed install (uv-managed venv)
+    # Check whether this is an Allr-managed install (uv-managed venv)
     # so the warning doesn't promise a repair path that doesn't exist
     # for git/pip/system Python installs (#75153).
     repair_hint = _wal_reset_repair_hint()
@@ -1253,7 +1253,7 @@ def _log_wal_reset_bug_once(
         "%s: linked SQLite %s is vulnerable to the WAL-reset corruption "
         "bug (https://sqlite.org/wal.html#walresetbug) — %s. "
         "Upgrade to SQLite 3.51.3+ (or backports 3.50.7 / 3.44.6); "
-        "%s. See `hermes doctor`. This warning fires once per "
+        "%s. See `allr doctor`. This warning fires once per "
         "process per database.",
         db_label,
         sqlite3.sqlite_version,
@@ -1556,8 +1556,8 @@ def preflight_db_writability(
     transactions. This preflight:
 
     - **Repairs** permissions with ``chmod u+rw`` when the file lives inside
-      the Hermes home tree (``get_hermes_home()``) — the safe repair scope:
-      Hermes owns those files, and the OS makes ``chmod`` fail on files the
+      the Allr home tree (``get_hermes_home()``) — the safe repair scope:
+      Allr owns those files, and the OS makes ``chmod`` fail on files the
       user doesn't own, which bounds the repair exactly.
     - **Fails fast with an actionable error** naming the exact file and the
       exact ``chmod`` command for anything else (root-owned files, read-only
@@ -1613,7 +1613,7 @@ def preflight_db_writability(
         )
         raise sqlite3.OperationalError(
             f"{db_label} is not writable: {kind} {p} is read-only for this "
-            f"user. Hermes needs read-write access to open the database. "
+            f"user. Allr needs read-write access to open the database. "
             f"Fix with: chmod u+rw{'x' if is_dir else ''} '{p}'"
             f" (files owned by another user may need sudo/chown).{wal_note}"
         )
@@ -1947,10 +1947,10 @@ def repair_state_db_schema(db_path: Path, *, backup: bool = True) -> Dict[str, A
 # complete ``messages_fts`` index's triggers.
 #
 # The table exists ONLY when the loadable tokenizer is available
-# (``~/.hermes/lib/libfts5_cjk.so``, built by ``native/fts5_cjk/build.sh``).
+# (``~/.allr/lib/libfts5_cjk.so``, built by ``native/fts5_cjk/build.sh``).
 # A process that cannot load it self-heals by dropping the cjk triggers
 # (message writes keep working; the index goes stale and is rebuilt by the
-# next ``hermes sessions optimize-storage`` on a capable host).
+# next ``allr sessions optimize-storage`` on a capable host).
 #
 # Split DDL: the table/view part is safe to ensure any time; the triggers
 # are created ONLY while the index is complete-or-marker-gated. A stale
@@ -2019,7 +2019,7 @@ END;
 
 def fts5_cjk_so_path() -> Path:
     """Location of the cjk_unicode61 loadable extension."""
-    env = os.getenv("HERMES_FTS5_CJK_SO")
+    env = os.getenv("ALLR_FTS5_CJK_SO")
     if env:
         return Path(env).expanduser()
     return get_hermes_home() / "lib" / "libfts5_cjk.so"
@@ -2027,7 +2027,7 @@ def fts5_cjk_so_path() -> Path:
 
 def _cjk_fts_config_enabled() -> bool:
     """config.yaml ``sessions.cjk_fts`` (default on), via its env bridge."""
-    return os.getenv("HERMES_CJK_FTS", "1").strip().lower() not in (
+    return os.getenv("ALLR_CJK_FTS", "1").strip().lower() not in (
         "0", "false", "off", "no",
     )
 
@@ -2209,8 +2209,8 @@ def quarantine_zeroed_state_db(path: Path) -> Optional[Path]:
                 "quarantine lock for %s not acquired within 5s — refusing to "
                 "quarantine without the cross-process lock. The zeroed file "
                 "is left in place. If sessions fail to load, restore from "
-                "state-snapshots via `hermes snapshot list` / "
-                "`hermes snapshot restore <id>`.",
+                "state-snapshots via `allr snapshot list` / "
+                "`allr snapshot restore <id>`.",
                 path,
             )
             return None
@@ -2276,7 +2276,7 @@ def quarantine_zeroed_state_db(path: Path) -> Optional[Path]:
             handle.close()
 
 
-# ── Read-only health/stats probes (hermes doctor, dashboards) ──────────
+# ── Read-only health/stats probes (allr doctor, dashboards) ──────────
 
 
 def collect_state_db_stats(db_path: Path) -> Dict[str, Any]:
@@ -2473,11 +2473,11 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
     # writers and avoids the convoy.
     #
     # Patience is TIME-based, not attempt-based.  A shared state.db is
-    # legitimately held for multi-second stretches by sibling Hermes
+    # legitimately held for multi-second stretches by sibling Allr
     # processes: a TRUNCATE checkpoint at close on a large WAL, VACUUM after
     # an auto-prune, offline recovery, or an older still-running process
     # whose FTS maintenance predates the bounded-merge protocol (every
-    # `hermes update` leaves mixed-version processes sharing the DB until
+    # `allr update` leaves mixed-version processes sharing the DB until
     # the old ones exit).  An attempt-counted budget (~15s incidental worst
     # case) silently loses that race and surfaces as
     # session_persistence_failed — a destroyed turn — even though the store
@@ -2699,8 +2699,8 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
                 msg = (
                     f"state.db looks ZEROED ({zsize} bytes, no SQLite header). "
                     f"Preserved at {qpath or '(quarantine failed — file left in place)'}. "
-                    f"Restore from {snaps} via `hermes snapshot list` / "
-                    f"`hermes snapshot restore <id>` if available. "
+                    f"Restore from {snaps} via `allr snapshot list` / "
+                    f"`allr snapshot restore <id>` if available. "
                     "Opening a fresh empty database so the agent can start."
                 )
                 logger.error(msg)
@@ -2970,7 +2970,7 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
         self._fts_unavailable_warned = True
         logger.warning(
             "SQLite FTS5 unavailable for %s; full-text session search "
-            "disabled. Run `hermes update` to rebuild the venv with a "
+            "disabled. Run `allr update` to rebuild the venv with a "
             "current Python (managed uv guarantees FTS5). "
             "(underlying error: %s)",
             self.db_path,
@@ -3024,7 +3024,7 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
                         "cjk_unicode61 tokenizer is unavailable (%s) — "
                         "dropping the cjk triggers so message writes keep "
                         "working. CJK search falls back to trigram/LIKE; "
-                        "run `hermes sessions optimize-storage` on a host "
+                        "run `allr sessions optimize-storage` on a host "
                         "with the extension to rebuild.",
                         fts5_cjk_so_path(),
                     )
@@ -3225,7 +3225,7 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
                     # Patience exhausted — say what actually happened so the
                     # surfaced error doesn't read as disk/permission damage.
                     raise sqlite3.OperationalError(
-                        f"database is locked (another Hermes process held the "
+                        f"database is locked (another Allr process held the "
                         f"state.db write lock for over {patience_s:.0f}s — "
                         "likely a long maintenance operation such as VACUUM, "
                         "a large WAL checkpoint, or an older pre-update "
@@ -3430,7 +3430,7 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
 
     # ── Chunked FTS rebuild engine (v23 opt-in optimize) ──
     #
-    # `optimize_fts_storage()` (the `hermes sessions optimize-storage`
+    # `optimize_fts_storage()` (the `allr sessions optimize-storage`
     # command) drops the legacy inline FTS indexes and backfills the new
     # external-content ones. A single blocking rebuild measured ~16 minutes
     # of held write lock on a real 25 GB DB, so the backfill runs in small
@@ -3476,7 +3476,7 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
     # an already-optimized v23 DB gaining the cjk index) never gates the
     # complete ``messages_fts`` / trigram triggers.
 
-    # ── Opt-in v23 FTS storage optimization (`hermes sessions optimize-storage`) ──
+    # ── Opt-in v23 FTS storage optimization (`allr sessions optimize-storage`) ──
     #
     # This is the ONLY path that migrates an existing legacy (v22 inline) DB
     # to the v23 external-content schema. It is deliberately foreground and
@@ -9075,7 +9075,7 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
         A session is considered empty when it has no messages and no
         user-assigned title. Used by CLI exit / session-rotation paths so
         immediately-started-and-quit sessions don't pile up in ``/resume``
-        and ``hermes sessions list`` output. (Pattern ported from
+        and ``allr sessions list`` output. (Pattern ported from
         google-gemini/gemini-cli#27770.)
 
         The emptiness check and delete run in one transaction, so a message
@@ -9796,7 +9796,7 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
     def retag_kanban_worker_sessions(self, workspaces_root: str) -> int:
         """Retag legacy kanban worker rows from ``cli`` to ``kanban``.
 
-        Workers used to spawn without ``HERMES_SESSION_SOURCE``, so their runs
+        Workers used to spawn without ``ALLR_SESSION_SOURCE``, so their runs
         landed as untitled ``cli`` rows and the sidebar rendered one per attempt
         labeled with the worker's own prompt. New workers tag themselves; this
         reclaims the rows already on disk so they drop out of the session lists
@@ -9832,7 +9832,7 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
         """Create Telegram DM topic-mode tables on explicit /topic opt-in.
 
         This migration is deliberately not part of automatic SessionDB startup
-        reconciliation. Operators must be able to upgrade Hermes, keep the old
+        reconciliation. Operators must be able to upgrade Allr, keep the old
         Telegram bot behavior running, and only mutate topic-mode state when the
         user executes /topic to opt into the feature.
 
@@ -10180,9 +10180,9 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
         session_id: str,
         managed_mode: str = "auto",
     ) -> None:
-        """Bind one Telegram DM topic thread to one Hermes session.
+        """Bind one Telegram DM topic thread to one Allr session.
 
-        A Hermes session may only be linked to one Telegram topic in MVP.
+        An Allr session may only be linked to one Telegram topic in MVP.
         Rebinding the same topic to the same session is idempotent; trying to
         link the same session to a different topic raises ValueError.
         """
@@ -10235,7 +10235,7 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
         self._execute_write(_do)
 
     def is_telegram_session_linked_to_topic(self, *, session_id: str) -> bool:
-        """Return True if a Hermes session is already bound to any Telegram DM topic.
+        """Return True if an Allr session is already bound to any Telegram DM topic.
 
         Read-only: does NOT trigger the telegram-topic migration. If the
         topic-mode tables have not been created yet (i.e. nobody has run

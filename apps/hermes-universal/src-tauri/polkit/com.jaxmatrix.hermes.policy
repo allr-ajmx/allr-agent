@@ -3,7 +3,7 @@
  "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
  "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
 <!--
-  The polkit action behind Hermes' credential unlock (src/secrets/gate.rs).
+  The polkit action behind Allr's credential unlock (src/secrets/gate.rs).
 
   Installed to /usr/share/polkit-1/actions/ by the .deb. Where it is absent — an
   AppImage, a tarball, `cargo run` — `gate::available()` reports no gate and
@@ -17,12 +17,12 @@
   and two independent expiries is not something anyone can reason about.
 -->
 <policyconfig>
-  <vendor>Hermes</vendor>
+  <vendor>Allr</vendor>
   <vendor_url>https://github.com/jaxmatrix/mjx-hermes-agent</vendor_url>
 
   <action id="com.jaxmatrix.hermes.unlock-credentials">
-    <description>Unlock stored Hermes credentials</description>
-    <message>Authentication is required to use your saved Hermes gateway and SSH credentials.</message>
+    <description>Unlock stored Allr credentials</description>
+    <message>Authentication is required to use your saved Allr gateway and SSH credentials.</message>
     <defaults>
       <allow_any>no</allow_any>
       <allow_inactive>no</allow_inactive>

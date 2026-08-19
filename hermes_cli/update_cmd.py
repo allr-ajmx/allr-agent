@@ -1,4 +1,4 @@
-"""Hermes update pipeline — extracted from ``hermes_cli/main.py``.
+"""Allr update pipeline — extracted from ``hermes_cli/main.py``.
 
 Mechanical move (main.py decomposition): ``_cmd_update_impl``, ``_cmd_update_check``
 and every module-level helper used only by the update path, plus the update-only
@@ -64,7 +64,7 @@ _UPDATE_RUNTIME_RELOAD_MODULES = (
 def _reload_updated_runtime_modules() -> None:
     """Reload update-sensitive modules after the checkout changes in-place.
 
-    ``hermes update`` keeps running in the pre-pull Python process. After a
+    ``allr update`` keeps running in the pre-pull Python process. After a
     large update, modules already present in ``sys.modules`` can still expose
     old symbols even though their source files on disk are new. Refresh the
     small module set used by lazy-backend refresh before that step imports
@@ -85,7 +85,7 @@ def _reload_updated_runtime_modules() -> None:
     except Exception as exc:
         logger.debug("Could not refresh update runtime modules: %s", exc)
 
-# Critical files that Hermes must be able to import immediately after an
+# Critical files that Allr must be able to import immediately after an
 # update/install. Most are imported on every CLI startup; ``web_server.py``
 # is the desktop/dashboard backend path that a fresh Windows install launches
 # right away. If any of these fail to parse after a pull, the user can be
@@ -190,7 +190,7 @@ def _validate_critical_modules_import(root) -> tuple[bool, str | None, str | Non
     against the half-updated tree. Costs ~0.4s.
 
     Uses the project venv's interpreter when there is one (matching
-    ``_venv_core_imports_healthy``): ``hermes update`` can be driven by a
+    ``_venv_core_imports_healthy``): ``allr update`` can be driven by a
     different Python than the install's own, and probing the wrong
     interpreter would test a tree the user never runs.
 
@@ -255,7 +255,7 @@ def _gateway_prompt(prompt_text: str, default: str = "", timeout: float = 300.0)
     Writes a prompt marker file so the gateway can forward the question to the
     user, then polls for a response file.  Falls back to *default* on timeout.
 
-    Used by ``hermes update --gateway`` so interactive prompts (stash restore,
+    Used by ``allr update --gateway`` so interactive prompts (stash restore,
     config migration) are forwarded to the messenger instead of being silently
     skipped.
     """
@@ -331,7 +331,7 @@ def _web_toolchain_roots(web_dir: Path) -> tuple[Path, ...]:
     return (web_dir, web_dir.parent)
 
 def _print_curator_first_run_notice() -> None:
-    """Print a short heads-up about the skill curator after `hermes update`.
+    """Print a short heads-up about the skill curator after `allr update`.
 
     Only fires when the curator is enabled AND has no recorded run yet, which
     is exactly the window where the gateway ticker used to fire Curator
@@ -364,14 +364,14 @@ def _print_curator_first_run_notice() -> None:
         f"~{days}d after installation; only agent-created skills are in "
         f"scope and nothing is ever auto-deleted (archive is recoverable)."
     )
-    print("  Preview now:  hermes curator run --dry-run")
-    print("  Pause it:     hermes curator pause")
+    print("  Preview now:  allr curator run --dry-run")
+    print("  Pause it:     allr curator pause")
     print(
-        "  Docs:         https://hermes-agent.nousresearch.com/docs/user-guide/features/curator"
+        "  Docs:         https://allr.work/docs/user-guide/features/curator"
     )
 
 def _print_fts_optimize_available_notice() -> None:
-    """Advertise the opt-in v23 search-index optimization after `hermes update`.
+    """Advertise the opt-in v23 search-index optimization after `allr update`.
 
     Only fires when the current profile's state.db is still on the legacy
     (pre-v23) inline FTS layout. Leads with the reclaimable-space figure and
@@ -452,11 +452,11 @@ def _print_fts_optimize_available_notice() -> None:
         print()
         print("◆ Session database optimization incomplete")
         print(
-            "  A previous `hermes sessions optimize-storage` run was "
+            "  A previous `allr sessions optimize-storage` run was "
             "interrupted. Search still works; re-run the command to resume "
             "and finish reclaiming disk:"
         )
-        print("    hermes sessions optimize-storage")
+        print("    allr sessions optimize-storage")
         return
 
     # Concrete size framing — lead with the savings the user cares about.
@@ -477,7 +477,7 @@ def _print_fts_optimize_available_notice() -> None:
             f"typically frees ~60% of state.db — about {est_reclaim:.1f} GB "
             f"of your current {size_gb:.1f} GB."
         )
-    print("  Run when convenient:  hermes sessions optimize-storage")
+    print("  Run when convenient:  allr sessions optimize-storage")
     print(
         "  It runs in the foreground with a progress bar, is safe to "
         "interrupt/re-run, and never changes your conversations."
@@ -488,11 +488,11 @@ def _print_curator_recent_run_notice() -> None:
 
     The curator runs in the background (gateway tick + CLI session start),
     so users learn about skill consolidations only by stumbling into a
-    rename. ``hermes update`` is a high-attention surface — surface the
+    rename. ``allr update`` is a high-attention surface — surface the
     most recent run's rename map here, once.
 
     Show-once: state stamps ``last_run_summary_shown_at`` after printing.
-    Subsequent ``hermes update`` invocations skip the block until a newer
+    Subsequent ``allr update`` invocations skip the block until a newer
     curator run lands. Silent when the curator has never run, when the
     most recent summary has already been shown, or when the summary has
     no rename information to display (no archives).
@@ -538,7 +538,7 @@ def _print_curator_recent_run_notice() -> None:
         print(f"  {line}")
     print(
         "  (This message shows once per curator run. "
-        "View anytime: hermes curator status)"
+        "View anytime: allr curator status)"
     )
 
     # Stamp shown so we don't repeat on the next update.
@@ -585,7 +585,7 @@ def _finish_dashboard_update_cleanup(node_failures: list[str]) -> None:
         "not be auto-restarted."
     )
     print("  Re-launch it when you want the web UI back:")
-    print("    hermes dashboard --port <port>")
+    print("    allr dashboard --port <port>")
 
 def _atomic_replace_dir(src: str, dst: str) -> None:
     """Replace directory *dst* with *src* without leaving *dst* half-deleted.
@@ -638,7 +638,7 @@ def _discard_staged(staged) -> None:
 
     Without this a phase-1 failure (typically disk exhaustion) orphans one
     staging copy per entry already processed — up to a full second copy of
-    the tree. The user then follows the "re-run `hermes update`" advice with
+    the tree. The user then follows the "re-run `allr update`" advice with
     *less* free space than before and the retry fails harder than the
     original attempt.
     """
@@ -717,13 +717,13 @@ def _print_update_completion(message: str) -> None:
     with an action id, a terminal receipt line the Desktop can match after
     the dashboard restarts (see #47359 / #58764)."""
     print(message)
-    action_id = os.environ.get("HERMES_ACTION_ID", "")
+    action_id = os.environ.get("ALLR_ACTION_ID", "")
     if len(action_id) == 32 and all(char in "0123456789abcdef" for char in action_id):
         print(f"=== hermes-update completed {action_id} ===")
 
 
 def _update_via_zip(args):
-    """Update Hermes Agent by downloading a ZIP archive.
+    """Update Allr by downloading a ZIP archive.
 
     Used on Windows when git file I/O is broken (antivirus, NTFS filter
     drivers causing 'Invalid argument' errors on file creation).
@@ -747,25 +747,25 @@ def _update_via_zip(args):
         print(
             "  This path runs when git file I/O is broken on the system. "
             "Either resolve the git-side breakage (typically an antivirus "
-            "or NTFS filter holding files open) and rerun `hermes update "
-            f"--branch {branch}`, or update against main with `hermes update`."
+            "or NTFS filter holding files open) and rerun `allr update "
+            f"--branch {branch}`, or update against main with `allr update`."
         )
         _m().sys.exit(1)
     zip_url = (
-        f"https://github.com/NousResearch/hermes-agent/archive/refs/heads/{branch}.zip"
+        f"https://github.com/allr-ajmx/allr-agent/archive/refs/heads/{branch}.zip"
     )
 
     print("→ Downloading latest version...")
     tmp_dir = tempfile.mkdtemp(prefix="hermes-update-")
     try:
-        zip_path = os.path.join(tmp_dir, f"hermes-agent-{branch}.zip")
+        zip_path = os.path.join(tmp_dir, f"allr-agent-{branch}.zip")
         urlretrieve(zip_url, zip_path)
 
         print("→ Extracting...")
         import stat as _stat
         with zipfile.ZipFile(zip_path, "r") as zf:
             # Validate paths to prevent zip-slip (path traversal) AND reject
-            # symlink members. A GitHub source ZIP for hermes-agent itself
+            # symlink members. A GitHub source ZIP for allr-agent itself
             # should never contain symlinks — they'd point outside the
             # extracted tree and let an attacker who can compromise the
             # update mirror plant arbitrary files via the update path.
@@ -788,8 +788,8 @@ def _update_via_zip(args):
                     )
             zf.extractall(tmp_dir)
 
-        # GitHub ZIPs extract to hermes-agent-<branch>/
-        extracted = os.path.join(tmp_dir, f"hermes-agent-{branch}")
+        # GitHub ZIPs extract to allr-agent-<branch>/
+        extracted = os.path.join(tmp_dir, f"allr-agent-{branch}")
         if not os.path.isdir(extracted):
             # Try to find it
             for d in os.listdir(tmp_dir):
@@ -875,8 +875,8 @@ def _update_via_zip(args):
         # scare the user toward a reinstall they don't need.
         print("  Your existing install was left in place.")
         print(
-            "  Re-run `hermes update` to retry; if the agent won't start, "
-            "reinstall from https://hermes-agent.nousresearch.com"
+            "  Re-run `allr update` to retry; if the agent won't start, "
+            "reinstall from https://allr.work"
         )
         _m().sys.exit(1)
     finally:
@@ -955,7 +955,7 @@ def _update_via_zip(args):
         print(f"  {failing_module}: {import_error}")
         print()
         print("  This usually means the copy was interrupted partway through.")
-        print("  Re-run `hermes update` to complete it.")
+        print("  Re-run `allr update` to complete it.")
         _m().sys.exit(1)
 
     node_failures = _update_node_dependencies()
@@ -976,7 +976,7 @@ def _update_via_zip(args):
         if result.get("user_modified"):
             print(f"  ~ {len(result['user_modified'])} user-modified (kept)")
             print(
-                "    → see them: hermes skills list-modified  "
+                "    → see them: allr skills list-modified  "
                 "(diff/reset to resume updates)"
             )
         if result.get("cleaned"):
@@ -1174,7 +1174,7 @@ def _stash_local_changes_if_needed(git_cmd: list[str], cwd: Path) -> Optional[st
                 print(f"  {push.stderr.strip().splitlines()[0]}")
             print(
                 "  Commit, stash, or clean up your local changes manually, "
-                "then re-run `hermes update`."
+                "then re-run `allr update`."
             )
             raise subprocess.CalledProcessError(
                 push.returncode, push.args, output=push.stdout, stderr=push.stderr
@@ -1254,7 +1254,7 @@ def _restore_stashed_changes(
         print(
             "  Restoring them may reapply local customizations onto the updated codebase."
         )
-        print("  Review the result afterward if Hermes behaves unexpectedly.")
+        print("  Review the result afterward if Allr behaves unexpectedly.")
         print("Restore local changes now? [Y/n]")
         if input_fn is not None:
             response = input_fn("Restore local changes now? [Y/n]", "y")
@@ -1338,7 +1338,7 @@ def _restore_stashed_changes(
     stash_selector = _resolve_stash_selector(git_cmd, cwd, stash_ref)
     if stash_selector is None:
         print(
-            "⚠ Local changes were restored, but Hermes couldn't find the stash entry to drop."
+            "⚠ Local changes were restored, but Allr couldn't find the stash entry to drop."
         )
         print(
             "  The stash was left in place. You can remove it manually after checking the result."
@@ -1353,7 +1353,7 @@ def _restore_stashed_changes(
         )
         if drop.returncode != 0:
             print(
-                "⚠ Local changes were restored, but Hermes couldn't drop the saved stash entry."
+                "⚠ Local changes were restored, but Allr couldn't drop the saved stash entry."
             )
             if drop.stdout.strip():
                 print(drop.stdout.strip())
@@ -1365,7 +1365,7 @@ def _restore_stashed_changes(
             _print_stash_cleanup_guidance(stash_ref, stash_selector)
 
     print("⚠ Local changes were restored on top of the updated codebase.")
-    print("  Review `git diff` / `git status` if Hermes behaves unexpectedly.")
+    print("  Review `git diff` / `git status` if Allr behaves unexpectedly.")
     return True
 
 def _discard_stashed_changes(
@@ -1391,7 +1391,7 @@ def _discard_stashed_changes(
     if stash_selector is None:
         print(
             "⚠ Configured to discard local changes on non-interactive update, "
-            "but Hermes couldn't find the stash entry to drop."
+            "but Allr couldn't find the stash entry to drop."
         )
         _print_stash_cleanup_guidance(stash_ref)
         return False
@@ -1404,7 +1404,7 @@ def _discard_stashed_changes(
     )
     if drop.returncode != 0:
         print(
-            "⚠ Configured to discard local changes, but Hermes couldn't drop "
+            "⚠ Configured to discard local changes, but Allr couldn't drop "
             "the saved stash entry."
         )
         if drop.stderr.strip():
@@ -1416,13 +1416,13 @@ def _discard_stashed_changes(
     return True
 
 OFFICIAL_REPO_URLS = {
-    "https://github.com/NousResearch/hermes-agent.git",
-    "git@github.com:NousResearch/hermes-agent.git",
-    "https://github.com/NousResearch/hermes-agent",
-    "git@github.com:NousResearch/hermes-agent",
+    "https://github.com/allr-ajmx/allr-agent.git",
+    "git@github.com:allr-ajmx/allr-agent.git",
+    "https://github.com/allr-ajmx/allr-agent",
+    "git@github.com:allr-ajmx/allr-agent",
 }
 
-OFFICIAL_REPO_URL = "https://github.com/NousResearch/hermes-agent.git"
+OFFICIAL_REPO_URL = "https://github.com/allr-ajmx/allr-agent.git"
 
 SKIP_UPSTREAM_PROMPT_FILE = ".skip_upstream_prompt"
 
@@ -1547,8 +1547,8 @@ def _sync_with_upstream_if_needed(git_cmd: list[str], cwd: Path) -> None:
 
         # Ask user if they want to add upstream
         print()
-        print("ℹ Your fork is not tracking the official Hermes repository.")
-        print("  This means you may miss updates from NousResearch/hermes-agent.")
+        print("ℹ Your fork is not tracking the official Allr repository.")
+        print("  This means you may miss updates from allr-ajmx/allr-agent.")
         print()
         try:
             response = (
@@ -1562,7 +1562,7 @@ def _sync_with_upstream_if_needed(git_cmd: list[str], cwd: Path) -> None:
             print("→ Adding upstream remote...")
             if _add_upstream_remote(git_cmd, cwd):
                 print(
-                    "  ✓ Added upstream: https://github.com/NousResearch/hermes-agent.git"
+                    "  ✓ Added upstream: https://github.com/allr-ajmx/allr-agent.git"
                 )
                 has_upstream = True
             else:
@@ -1570,7 +1570,7 @@ def _sync_with_upstream_if_needed(git_cmd: list[str], cwd: Path) -> None:
                 return
         else:
             print(
-                "  Skipped. Run 'git remote add upstream https://github.com/NousResearch/hermes-agent.git' to add later."
+                "  Skipped. Run 'git remote add upstream https://github.com/allr-ajmx/allr-agent.git' to add later."
             )
             _mark_skip_upstream_prompt()
             return
@@ -1649,7 +1649,7 @@ def _invalidate_update_cache():
     reports a stale "commits behind" count after a successful update.
 
     The git repo is shared across profiles — when one profile runs
-    ``hermes update``, every profile is now current.
+    ``allr update``, every profile is now current.
     """
     homes = []
     # Default profile home (Docker-aware — uses /opt/data in Docker)
@@ -1695,16 +1695,16 @@ def _format_concurrent_instances_message(
     matches: list[tuple[int, str]], scripts_dir: Path
 ) -> str:
     """Build a human-readable explanation + remediation hint for the user."""
-    shim = scripts_dir / "hermes.exe"
-    lines = ["✗ Another hermes.exe is running:"]
+    shim = scripts_dir / "allr.exe"
+    lines = ["✗ Another allr.exe is running:"]
     for pid, name in matches:
         lines.append(f"    PID {pid}  {name}")
     lines.append("")
     lines.append(f"  Updating now would fail to overwrite {shim} because")
     lines.append("  Windows blocks REPLACE on a running executable.")
     lines.append("")
-    lines.append("  Close Hermes Desktop, exit any open `hermes` REPLs, and")
-    lines.append("  stop the gateway (`hermes gateway stop`) before retrying.")
+    lines.append("  Close Allr Desktop, exit any open `hermes` REPLs, and")
+    lines.append("  stop the gateway (`allr gateway stop`) before retrying.")
     lines.append("")
     if matches:
         pid_args = " ".join(f"/PID {pid}" for pid, _ in matches)
@@ -1712,7 +1712,7 @@ def _format_concurrent_instances_message(
         lines.append("  stale, terminate them directly, then retry the update:")
         lines.append(f"      taskkill {pid_args} /F")
         lines.append("")
-    lines.append("  Override with `hermes update --force` if you've already")
+    lines.append("  Override with `allr update --force` if you've already")
     lines.append("  confirmed those processes will not write to the venv.")
     return "\n".join(lines)
 
@@ -1744,7 +1744,7 @@ def _refresh_active_lazy_features(
 
     When pyproject.toml's ``[all]`` extra was slimmed down (May 2026), most
     optional backends moved to ``tools/lazy_deps.py`` and only install on
-    first use. ``hermes update`` runs ``uv pip install -e .[all]`` which
+    first use. ``allr update`` runs ``uv pip install -e .[all]`` which
     leaves those packages untouched — so if we bump a pin in
     :data:`LAZY_DEPS` (CVE response, transitive bug fix), users who already
     activated the backend keep the stale version forever.
@@ -1815,7 +1815,7 @@ def _refresh_active_lazy_features(
         print(f"  ⚠ {feature} failed to refresh: {reason}")
 
     if install_cmd_prefix is None:
-        print("  ⚠ Lazy refresh failed; rerun `hermes update` once resolved.")
+        print("  ⚠ Lazy refresh failed; rerun `allr update` once resolved.")
         return False
 
     # Immediate import-based recovery — metadata-only verifiers miss the case
@@ -1831,7 +1831,7 @@ def _refresh_active_lazy_features(
         print(
             "  Lazy backend(s) keep their previous version; probed packages look intact."
         )
-        print("  Rerun `hermes update` once the upstream issue is resolved.")
+        print("  Rerun `allr update` once the upstream issue is resolved.")
         return True
     if status == "indeterminate":
         print(
@@ -1844,7 +1844,7 @@ def _refresh_active_memory_provider_dependencies() -> None:
 
     Memory-provider bridge packages are declared in each provider's
     ``plugin.yaml`` (plus mode-dependent extras like Hindsight's
-    ``hindsight-all``), NOT in Hermes' editable-install extras or
+    ``hindsight-all``), NOT in Allr' editable-install extras or
     ``LAZY_DEPS`` alone — so the core dependency reinstall above can strip
     or downgrade them (#53272 mem0ai, #70636 hindsight-embed). Re-run the
     provider's declared install for the ACTIVE provider only, after the
@@ -1929,7 +1929,7 @@ def _ensure_uv_for_termux(pip_cmd: list[str]) -> str | None:
     """Best-effort uv bootstrap on Termux for faster update installs.
 
     The normal path (``ensure_uv()`` in managed_uv) installs the managed
-    standalone uv into ``$HERMES_HOME/bin/uv``, but on Termux the official
+    standalone uv into ``$ALLR_HOME/bin/uv``, but on Termux the official
     installer may not work (glibc vs bionic).  Prefer a uv already on PATH
     (e.g. ``pkg install uv``); only if there is none do we fall back to a
     wheel-only ``pip install uv`` so we never source-build the Rust crate.
@@ -1966,7 +1966,7 @@ def _npm_manifest_paths() -> tuple[Path, ...]:
 
     The lockfile alone is NOT a sufficient key: on a local checkout a dev
     can edit package.json (root or a workspace) without running npm — the
-    lockfile is then unchanged but `hermes update` is exactly the step
+    lockfile is then unchanged but `allr update` is exactly the step
     expected to sync node_modules (via the `npm install` fallback in
     _run_npm_install_deterministic).
 
@@ -1974,8 +1974,8 @@ def _npm_manifest_paths() -> tuple[Path, ...]:
     globs (npm's own source of truth) rather than hardcoded, so adding a
     workspace can never silently escape the skip key. The root install
     (step 1, --workspaces=false) still hoists shared deps for EVERY
-    workspace — desktop included — so all of them belong in the key, not
-    just the ones step 2 installs. Falls back to hashing just root
+    workspace — so all of them belong in the key, not just the ones
+    step 2 installs. Falls back to hashing just root
     manifests if package.json is unreadable (never skips more than main
     would have installed).
     """
@@ -2072,7 +2072,7 @@ def _update_node_dependencies() -> list[str]:
             print("→ Updating Node.js dependencies...")
             print("  ⚠ Skipped: only a Windows npm is reachable from this WSL shell.")
             print("    Install Node.js inside the WSL distro (nvm, or your distro's")
-            print("    package manager), then re-run `hermes update`.")
+            print("    package manager), then re-run `allr update`.")
             failed = ["repo root"]
             if any(
                 (_m().PROJECT_ROOT / workspace / "package.json").exists()
@@ -2085,27 +2085,24 @@ def _update_node_dependencies() -> list[str]:
     from hermes_constants import get_default_hermes_root
 
     # This cache describes PROJECT_ROOT/node_modules, which is shared by every
-    # Hermes profile using this checkout. Keep one per-checkout cache under the
-    # shared Hermes root rather than rerunning npm once per named profile.
+    # Allr profile using this checkout. Keep one per-checkout cache under the
+    # shared Allr root rather than rerunning npm once per named profile.
     shared_hermes_root = get_default_hermes_root()
     if not _m()._npm_lockfile_changed(shared_hermes_root):
         logger.info("npm lockfile unchanged, skipping npm install")
         return []
 
     # With a single workspace lockfile the root install would cover ALL
-    # workspaces — but apps/desktop pulls in Electron as a devDependency,
-    # and its postinstall downloads a ~200MB binary.  Most users don't
-    # need desktop during `hermes update`, so we install root-only first
-    # then add just the workspaces the CLI/TUI/web build actually requires.
-    # Desktop deps are installed on demand by the desktop launcher
-    # (see _desktop_build_needed).
+    # workspaces — including the Tauri app workspaces, whose deps nobody
+    # needs during `allr update`.  So we install root-only first, then add
+    # just the workspaces the CLI/TUI/web build actually requires.
     print("→ Updating Node.js dependencies...")
 
     def _partial_update_failure(*labels: str) -> list[str]:
         print()
         print("  ⚠ Node.js dependency refresh did not complete cleanly; the")
         print("    installation may be in a mixed state (updated code, stale Node")
-        print("    deps). Fix npm and re-run `hermes update`.")
+        print("    deps). Fix npm and re-run `allr update`.")
         return list(labels)
 
     extra_args = ["--no-fund", "--no-audit", "--prefer-offline", "--progress=false"]
@@ -2118,8 +2115,7 @@ def _update_node_dependencies() -> list[str]:
     # NOTE: capture_output=False here is deliberate (#18840) — optional
     # postinstall scripts (e.g. @askjo/camofox-browser's browser-binary fetch)
     # print download progress, and capturing it makes a long download look
-    # hung. The chatty npm-deprecation noise during `hermes update` comes from
-    # the *desktop* build, not this step; that one is captured to update.log.
+    # hung.
     root_args = [*extra_args, "--workspaces=false"]
     root_result = _m()._run_npm_install_deterministic(
         npm,
@@ -2136,7 +2132,7 @@ def _update_node_dependencies() -> list[str]:
         return _partial_update_failure("repo root")
 
     # Step 2: install only the workspaces update needs (ui-tui, web).
-    # --workspace selects specific workspaces; the rest (desktop) are skipped.
+    # --workspace selects specific workspaces; the app workspaces are skipped.
     ws_args = [*extra_args, "--workspace", "ui-tui", "--workspace", "web"]
     ws_result = _m()._run_npm_install_deterministic(
         npm,
@@ -2147,7 +2143,7 @@ def _update_node_dependencies() -> list[str]:
     )
     if ws_result.returncode == 0:
         _record_npm_lockfile_hash(shared_hermes_root)
-        print("  ✓ repo root + ui-tui, web workspaces (desktop skipped)")
+        print("  ✓ repo root + ui-tui, web workspaces (app workspaces skipped)")
         return []
 
     print("  ⚠ npm workspace install failed")
@@ -2157,11 +2153,11 @@ def _update_node_dependencies() -> list[str]:
     return _partial_update_failure("ui-tui, web workspaces")
 
 def _log_only_write(text: str) -> None:
-    """Write ``text`` to ``~/.hermes/logs/update.log`` only, never the terminal.
+    """Write ``text`` to ``~/.allr/logs/update.log`` only, never the terminal.
 
-    During ``hermes update`` ``sys.stdout`` is an ``_UpdateOutputStream`` that
+    During ``allr update`` ``sys.stdout`` is an ``_UpdateOutputStream`` that
     mirrors to both the terminal and ``update.log``. Loud, low-signal
-    subprocess output (npm installs, the Electron/vite build, the cua-driver
+    subprocess output (npm installs, the vite build, the cua-driver
     installer's "Next steps" wall) should be captured and tucked into the log
     so failures stay debuggable, without flooding the user's terminal. This
     reaches past the mirroring stream straight to the underlying log handle.
@@ -2199,7 +2195,7 @@ def _run_logged_subprocess(cmd, *, cwd=None, env=None):
     return result
 
 def _cmd_update_check(branch: str = "main", *, branch_explicit: bool = False):
-    """Implement ``hermes update --check``: fetch and report without installing.
+    """Implement ``allr update --check``: fetch and report without installing.
 
     ``branch`` selects which branch the check compares against. Default is
     "main"; callers can pass another branch to ask "are there new commits
@@ -2213,7 +2209,7 @@ def _cmd_update_check(branch: str = "main", *, branch_explicit: bool = False):
     method = detect_install_method(_m().PROJECT_ROOT)
     if method == "docker":
         # Docker can't ``git fetch`` from within the container.  Surface the
-        # same long-form ``docker pull`` guidance ``hermes update`` (apply
+        # same long-form ``docker pull`` guidance ``allr update`` (apply
         # path) uses — telling the user to "reinstall via curl" or that
         # ".git is missing" would point them at the wrong remediation.
         from hermes_cli.config import format_docker_update_message
@@ -2373,7 +2369,7 @@ def _ensure_fhs_path_guard() -> None:
 
     Mirrors the post-symlink probe added to ``scripts/install.sh`` so that
     existing FHS-layout root installs on RHEL/CentOS/Rocky/Alma 8+ get
-    repaired on ``hermes update`` without requiring a reinstall.  The
+    repaired on ``allr update`` without requiring a reinstall.  The
     installer's assumption that ``/usr/local/bin`` is on PATH for every
     standard shell breaks on those distros in non-login interactive shells
     (su, sudo -s, tmux panes, some web terminals): /etc/bashrc doesn't
@@ -2392,8 +2388,8 @@ def _ensure_fhs_path_guard() -> None:
     except AttributeError:
         return
     # Only act when this is actually an FHS-layout install (command link at
-    # /usr/local/bin/hermes, code at /usr/local/lib/hermes-agent).
-    fhs_link = Path("/usr/local/bin/hermes")
+    # /usr/local/bin/allr, code at /usr/local/lib/allr-agent).
+    fhs_link = Path("/usr/local/bin/allr")
     if not fhs_link.is_symlink() and not fhs_link.exists():
         return
 
@@ -2424,7 +2420,7 @@ def _ensure_fhs_path_guard() -> None:
 
     path_line = 'export PATH="/usr/local/bin:$PATH"'
     path_comment = (
-        "# Hermes Agent — ensure /usr/local/bin is on PATH " "(RHEL non-login shells)"
+        "# Allr — ensure /usr/local/bin is on PATH " "(RHEL non-login shells)"
     )
     wrote_any = False
     for candidate in (".bashrc", ".bash_profile"):
@@ -2457,14 +2453,14 @@ def _ensure_fhs_path_guard() -> None:
         print("    (reload your shell or run 'source ~/.bashrc' to pick it up)")
 
 def _ensure_acp_launcher() -> None:
-    """Self-heal: install a ``hermes-acp`` launcher next to the ``hermes`` one.
+    """Self-heal: install a ``allr-acp`` launcher next to the ``hermes`` one.
 
     Mirrors the launcher block in ``scripts/install.sh`` so existing installs
-    gain the ACP command on ``hermes update`` without a reinstall.  ACP hosts
+    gain the ACP command on ``allr update`` without a reinstall.  ACP hosts
     (Zed, JetBrains, Buzz Desktop) spawn the agent by resolving the
-    ``hermes-acp`` command name against the login-shell PATH; the console
+    ``allr-acp`` command name against the login-shell PATH; the console
     script of that name lives inside the install's venv, which is not on that
-    PATH, so those hosts report Hermes as not installed even when it is.
+    PATH, so those hosts report Allr as not installed even when it is.
 
     The shim simply delegates to the sibling ``hermes`` launcher with the
     ``acp`` subcommand, which makes it correct for every install layout
@@ -2472,7 +2468,7 @@ def _ensure_acp_launcher() -> None:
     reconstruct interpreter/entrypoint paths.
 
     No-op on Windows (install.ps1 puts ``venv\\Scripts`` on the user PATH, so
-    ``hermes-acp.exe`` already resolves) and wherever a ``hermes-acp`` is
+    ``allr-acp.exe`` already resolves) and wherever a ``allr-acp`` is
     already present next to the ``hermes`` command.  Unwritable directories
     (e.g. ``/usr/local/bin`` as non-root) are skipped silently.  Idempotent.
     """
@@ -2480,7 +2476,7 @@ def _ensure_acp_launcher() -> None:
         return
     for bin_dir in (Path.home() / ".local" / "bin", Path("/usr/local/bin")):
         hermes_cmd = bin_dir / "hermes"
-        acp_cmd = bin_dir / "hermes-acp"
+        acp_cmd = bin_dir / "allr-acp"
         try:
             if not (hermes_cmd.is_file() or hermes_cmd.is_symlink()):
                 continue
@@ -2492,7 +2488,7 @@ def _ensure_acp_launcher() -> None:
                 continue
             shim = (
                 "#!/usr/bin/env bash\n"
-                "# Hermes Agent — ACP launcher (written by `hermes update`).\n"
+                "# Allr — ACP launcher (written by `allr update`).\n"
                 "# ACP hosts (Zed, JetBrains, Buzz) resolve the agent by this\n"
                 "# command name on the login-shell PATH.\n"
                 f'exec "{hermes_cmd}" acp "$@"\n'
@@ -2501,7 +2497,7 @@ def _ensure_acp_launcher() -> None:
             acp_cmd.chmod(acp_cmd.stat().st_mode | 0o755)
         except OSError:
             continue
-        print(f"  ✓ Installed hermes-acp launcher → {acp_cmd}")
+        print(f"  ✓ Installed allr-acp launcher → {acp_cmd}")
 
 _PRE_UPDATE_SNAPSHOT_KEEP = 1
 
@@ -2567,8 +2563,8 @@ def _run_pre_update_backup(args) -> Optional[str]:
       under ``state-snapshots/``. Files over 1 GiB are skipped with a
       warning so a bloated state.db can never stall the update
       (issues #15733, #34600 are the reason this safety net exists).
-    - ``full``  — the quick snapshot PLUS a full zip of HERMES_HOME under
-      ``backups/`` (restorable via ``hermes import``; the #48200 wrong-path
+    - ``full``  — the quick snapshot PLUS a full zip of ALLR_HOME under
+      ``backups/`` (restorable via ``allr import``; the #48200 wrong-path
       wipe is the reason this level exists).
 
     ``--backup`` forces ``full`` for one run; ``--no-backup`` forces ``off``.
@@ -2705,7 +2701,7 @@ def _run_pre_update_backup(args) -> Optional[str]:
 
     size_str = format_bytes(size_bytes)
 
-    # Render path using display_hermes_home so the user sees ~/.hermes/...
+    # Render path using display_hermes_home so the user sees ~/.allr/...
     try:
         from hermes_constants import get_hermes_home, display_hermes_home
 
@@ -2718,7 +2714,7 @@ def _run_pre_update_backup(args) -> Optional[str]:
         display_path = str(out_path)
 
     print(f"  Saved:    {display_path} ({size_str}, {elapsed:.1f}s)")
-    print(f"  Restore:  hermes import {out_path}")
+    print(f"  Restore:  allr import {out_path}")
     print("  Disable:  set updates.pre_update_backup: quick (or off) in config.yaml")
     print()
     return snapshot_id
@@ -2781,11 +2777,11 @@ def _venv_core_imports_healthy() -> tuple[bool, str]:
     """Probe the project venv for the core imports the backend needs to boot.
 
     Runs a tiny import check inside the venv interpreter (NOT this process —
-    ``hermes update`` may be driven by a different Python). Catches the
+    ``allr update`` may be driven by a different Python). Catches the
     half-updated-venv state: git checkout current but a dependency sync that
     failed or was killed partway (e.g. Windows access-denied on a loaded
     .pyd), leaving imports like ``fastapi``'s new transitive deps missing.
-    Without this probe, ``hermes update`` on a current checkout prints
+    Without this probe, ``allr update`` on a current checkout prints
     "Already up to date!" and returns without ever re-syncing dependencies —
     the user's install stays broken no matter how many times they update
     (ryanc's incident, July 2026).
@@ -2850,7 +2846,7 @@ def _detect_venv_python_processes(
 ) -> list[tuple[int, str, str]]:
     """Find live processes running from the project venv's interpreter.
 
-    The hermes.exe shim guard misses the biggest lock-holder class on
+    The allr.exe shim guard misses the biggest lock-holder class on
     Windows: the Desktop app's backend (``python.exe -m hermes_cli.main
     serve``) and anything else running straight off ``venv\\Scripts\\python
     (w).exe``. Those processes keep native ``.pyd`` extensions mapped, so a
@@ -2939,13 +2935,13 @@ def _detect_venv_python_processes(
 def _format_venv_python_holders_message(matches: list[tuple[int, str, str]]) -> str:
     """Explain which venv processes block the update and how to clear them."""
     lines = [
-        "✗ Other Hermes processes are running from this install's venv:",
+        "✗ Other Allr processes are running from this install's venv:",
     ]
     for pid, name, cmdline in matches[:6]:
         hint = ""
         low = cmdline.lower()
         if "serve" in low or "dashboard" in low:
-            hint = "  ← Hermes Desktop backend (close the desktop app)"
+            hint = "  ← Allr Desktop backend (close the desktop app)"
         elif "gateway" in low:
             hint = "  ← gateway"
         lines.append(f"  PID {pid}  {name}  {cmdline[:120]}{hint}")
@@ -2959,10 +2955,10 @@ def _format_venv_python_holders_message(matches: list[tuple[int, str, str]]) -> 
         "  dependency update would fail partway and leave a broken install."
     )
     lines.append(
-        "  Close the Hermes desktop app / other Hermes terminals, then re-run:"
+        "  Close the Allr desktop app / other Allr terminals, then re-run:"
     )
-    lines.append("    hermes update")
-    lines.append("  (or use `hermes update --force-venv` to proceed anyway at your own risk)")
+    lines.append("    allr update")
+    lines.append("  (or use `allr update --force-venv` to proceed anyway at your own risk)")
     return "\n".join(lines)
 
 def _venv_launcher_ancestors(pids: list[int]) -> list[int]:
@@ -3002,7 +2998,7 @@ def _venv_launcher_ancestors(pids: list[int]) -> list[int]:
     except OSError:
         venv_prefix = str(venv_dir).lower().rstrip(os.sep) + os.sep
 
-    # Never return ourselves or our own ancestry: a CLI ``hermes update``
+    # Never return ourselves or our own ancestry: a CLI ``allr update``
     # runs from the venv python and would otherwise nominate itself.
     skip: set[int] = {os.getpid()}
     try:
@@ -3087,17 +3083,17 @@ def _orphaned_desktop_backend_pids(
     supervises and respawns it within seconds), so the user must close the
     app. But in the GUI-updater handoff path the Desktop has *already
     exited* — by contract it tree-kills its backends and waits for the venv
-    shim before spawning hermes-setup, and the update-in-progress marker
+    shim before spawning allr-setup, and the update-in-progress marker
     parks any relaunched Desktop from spawning a fresh backend (#50238). A
     ``serve`` backend still holding the venv at that point is a straggler
     whose supervisor is gone: SIGTERM raced its spawn, or it belongs to a
     crashed window. Nothing will respawn it, and refusing on it dead-ends
-    the update with "Hermes is still running" while the user stares at zero
+    the update with "Allr is still running" while the user stares at zero
     open windows (ryanc's 2026-08-09 01:59/02:17 failures).
 
     A holder qualifies only when BOTH hold:
 
-    - its cmdline is a Hermes backend (``hermes_cli.main`` + ``serve`` /
+    - its cmdline is an Allr backend (``hermes_cli.main`` + ``serve`` /
       ``dashboard``), and
     - its supervising parent is demonstrably gone: the parent PID no longer
       exists, or the PID was reused (parent created *after* the child).
@@ -3206,7 +3202,7 @@ def _pause_windows_gateways_for_update() -> dict | None:
     """Stop running Windows gateways before mutating the checkout or venv.
 
     Windows scheduled/startup gateways run through pythonw.exe, so the generic
-    hermes.exe concurrent-instance guard does not see them. They still import
+    allr.exe concurrent-instance guard does not see them. They still import
     from the checkout and can keep files locked while ``git`` or ``uv`` updates
     the install. Stop only PIDs that the gateway discovery code identifies.
     """
@@ -3290,7 +3286,7 @@ def _pause_windows_gateways_for_update() -> dict | None:
     # update even though the gateway itself is stopped.
     launcher_pids = _m()._venv_launcher_ancestors(mapped_pids)
 
-    print("→ Stopping Windows gateway process(es) before updating Hermes...")
+    print("→ Stopping Windows gateway process(es) before updating Allr...")
     try:
         drain_timeout = max(float(_get_restart_drain_timeout()), 1.0)
     except Exception:
@@ -3342,7 +3338,7 @@ def _pause_windows_gateways_for_update() -> dict | None:
         if respawnable < len(unmapped_pids):
             # Some had no recoverable command line (psutil missing, access
             # denied, already gone): those still need a manual restart.
-            print("    Restart manually after update: hermes gateway run")
+            print("    Restart manually after update: allr gateway run")
 
     return {
         "resume_needed": True,
@@ -3360,7 +3356,7 @@ def _cold_start_windows_gateway_after_update() -> None:
     is installed, signalling the user wants a gateway. Unlike the relaunch
     paths — which watch an old PID and respawn once it exits — this is a direct
     fresh spawn via the same hidden-console + breakaway path that
-    ``hermes gateway start`` uses (``gateway_windows._spawn_detached``).
+    ``allr gateway start`` uses (``gateway_windows._spawn_detached``).
 
     Best-effort and idempotent: re-checks that nothing is running first so a
     concurrent start (e.g. the autostart entry firing) can't produce a
@@ -3401,7 +3397,7 @@ def _for_each_systemd_gateway_unit(
     process_unit,
     on_unit_timeout,
 ) -> None:
-    """Process each ``hermes-gateway*.service`` from ``systemctl list-units``.
+    """Process each ``allr-gateway*.service`` from ``systemctl list-units``.
 
     ``subprocess.TimeoutExpired`` raised by ``process_unit`` is isolated to
     that unit via ``on_unit_timeout`` so one wedged systemctl call cannot
@@ -3416,7 +3412,7 @@ def _for_each_systemd_gateway_unit(
             continue
         # list-units is already pattern-filtered, but keep the name gate so a
         # stray non-gateway line cannot enter the restart path.
-        if not unit.startswith("hermes-gateway"):
+        if not unit.startswith("allr-gateway"):
             continue
         svc_name = unit.removesuffix(".service")
         try:
@@ -3442,7 +3438,7 @@ def _warn_incomplete_gateway_fleet_restart(failed_units: list) -> None:
         print(f"    - {name}")
     print("  Skipped units may still be running pre-update code (mixed")
     print("  sys.modules). Restart them manually, then verify:")
-    print("    hermes gateway status")
+    print("    allr gateway status")
     print("    systemctl --user restart <unit>   # user-scope")
     print("    sudo systemctl restart <unit>     # system-scope")
 
@@ -3451,7 +3447,7 @@ def _refresh_windows_gateway_launchers() -> None:
 
     The Scheduled Task / Startup-folder launchers (``gateway.cmd`` +
     ``gateway.vbs``) are persistence artifacts written once at install time —
-    ``hermes update`` never touched them, so installs created before the
+    ``allr update`` never touched them, so installs created before the
     hidden-console rework (aa2ae36c3f) kept launching the gateway through
     ``pythonw.exe`` forever: every descendant spawn flashed a conhost
     (#54220/#56747) and, since #70344, the console-less gateway died at
@@ -3478,8 +3474,8 @@ def _refresh_windows_gateway_launchers() -> None:
 def _refresh_bootstrap_cache_scripts(branch: str = "main") -> None:
     """Sync the installer's bootstrap-cache scripts from the fresh checkout.
 
-    The Desktop GUI updater (``hermes-setup.exe``) executes
-    ``$HERMES_HOME/bootstrap-cache/install-<ref>.ps1`` (or ``.sh``) for its
+    The Desktop GUI updater (``allr-setup.exe``) executes
+    ``$ALLR_HOME/bootstrap-cache/install-<ref>.ps1`` (or ``.sh``) for its
     repair/bootstrap stages. Installer binaries built before the #67193
     cache-refresh fix (June 2026 and earlier) NEVER re-download a cached
     branch-ref script — ``install-main.ps1`` cached at install time is
@@ -3487,7 +3483,7 @@ def _refresh_bootstrap_cache_scripts(branch: str = "main") -> None:
     2026-08-09 incident: a June 4 cached script's venv stage lacked the
     #81327 process-tree sweep and died on ``Access denied``). The binary
     has no self-update path, so the poisoned cache outlives every
-    ``hermes update``.
+    ``allr update``.
 
     Overwriting the cached script for *branch* with the freshly pulled
     ``scripts/install.ps1`` / ``scripts/install.sh`` on every update turns
@@ -3628,7 +3624,7 @@ def _discard_lockfile_churn(git_cmd, repo_root):
 
     npm rewrites lockfiles non-deterministically at install/build time. On a
     managed install those diffs are never intentional, so we discard them so
-    ``hermes update`` sees a clean tree instead of autostashing every run.
+    ``allr update`` sees a clean tree instead of autostashing every run.
     Best-effort; only ever touches files named ``package-lock.json``.
     """
     try:
@@ -3674,7 +3670,7 @@ def _normalize_managed_eol(git_cmd, repo_root):
     overwritten", so ``install.ps1`` pins ``core.autocrlf=false`` on the managed
     clone (#67730). Checkouts created before that landed never got the pin and
     cannot receive it — the bootstrap installer reuses its build-pinned
-    ``install.ps1`` forever — so ``hermes update``, which ships with the checkout
+    ``install.ps1`` forever — so ``allr update``, which ships with the checkout
     itself, is the only path left that can fix them.
 
     The pin and the cleanup are one operation. Under ``autocrlf=true`` git
@@ -3811,10 +3807,10 @@ def _cmd_update_impl(args, gateway_mode: bool):
             logger.debug("Could not read updates.non_interactive_local_changes: %s", exc)
             discard_local_changes = False
 
-    print("⚕ Updating Hermes Agent...")
+    print("⚕ Updating Allr...")
     print()
 
-    # On Windows, abort early if another hermes.exe is holding the venv shim
+    # On Windows, abort early if another allr.exe is holding the venv shim
     # open. Continuing would result in a string of WinError 32 warnings and
     # then either a deferred-rename leftover or a failed git-pull fast path
     # that silently falls back to the slower ZIP route. See issue #26670.
@@ -3842,13 +3838,13 @@ def _cmd_update_impl(args, gateway_mode: bool):
         )
 
     # With gateways paused, anything still running from the venv interpreter
-    # (most commonly the Desktop app's `hermes serve` backend) will keep .pyd
+    # (most commonly the Desktop app's `allr serve` backend) will keep .pyd
     # files locked and corrupt the dependency sync below. Refuse rather than
     # race: killing the desktop backend is futile (the app supervises and
     # respawns it), so the user must close the app. Deliberately NOT bypassed
     # by plain --force: the desktop bootstrap updater passes --force to skip
-    # the hermes.exe shim guard above, but its lock probe only checks the shim
-    # and app.asar — a non-desktop venv python holding a .pyd would sail
+    # the allr.exe shim guard above, but its lock probe only checks the shim
+    # the app bundle — a non-desktop venv python holding a .pyd would sail
     # through and corrupt the sync (the exact failure this guard exists for).
     # --force-venv is the explicit escape hatch.
     if _m()._is_windows() and not getattr(args, "force_venv", False):
@@ -3882,10 +3878,10 @@ def _cmd_update_impl(args, gateway_mode: bool):
             if _orphan_backends:
                 # Every remaining holder is a Desktop `serve` backend whose
                 # supervising app is GONE — the GUI-updater handoff race:
-                # Electron's teardown lost the SIGTERM race, exited, and left
+                # the app's teardown lost the SIGTERM race, exited, and left
                 # its backend (and any .hermes-runtime child) holding the
                 # venv. Nothing will respawn an orphan, so reap the tree and
-                # re-check instead of dead-ending with "Hermes is still
+                # re-check instead of dead-ending with "Allr is still
                 # running" while no window is open. Backends whose Desktop
                 # is still alive never reach here (_orphaned_desktop_
                 # backend_pids returns None for them) — that path keeps the
@@ -3913,7 +3909,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
         else:
             print("✗ Not a git repository. Please reinstall:")
             print(
-                "  curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash"
+                "  curl -fsSL https://allr.work/install.sh | bash"
             )
             sys.exit(1)
 
@@ -4164,7 +4160,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
                     _print_update_completion("✓ Update complete!")
                 else:
                     print(f"⚠ Venv still unhealthy after repair: {detail_after}")
-                    print("  Close all Hermes windows/gateways and re-run: hermes update")
+                    print("  Close all Allr windows/gateways and re-run: allr update")
             else:
                 _print_update_completion("✓ Already up to date!")
             if runtime_repaired is not None and not _m()._is_windows():
@@ -4173,7 +4169,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
                     "⚠ Restart required to finish the managed Python runtime repair."
                 )
                 print(
-                    "  Any running Hermes gateways, Desktop backends, or other "
+                    "  Any running Allr gateways, Desktop backends, or other "
                     "long-lived processes still use the previous runtime."
                 )
                 print("  Restart each of them to pick up the repaired runtime.")
@@ -4187,7 +4183,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
         # Capture the pre-pull SHA so we can auto-roll-back if the new code
         # has a syntax error in a critical-path file (PR #28452 incident:
         # orphan merge-conflict markers in hermes_cli/config.py bricked
-        # every user who ran ``hermes update`` for the 7 minutes between
+        # every user who ran ``allr update`` for the 7 minutes between
         # the bad commit and the fix landing).
         pre_pull_sha = _capture_head_sha(git_cmd, _m().PROJECT_ROOT)
         try:
@@ -4254,7 +4250,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
                     )
                     if rollback_result.returncode == 0:
                         print("  ✓ Rollback complete — your install is unchanged.")
-                        print("  Try ``hermes update`` again later once a fix lands.")
+                        print("  Try ``allr update`` again later once a fix lands.")
                     else:
                         print("  ✗ Rollback failed. Recover manually with:")
                         print(f"    cd {_m().PROJECT_ROOT} && git reset --hard {pre_pull_sha}")
@@ -4434,68 +4430,11 @@ def _cmd_update_impl(args, gateway_mode: bool):
             print()
             print(f"  ⚠ {failing_module} still fails to import after updating:")
             print(f"      {import_error}")
-            print("    Run `hermes update` again — if it persists, reinstall:")
-            print("    https://hermes-agent.nousresearch.com")
+            print("    Run `allr update` again — if it persists, reinstall:")
+            print("    https://allr.work")
 
         node_failures = _update_node_dependencies()
         _m()._build_web_ui(_m().PROJECT_ROOT / "web")
-
-        # Rebuild the desktop app if the source tree changed since the last
-        # build.  ``hermes desktop --build-only`` uses the content-hash stamp
-        # internally, so this is effectively a no-op when nothing changed.
-        # Only bother if the user has a desktop app installed (indicated by
-        # an existing packaged executable or desktop dist); people who have
-        # never run ``hermes desktop`` shouldn't be forced into a full
-        # Electron build by ``hermes update``.
-        desktop_dir = _m().PROJECT_ROOT / "apps" / "desktop"
-        has_desktop_app = _m()._desktop_packaged_executable(desktop_dir) is not None or _m()._desktop_dist_exists(desktop_dir)
-        if (desktop_dir / "package.json").exists() and _m()._resolve_node_runtime_npm() and has_desktop_app:
-            print("→ Checking if desktop app needs rebuilding...")
-            # Consult the content-hash stamp IN-PROCESS first. The spawned
-            # `hermes desktop --build-only` subprocess re-imports the whole
-            # CLI stack (~1-3 s) just to reach the same _m()._desktop_build_needed
-            # check; when the stamp already says "up to date" we can skip the
-            # spawn entirely. The update path never passes --source, so the
-            # subprocess would run with source_mode=False — mirror that here.
-            # Any error in the pre-check falls through to the subprocess.
-            _skip_desktop_build = False
-            try:
-                _skip_desktop_build = not _m()._desktop_build_needed(
-                    desktop_dir, _m().PROJECT_ROOT, source_mode=False
-                )
-            except Exception:
-                _skip_desktop_build = False
-            if _skip_desktop_build:
-                print("  ✓ Desktop app up to date")
-            else:
-                _desktop_build_cmd = [sys.executable, "-m", "hermes_cli.main", "desktop", "--build-only"]
-                # Capture the (very loud) Electron/vite build output into
-                # update.log instead of streaming it to the terminal. On the rare
-                # nonzero exit, retry once after waiting again for the venv — this
-                # covers a still-settling rebuild window the first wait didn't fully
-                # catch — then surface the captured tail so the failure is
-                # debuggable.
-                #
-                # Start the build subprocess with the Hermes-managed Node on PATH:
-                # when `hermes update` runs inside the desktop updater chain
-                # (Desktop → hermes-setup → hermes update), the shell PATH
-                # customizations are lost, so a bare-PATH child would fail with
-                # `node: not found` before cmd_gui can self-heal.
-                from hermes_constants import with_hermes_node_path
-
-                _build_env = with_hermes_node_path()
-                build_result = _m()._run_logged_subprocess(_desktop_build_cmd, cwd=_m().PROJECT_ROOT, env=_build_env)
-                if build_result.returncode != 0:
-                    build_result = _m()._run_logged_subprocess(_desktop_build_cmd, cwd=_m().PROJECT_ROOT, env=_build_env)
-                if build_result.returncode != 0:
-                    print("  ⚠ Desktop build failed (non-fatal; run `hermes desktop` to retry)")
-                    tail = "\n".join((build_result.stdout or "").strip().splitlines()[-15:])
-                    if tail:
-                        print(tail)
-                    from hermes_constants import display_hermes_home as _dhh
-                    print(f"  Full build log: {_dhh()}/logs/update.log")
-                else:
-                    print("  ✓ Desktop app up to date")
 
         print()
         print("✓ Code updated!")
@@ -4578,7 +4517,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
         # Seed the model-catalog disk cache from the freshly-pulled checkout.
         # The repo ships the canonical catalog at
         # website/static/api/model-catalog.json, and `git pull` just made it
-        # current — so copy it straight over ~/.hermes/cache/model_catalog.json
+        # current — so copy it straight over ~/.allr/cache/model_catalog.json
         # instead of waiting on a network fetch (which can be bot-gated or hit a
         # Portal hiccup). Keeps the model picker's curated/free lists in sync
         # with the version the user just installed. Non-fatal on failure: the
@@ -4607,7 +4546,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
             if result.get("user_modified"):
                 print(f"  ~ {len(result['user_modified'])} user-modified (kept)")
                 print(
-                    "    → see them: hermes skills list-modified  "
+                    "    → see them: allr skills list-modified  "
                     "(diff/reset to resume updates)"
                 )
             if result.get("cleaned"):
@@ -4623,10 +4562,10 @@ def _cmd_update_impl(args, gateway_mode: bool):
             logger.debug("Skills sync during update failed: %s", e)
 
         # Sync bundled skills to all profiles (including the active one).
-        # seed_profile_skills() uses subprocess with an explicit HERMES_HOME so
-        # it is not affected by sync_skills()'s module-level HERMES_HOME cache,
+        # seed_profile_skills() uses subprocess with an explicit ALLR_HOME so
+        # it is not affected by sync_skills()'s module-level ALLR_HOME cache,
         # which means the active profile is reliably synced regardless of whether
-        # the caller's HERMES_HOME env var points at the default or a named profile.
+        # the caller's ALLR_HOME env var points at the default or a named profile.
         try:
             from hermes_cli.profiles import (
                 list_profiles,
@@ -4724,7 +4663,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
                 print("  ✓ Config format updated (no new settings to configure)")
             except Exception as _mig_err:
                 print(f"  ⚠️  Config format update failed: {_mig_err}")
-                print("     Run 'hermes config migrate' to retry.")
+                print("     Run 'allr config migrate' to retry.")
         elif needs_migration:
             print()
             # Show WHAT changed, not just a count, so the user can make an
@@ -4792,7 +4731,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
                     # here and crashes the update at this prompt.
                     print(
                         "  ⚠ Could not read input (encoding issue). Skipping. "
-                        "Run 'hermes config migrate' manually to configure."
+                        "Run 'allr config migrate' manually to configure."
                     )
                     response = "n"
 
@@ -4812,10 +4751,10 @@ def _cmd_update_impl(args, gateway_mode: bool):
                     print()
                     print("✓ Configuration updated!")
                 if (gateway_mode or assume_yes or response == "auto") and missing_env:
-                    print("  ℹ API keys require manual entry: hermes config migrate")
+                    print("  ℹ API keys require manual entry: allr config migrate")
             else:
                 print()
-                print("Skipped. Run 'hermes config migrate' later to configure.")
+                print("Skipped. Run 'allr config migrate' later to configure.")
         else:
             print("  ✓ Configuration is up to date")
 
@@ -4874,7 +4813,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
         # Most-recent curator run notice — show-once per run. Surfaces the
         # rename map (`old-name → umbrella`) on the high-attention update
         # surface so users learn about consolidations without having to
-        # check `hermes curator status`. Self-stamps after printing so it
+        # check `allr curator status`. Self-stamps after printing so it
         # never repeats for the same run.
         try:
             _print_curator_recent_run_notice()
@@ -4888,18 +4827,18 @@ def _cmd_update_impl(args, gateway_mode: bool):
         except Exception as e:
             logger.debug("FHS PATH guard check failed: %s", e)
 
-        # Self-heal the hermes-acp launcher for installs that predate it, so
-        # ACP hosts (Zed, JetBrains, Buzz) can resolve Hermes on PATH without
+        # Self-heal the allr-acp launcher for installs that predate it, so
+        # ACP hosts (Zed, JetBrains, Buzz) can resolve Allr on PATH without
         # a reinstall.  No-op on Windows and when already present.
         try:
             _ensure_acp_launcher()
         except Exception as e:
-            logger.debug("hermes-acp launcher self-heal failed: %s", e)
+            logger.debug("allr-acp launcher self-heal failed: %s", e)
 
         # Refresh the cua-driver binary used by the Computer Use toolset.
         # The upstream installer is gated on supported platforms and on the
         # binary already being on PATH, so this is a no-op for users who
-        # don't have it. Tying the refresh to ``hermes update`` gives users a
+        # don't have it. Tying the refresh to ``allr update`` gives users a
         # predictable cadence (matches when they pull new agent code) without
         # adding startup latency or a per-launch GitHub API call.
         try:
@@ -4928,8 +4867,8 @@ def _cmd_update_impl(args, gateway_mode: bool):
                 # silent) upstream installer when the driver's native
                 # check-update verb positively reports a newer release.
                 # An indeterminate check (offline, rate-limited, old
-                # driver) keeps the installed version — `hermes update`
-                # must stay fast; `hermes computer-use install --upgrade`
+                # driver) keeps the installed version — `allr update`
+                # must stay fast; `allr computer-use install --upgrade`
                 # remains the force path.
                 install_cua_driver(
                     upgrade=True,
@@ -4940,7 +4879,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
             logger.debug("cua-driver refresh failed: %s", e)
 
         # Write exit code *before* the gateway restart attempt.
-        # When running as ``hermes update --gateway`` (spawned by the gateway's
+        # When running as ``allr update --gateway`` (spawned by the gateway's
         # /update command), this process lives inside the gateway's systemd
         # cgroup.  A graceful SIGUSR1 restart keeps the drain loop alive long
         # enough for the exit-code marker to be written below, but the
@@ -5080,7 +5019,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
                 non-interactive sudo (``sudo -n``) — first a blanket probe,
                 then a targeted ``systemctl reset-failed`` probe so a
                 least-privilege sudoers entry scoped to
-                ``systemctl ... hermes-gateway*`` also qualifies
+                ``systemctl ... allr-gateway*`` also qualifies
                 (``reset-failed`` is an idempotent no-op we run before every
                 privileged restart anyway).  If neither works, return None —
                 the caller must SKIP the restart (without draining the
@@ -5107,7 +5046,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
                         sudo_ok = _probe.returncode == 0
                         if not sudo_ok:
                             # Blanket sudo refused — a targeted sudoers entry
-                            # (NOPASSWD for systemctl ... hermes-gateway*)
+                            # (NOPASSWD for systemctl ... allr-gateway*)
                             # may still allow the exact commands we need.
                             _probe = subprocess.run(
                                 sudo_cmd + ["reset-failed", svc_name_],
@@ -5143,7 +5082,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
             externally_supervised_profiles = []
 
             # --- Systemd services (Linux) ---
-            # Discover all hermes-gateway* units (default + profiles)
+            # Discover all allr-gateway* units (default + profiles)
             if supports_systemd_services():
                 try:
                     _ensure_user_systemd_env()
@@ -5159,7 +5098,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
                             scope_cmd
                             + [
                                 "list-units",
-                                "hermes-gateway*",
+                                "allr-gateway*",
                                 "--plain",
                                 "--no-legend",
                                 "--no-pager",
@@ -5175,7 +5114,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
                         print(
                             f"  ⚠ systemctl timed out listing {scope}-scope "
                             f"gateway units ({exc.cmd if exc.cmd else 'unknown command'}). "
-                            f"Check the gateway with: hermes gateway status"
+                            f"Check the gateway with: allr gateway status"
                         )
                         continue
 
@@ -5336,7 +5275,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
                                 f"  ⚠ {svc_name} is a system service and restarting it needs root.\n"
                                 f"    Restart it manually to load the new version:\n"
                                 f"      sudo systemctl restart {svc_name}\n"
-                                f"    To let `hermes update` restart it automatically, allow\n"
+                                f"    To let `allr update` restart it automatically, allow\n"
                                 f"    passwordless sudo for systemctl, or run updates with sudo."
                             )
                             return
@@ -5355,7 +5294,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
                         # the RestartSec backoff and leave the unit
                         # dead.  Clearing the failed state first makes
                         # the restart idempotent.  Mirrors the recovery
-                        # path in `hermes gateway restart`
+                        # path in `allr gateway restart`
                         # (`systemd_restart()`) as of PR #20949.
                         subprocess.run(
                             _manage_cmd + ["reset-failed", svc_name],
@@ -5560,7 +5499,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
                 )
                 if unmapped_count:
                     print(f"  → Stopped {unmapped_count} manual gateway process(es)")
-                    print("    Restart manually: hermes gateway run")
+                    print("    Restart manually: allr gateway run")
                     if unmapped_count > 1:
                         print(
                             "    (or: hermes -p <profile> gateway run  for each profile)"
@@ -5627,11 +5566,11 @@ def _cmd_update_impl(args, gateway_mode: bool):
 
         _m()._resume_windows_gateways_after_update(_windows_gateway_resume)
 
-        # Warn if legacy Hermes gateway unit files are still installed.
+        # Warn if legacy Allr gateway unit files are still installed.
         # When both hermes.service (from a pre-rename install) and the
-        # current hermes-gateway.service are enabled, they SIGTERM-fight
+        # current allr-gateway.service are enabled, they SIGTERM-fight
         # for the same bot token (see PR #11909). Flagging here means
-        # every `hermes update` surfaces the issue until the user migrates.
+        # every `allr update` surfaces the issue until the user migrates.
         try:
             from hermes_cli.gateway import (
                 has_legacy_hermes_units,
@@ -5641,16 +5580,16 @@ def _cmd_update_impl(args, gateway_mode: bool):
 
             if supports_systemd_services() and has_legacy_hermes_units():
                 print()
-                print("⚠ Legacy Hermes gateway unit(s) detected:")
+                print("⚠ Legacy Allr gateway unit(s) detected:")
                 for name, path, is_sys in _find_legacy_hermes_units():
                     scope = "system" if is_sys else "user"
                     print(f"    {path}  ({scope} scope)")
                 print()
                 print("  These pre-rename units (hermes.service) fight the current")
-                print("  hermes-gateway.service for the bot token and cause SIGTERM")
+                print("  allr-gateway.service for the bot token and cause SIGTERM")
                 print("  flap loops. Remove them with:")
                 print()
-                print("    hermes gateway migrate-legacy")
+                print("    allr gateway migrate-legacy")
                 print()
                 print("  (add `sudo` if any are in system scope)")
         except Exception as e:
@@ -5665,7 +5604,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
 
         print()
         print("Tip: You can now select a provider and model:")
-        print("  hermes model              # Select provider and model")
+        print("  allr model              # Select provider and model")
 
         if gateway_fleet_restart_incomplete:
             # Code update itself succeeded, but at least one gateway still

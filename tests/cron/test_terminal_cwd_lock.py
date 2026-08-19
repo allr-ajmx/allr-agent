@@ -284,17 +284,17 @@ def test_lock_wait_shorter_than_bound_still_succeeds(monkeypatch, tmp_path):
 
 
 def test_cwd_lock_timeout_derivation(monkeypatch):
-    """The bound tracks HERMES_CRON_TIMEOUT (+margin) with a floor, and
+    """The bound tracks ALLR_CRON_TIMEOUT (+margin) with a floor, and
     stays finite when the job runtime is unlimited (0)."""
     import cron.scheduler as sched
 
-    monkeypatch.delenv("HERMES_CRON_TIMEOUT", raising=False)
+    monkeypatch.delenv("ALLR_CRON_TIMEOUT", raising=False)
     assert sched._cwd_lock_timeout_seconds() == 660.0
-    monkeypatch.setenv("HERMES_CRON_TIMEOUT", "1800")
+    monkeypatch.setenv("ALLR_CRON_TIMEOUT", "1800")
     assert sched._cwd_lock_timeout_seconds() == 1860.0
-    monkeypatch.setenv("HERMES_CRON_TIMEOUT", "30")
+    monkeypatch.setenv("ALLR_CRON_TIMEOUT", "30")
     assert sched._cwd_lock_timeout_seconds() == 180.0
-    monkeypatch.setenv("HERMES_CRON_TIMEOUT", "0")
+    monkeypatch.setenv("ALLR_CRON_TIMEOUT", "0")
     assert sched._cwd_lock_timeout_seconds() == 660.0
-    monkeypatch.setenv("HERMES_CRON_TIMEOUT", "bogus")
+    monkeypatch.setenv("ALLR_CRON_TIMEOUT", "bogus")
     assert sched._cwd_lock_timeout_seconds() == 660.0

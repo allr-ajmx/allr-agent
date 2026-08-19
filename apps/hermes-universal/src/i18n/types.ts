@@ -624,7 +624,7 @@ export interface Translations {
       sshErrAuth: string
       sshErrHostKey: string
       sshErrNotInstalled: string
-    /** Offer to install Hermes on the remote host after a failed connect. */
+    /** Offer to install Allr on the remote host after a failed connect. */
     sshInstallTitle: (host: string) => string
     sshInstallBody: string
     sshInstallCancel: string
@@ -2764,7 +2764,7 @@ export interface Translations {
     hud: string
     quit: string
     /** The tray's checkable Keep Running row — background mode's second control
-     *  surface, and the only one a hidden Hermes still offers. */
+     *  surface, and the only one a hidden Allr still offers. */
     keepRunning: string
     /** Hover text on the tray icon itself. */
     tooltip: string

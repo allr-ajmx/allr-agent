@@ -52,7 +52,7 @@ def client_loopback():
     ("192.168.1.5", False, True),
     ("10.0.0.1",  True,  True),     # allow_public ignored — LAN IP is public
     ("100.64.0.1", False, True),    # Tailscale CGNAT — treated as public
-    ("hermes-agent-prod-abc.fly.dev", False, True),
+    ("allr-agent-prod-abc.fly.dev", False, True),
 ])
 def test_should_require_auth_truth_table(host, allow_public, expected):
     from hermes_cli.web_server import should_require_auth

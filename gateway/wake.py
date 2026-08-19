@@ -11,10 +11,10 @@ Two delivery strategies, selected by the target adapter's
   ``supports_async_delivery = False``): ``handle_message`` would run the wake
   turn under a ``build_session_key()``-derived key
   (``agent:main:api_server:group:<sid>``) that NEVER matches the raw
-  ``X-Hermes-Session-Id`` key real gateway/HQ turns run under
+  ``X-Allr-Session-Id`` key real gateway/HQ turns run under
   (``_bind_api_server_session``), so the wake lands in a parallel, invisible
   session. Instead we self-POST ``/v1/chat/completions`` on the in-pod API
-  server with the raw session id in the ``X-Hermes-Session-Id`` header — the
+  server with the raw session id in the ``X-Allr-Session-Id`` header — the
   exact entry point real turns use — so the wake turn resumes the REAL
   session, with full history, and its result is visible the next time the
   client polls/reopens the conversation.
@@ -62,7 +62,7 @@ async def deliver_wake(
 ) -> None:
     """Deliver a wake turn to the session behind ``adapter``.
 
-    ``session_id`` is the RAW session id (the ``X-Hermes-Session-Id`` value /
+    ``session_id`` is the RAW session id (the ``X-Allr-Session-Id`` value /
     ``state.db`` key) — required for non-push adapters. ``source`` is the
     ``SessionSource`` used to build the synthetic event — required for
     push-capable adapters.
@@ -100,7 +100,7 @@ async def _self_post_chat_completion(
     """POST the wake text to the in-pod API server as a normal session turn.
 
     Uses the adapter's own bind host/port/key (``ApiServerAdapter.__init__``).
-    Session continuation via ``X-Hermes-Session-Id`` is 403-gated on
+    Session continuation via ``X-Allr-Session-Id`` is 403-gated on
     ``API_SERVER_KEY`` being configured, so a missing key is a hard error —
     raise loudly rather than run the wake in a fresh fingerprint-derived
     session nobody is looking at.
@@ -116,7 +116,7 @@ async def _self_post_chat_completion(
     if not api_key:
         raise RuntimeError(
             "wake self-post requires API_SERVER_KEY: session continuation via "
-            "X-Hermes-Session-Id is rejected (403) on an unauthenticated API "
+            "X-Allr-Session-Id is rejected (403) on an unauthenticated API "
             "server, so the wake cannot reach the target session"
         )
 
@@ -125,10 +125,16 @@ async def _self_post_chat_completion(
     url = f"http://{host}:{port}/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {api_key}",
-        "X-Hermes-Session-Id": session_id,
+        # Both spellings: the API server on the other end is a separate install on
+        # its own release cadence, and one from before the Allr rename reads only
+        # the second. A header it does not recognise is ignored; a session id it
+        # never sees means the wake lands in a NEW session instead of the one the
+        # user is talking in, which is silent and looks like memory loss.
+        "X-Allr-Session-Id": session_id,
+        "X-Hermes-Session-Id": session_id,  # rebrand:keep
     }
     payload = {
-        "model": str(getattr(adapter, "_model_name", "") or "hermes-agent"),
+        "model": str(getattr(adapter, "_model_name", "") or "allr-agent"),
         "messages": [{"role": "user", "content": text}],
         "stream": False,
     }

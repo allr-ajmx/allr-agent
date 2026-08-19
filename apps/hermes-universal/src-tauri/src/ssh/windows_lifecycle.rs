@@ -23,7 +23,7 @@ use super::progress::{ProgressReporter, SshStep};
 use super::remote_paths::{LOCKFILE_SCHEMA_VERSION, PROTOCOL_VERSION};
 use super::session::SshSession;
 
-/// The remote Python + Hermes pair discovered by the `inspect` probe.
+/// The remote Python + Allr pair discovered by the `inspect` probe.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct WindowsRuntime {
@@ -127,7 +127,7 @@ pub fn powershell_command(script: &str) -> String {
     )
 }
 
-/// Build the `inspect` probe that locates `hermes.exe` and its sibling
+/// Build the `inspect` probe that locates `allr.exe` and its sibling
 /// `python.exe`. An explicit path is honoured strictly — it must be the one
 /// found, never a fallback to a different install.
 pub fn build_inspect_command(explicit_hermes_path: &str) -> String {
@@ -136,21 +136,21 @@ pub fn build_inspect_command(explicit_hermes_path: &str) -> String {
     let script = [
         "$ErrorActionPreference=\"Stop\"".to_string(),
         format!("$explicit={explicit}"),
-        "$hermesHome=$env:HERMES_HOME".to_string(),
+        "$hermesHome=$env:ALLR_HOME".to_string(),
         "if(-not $hermesHome){$hermesHome=Join-Path $env:LOCALAPPDATA \"hermes\"}".to_string(),
         "$candidates=@()".to_string(),
         "if($explicit){$candidates+=$explicit}".to_string(),
-        "$cmd=Get-Command hermes.exe -ErrorAction SilentlyContinue".to_string(),
+        "$cmd=Get-Command allr.exe -ErrorAction SilentlyContinue".to_string(),
         "if($cmd){$candidates+=$cmd.Source}".to_string(),
-        "$candidates+=(Join-Path $hermesHome \"hermes-agent\\venv\\Scripts\\hermes.exe\")".to_string(),
-        "$candidates+=(Join-Path $HOME \"hermes-agent\\.venv\\Scripts\\hermes.exe\")".to_string(),
+        "$candidates+=(Join-Path $hermesHome \"allr-agent\\venv\\Scripts\\allr.exe\")".to_string(),
+        "$candidates+=(Join-Path $HOME \"allr-agent\\.venv\\Scripts\\allr.exe\")".to_string(),
         "$hermes=$candidates|Where-Object{Test-Path -LiteralPath $_ -PathType Leaf}|Select-Object -First 1"
             .to_string(),
-        "if(-not $hermes){throw \"Hermes is not installed on the remote Windows host.\"}".to_string(),
-        "if($explicit -and $hermes -ne $explicit){throw \"The configured Hermes path is not an executable file.\"}"
+        "if(-not $hermes){throw \"Allr is not installed on the remote Windows host.\"}".to_string(),
+        "if($explicit -and $hermes -ne $explicit){throw \"The configured Allr path is not an executable file.\"}"
             .to_string(),
         "$python=Join-Path (Split-Path $hermes) \"python.exe\"".to_string(),
-        "if(-not (Test-Path -LiteralPath $python -PathType Leaf)){throw \"The remote Hermes Python runtime was not found.\"}"
+        "if(-not (Test-Path -LiteralPath $python -PathType Leaf)){throw \"The remote Allr Python runtime was not found.\"}"
             .to_string(),
         "[ordered]@{os=\"Windows\";arch=$env:PROCESSOR_ARCHITECTURE;hermesHome=$hermesHome;hermesPath=$hermes;python=$python}|ConvertTo-Json -Compress"
             .to_string(),
@@ -290,7 +290,7 @@ fn transient(message: impl Into<String>) -> SshError {
     SshError::new(SshErrorKind::TransientTransportError, message)
 }
 
-/// Locate `hermes.exe` and its sibling `python.exe` on a Windows remote.
+/// Locate `allr.exe` and its sibling `python.exe` on a Windows remote.
 pub async fn probe_windows_remote(
     session: &SshSession,
     explicit_hermes_path: &str,
@@ -593,7 +593,7 @@ pub async fn inspect_install(
     if !inspection.supported {
         return Err(SshError::new(
             SshErrorKind::UpdateRequired,
-            "Update Hermes on the remote Windows host before connecting over SSH.",
+            "Update Allr on the remote Windows host before connecting over SSH.",
         ));
     }
 
@@ -730,7 +730,7 @@ mod tests {
             port: 51001,
             token_fingerprint: "f52fbd32b2b3b86ff88ef6c490628285".to_string(),
             profile: String::new(),
-            hermes_path: "C:\\hermes\\hermes.exe".to_string(),
+            hermes_path: "C:\\hermes\\allr.exe".to_string(),
             hermes_home: "C:\\Users\\u\\AppData\\Local\\hermes".to_string(),
             started_at: "2026-07-29T00:00:00Z".to_string(),
         }
@@ -850,8 +850,8 @@ mod tests {
 
     #[test]
     fn inspect_command_honours_an_explicit_path_strictly() {
-        let decoded = decode(&build_inspect_command("C:\\custom\\hermes.exe"));
-        assert!(decoded.contains("'C:\\custom\\hermes.exe'"), "{decoded}");
+        let decoded = decode(&build_inspect_command("C:\\custom\\allr.exe"));
+        assert!(decoded.contains("'C:\\custom\\allr.exe'"), "{decoded}");
         // Never silently fall back to a different install than the one configured.
         assert!(
             decoded.contains("if($explicit -and $hermes -ne $explicit){throw"),
@@ -1084,7 +1084,7 @@ mod tests {
             &l,
             &healthy,
             TOKEN,
-            "C:\\other\\hermes.exe",
+            "C:\\other\\allr.exe",
             &l.hermes_home.clone()
         ));
         assert!(!lock_is_reusable(
@@ -1124,7 +1124,7 @@ mod tests {
             "os": "Windows",
             "arch": "AMD64",
             "hermesHome": "C:\\Users\\u\\AppData\\Local\\hermes",
-            "hermesPath": "C:\\hermes\\hermes.exe",
+            "hermesPath": "C:\\hermes\\allr.exe",
             "python": "C:\\hermes\\python.exe"
         });
 

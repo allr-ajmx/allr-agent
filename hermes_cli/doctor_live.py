@@ -1,10 +1,10 @@
-"""``hermes doctor --live`` — opt-in bounded real-call tool-backend probes.
+"""``allr doctor --live`` — opt-in bounded real-call tool-backend probes.
 
 Design invariants:
 
 - **Opt-in only.** These probes make real (cheap, metadata/read-only) network
   calls and may spend a trivial amount of quota. They run ONLY when the user
-  passes ``hermes doctor --live``.
+  passes ``allr doctor --live``.
 - **Bounded.** One probe per configured backend, sequential, each with a
   ~10s timeout (configurable via ``doctor.live_probe_timeout`` in
   config.yaml).
@@ -80,13 +80,13 @@ def _browser_available() -> bool:
     if shutil.which("agent-browser"):
         return True
     try:
-        from hermes_cli.doctor import HERMES_HOME, PROJECT_ROOT
+        from hermes_cli.doctor import ALLR_HOME, PROJECT_ROOT
 
         if (PROJECT_ROOT / "node_modules" / "agent-browser").exists():
             return True
-        for candidate in (HERMES_HOME / "node" / "bin",
-                          HERMES_HOME / "node",
-                          HERMES_HOME / "node_modules" / ".bin"):
+        for candidate in (ALLR_HOME / "node" / "bin",
+                          ALLR_HOME / "node",
+                          ALLR_HOME / "node_modules" / ".bin"):
             if shutil.which("agent-browser", path=str(candidate)):
                 return True
     except Exception:
@@ -119,7 +119,7 @@ def _launch_browser_probe(timeout: float) -> tuple:
 def _probe_mcp_server(name: str, config: dict, timeout: float):
     """initialize + tools/list against one configured MCP server.
 
-    Reuses the exact machinery behind ``hermes mcp test``.
+    Reuses the exact machinery behind ``allr mcp test``.
     """
     from hermes_cli.mcp_config import _probe_single_server
 

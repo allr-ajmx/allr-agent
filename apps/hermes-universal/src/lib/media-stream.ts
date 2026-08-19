@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core'
 
 import { filePathFromMediaPath, mediaKind } from '@/lib/media-format'
 import { IS_ANDROID, IS_TAURI, PLATFORM } from '@/lib/platform'
+import { sessionTokenHeaders } from '@/lib/session-token-header'
 import { $connection } from '@/store/connection'
 
 /**
@@ -77,7 +78,7 @@ if (IS_TAURI) {
       target: conn?.baseUrl
         ? {
             baseUrl: conn.baseUrl,
-            headers: conn.token ? { 'X-Hermes-Session-Token': conn.token } : {}
+            headers: sessionTokenHeaders(conn.token)
           }
         : null
     }).catch(() => undefined)

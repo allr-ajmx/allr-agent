@@ -1,13 +1,13 @@
-"""hermes import-agent — import Claude Code / Codex CLI setups into Hermes.
+"""allr import-agent — import Claude Code / Codex CLI setups into Allr.
 
 Usage:
-    hermes import-agent                       # auto-detect ~/.claude or ~/.codex
-    hermes import-agent claude-code           # import from ~/.claude
-    hermes import-agent codex                 # import from ~/.codex
-    hermes import-agent claude-code --dry-run # preview only, no changes
-    hermes import-agent codex --source /path/to/.codex
+    allr import-agent                       # auto-detect ~/.claude or ~/.codex
+    allr import-agent claude-code           # import from ~/.claude
+    allr import-agent codex                 # import from ~/.codex
+    allr import-agent claude-code --dry-run # preview only, no changes
+    allr import-agent codex --source /path/to/.codex
 
-Follows the OpenClaw migration pattern (``hermes claw migrate`` /
+Follows the OpenClaw migration pattern (``allr claw migrate`` /
 ``optional-skills/migration/openclaw-migration/scripts/openclaw_to_hermes.py``):
 detect → parse → map → apply, with a mandatory preview phase, per-item
 imported/skipped/conflict/error records, and a ``--dry-run`` that writes
@@ -18,22 +18,22 @@ works even when the optional migration skill is not installed.
 Mappings
 --------
 claude-code (~/.claude):
-    CLAUDE.md                       → memory entries in HERMES_HOME/memories/MEMORY.md
+    CLAUDE.md                       → memory entries in ALLR_HOME/memories/MEMORY.md
     settings.json permissions.allow → config.yaml command_allowlist (Bash(...) rules)
     settings.json permissions.deny  → config.yaml approvals.deny (Bash(...) rules)
     mcpServers (~/.claude.json or settings.json) → config.yaml mcp_servers
-    skills/<name>/SKILL.md          → HERMES_HOME/skills/claude-code-imports/<name>/
+    skills/<name>/SKILL.md          → ALLR_HOME/skills/claude-code-imports/<name>/
 
 codex (~/.codex):
-    AGENTS.md                       → memory entries in HERMES_HOME/memories/MEMORY.md
+    AGENTS.md                       → memory entries in ALLR_HOME/memories/MEMORY.md
     config.toml [mcp_servers.*]     → config.yaml mcp_servers
-    memories/*.md                   → memory entries in HERMES_HOME/memories/MEMORY.md
-    skills/<name>/SKILL.md          → HERMES_HOME/skills/codex-imports/<name>/
+    memories/*.md                   → memory entries in ALLR_HOME/memories/MEMORY.md
+    skills/<name>/SKILL.md          → ALLR_HOME/skills/codex-imports/<name>/
 
 Secrets are NEVER imported: credential files (.credentials.json, auth.json)
 are ignored, and MCP server env vars with secret-looking names (KEY, TOKEN,
 SECRET, PASSWORD, ...) are stripped and reported so the user can re-add them
-deliberately via ``hermes setup`` or config.yaml.
+deliberately via ``allr setup`` or config.yaml.
 """
 
 from __future__ import annotations
@@ -51,7 +51,7 @@ from utils import atomic_write_text, atomic_yaml_write
 
 logger = logging.getLogger(__name__)
 
-# Same entry delimiter as the Hermes memory store and the openclaw migration
+# Same entry delimiter as the Allr memory store and the openclaw migration
 # script — memories/MEMORY.md entries are separated by bare "§" lines.
 ENTRY_DELIMITER = "\n§\n"
 
@@ -132,7 +132,7 @@ def load_yaml_file(path: Path) -> Dict[str, Any]:
     except yaml.YAMLError as exc:
         raise ConfigReadError(
             f"Refusing to overwrite {path}: the existing file is not valid YAML "
-            f"({exc}). Fix it with `hermes config edit` (or move it aside), then "
+            f"({exc}). Fix it with `allr config edit` (or move it aside), then "
             f"re-run the import."
         ) from exc
     # An empty file parses to None — a legitimate state with nothing to lose.
@@ -142,7 +142,7 @@ def load_yaml_file(path: Path) -> Dict[str, Any]:
         raise ConfigReadError(
             f"Refusing to overwrite {path}: expected the existing file to hold a "
             f"YAML mapping but found {type(data).__name__}. Fix it with "
-            f"`hermes config edit` (or move it aside), then re-run the import."
+            f"`allr config edit` (or move it aside), then re-run the import."
         )
     return data
 
@@ -323,14 +323,14 @@ def merge_entries(
 
 
 # ---------------------------------------------------------------------------
-# Claude Code permission rules → Hermes command patterns
+# Claude Code permission rules → Allr command patterns
 # ---------------------------------------------------------------------------
 
 _BASH_RULE_RE = re.compile(r"^Bash\((?P<inner>.*)\)$")
 
 
 def claude_rule_to_command_pattern(rule: str) -> Optional[str]:
-    """Convert a Claude Code ``Bash(...)`` permission rule into a Hermes glob.
+    """Convert a Claude Code ``Bash(...)`` permission rule into an Allr glob.
 
     ``Bash(npm run build)``   → ``npm run build``
     ``Bash(npm run test:*)``  → ``npm run test*``  (Claude ':*' prefix match)
@@ -484,7 +484,7 @@ class AgentImporter:
         if commands_dir.is_dir() and any(commands_dir.glob("*.md")):
             self.record(
                 "slash-commands", commands_dir, None, "skipped",
-                "Claude slash commands have no direct Hermes equivalent — "
+                "Claude slash commands have no direct Allr equivalent — "
                 "consider converting them into skills",
             )
 
@@ -757,7 +757,7 @@ class AgentImporter:
                 continue
             if name in existing and not self.overwrite:
                 self.record(kind, name, f"mcp_servers.{name}", "conflict",
-                            "MCP server already exists in Hermes config")
+                            "MCP server already exists in Allr config")
                 continue
 
             hermes_srv: Dict[str, Any] = {}
@@ -805,7 +805,7 @@ class AgentImporter:
             dump_yaml_file(destination, config)
 
     def import_skills(self, source_root: Path) -> None:
-        """skills/<name>/SKILL.md dirs → HERMES_HOME/skills/<category>/<name>."""
+        """skills/<name>/SKILL.md dirs → ALLR_HOME/skills/<category>/<name>."""
         category = _SKILL_CATEGORY[self.agent]
         destination_root = self.target_root / "skills" / category
         if not source_root.is_dir():
@@ -842,7 +842,7 @@ class AgentImporter:
 # ---------------------------------------------------------------------------
 
 def import_agent_command(args) -> None:
-    """Handle ``hermes import-agent`` (invoked from hermes_cli.main)."""
+    """Handle ``allr import-agent`` (invoked from hermes_cli.main)."""
     from hermes_cli.config import get_config_path, load_config, save_config
     from hermes_constants import get_hermes_home
     from hermes_cli.setup import (
@@ -867,12 +867,12 @@ def import_agent_command(args) -> None:
         if not detected:
             print()
             print_error("No supported agent setup found (~/.claude or ~/.codex).")
-            print_info("Specify one explicitly: hermes import-agent claude-code --source /path")
+            print_info("Specify one explicitly: allr import-agent claude-code --source /path")
             return
         if len(detected) > 1 and explicit_source is None:
             print()
             print_info("Multiple agent setups detected: " + ", ".join(detected))
-            print_info("Pick one: hermes import-agent claude-code   or   hermes import-agent codex")
+            print_info("Pick one: allr import-agent claude-code   or   allr import-agent codex")
             return
         agent = detected[0]
 
@@ -880,13 +880,13 @@ def import_agent_command(args) -> None:
 
     print()
     print(color("┌─────────────────────────────────────────────────────────┐", Colors.MAGENTA))
-    print(color("│          ⚕ Hermes — Import From Another Agent          │", Colors.MAGENTA))
+    print(color("│          Allr — Import From Another Agent          │", Colors.MAGENTA))
     print(color("└─────────────────────────────────────────────────────────┘", Colors.MAGENTA))
 
     if not source_dir.is_dir():
         print()
         print_error(f"Agent directory not found: {source_dir}")
-        print_info("Specify a custom path: hermes import-agent "
+        print_info("Specify a custom path: allr import-agent "
                     f"{agent} --source /path/to/{_AGENT_DEFAULT_DIRS[agent]}")
         return
 
@@ -897,7 +897,7 @@ def import_agent_command(args) -> None:
     print_info(f"Source:      {source_dir}")
     print_info(f"Target:      {hermes_home}")
     print_info(f"Overwrite:   {'yes' if overwrite else 'no (skip conflicts)'}")
-    print_info("Secrets:     never imported — run 'hermes setup' for credentials")
+    print_info("Secrets:     never imported — run 'allr setup' for credentials")
 
     # Ensure config.yaml exists before the import tries to merge into it
     config_path = get_config_path()
@@ -939,7 +939,7 @@ def import_agent_command(args) -> None:
     if not auto_yes:
         if not sys.stdin.isatty():
             print_info("Non-interactive session — preview only.")
-            print_info(f"To execute, re-run with: hermes import-agent {agent} --yes")
+            print_info(f"To execute, re-run with: allr import-agent {agent} --yes")
             return
         if not prompt_yes_no("Proceed with import?", default=True):
             print_info("Import cancelled.")
@@ -962,8 +962,8 @@ def import_agent_command(args) -> None:
     print_import_report(report, dry_run=False)
     print()
     print_success("Import complete.")
-    print_info("API keys and credentials were NOT imported — run 'hermes setup' "
-               "to configure providers, or add them to ~/.hermes/.env.")
+    print_info("API keys and credentials were NOT imported — run 'allr setup' "
+               "to configure providers, or add them to ~/.allr/.env.")
 
 
 def print_import_report(report: Dict[str, Any], dry_run: bool) -> None:
@@ -1007,7 +1007,7 @@ def print_import_report(report: Dict[str, Any], dry_run: bool) -> None:
         print(color("  ⚷ Secrets stripped (never imported):", Colors.YELLOW))
         for name in stripped:
             print(f"      {name}")
-        print_info("Re-add credentials deliberately via 'hermes setup' or ~/.hermes/.env.")
+        print_info("Re-add credentials deliberately via 'allr setup' or ~/.allr/.env.")
         print()
 
     parts = []

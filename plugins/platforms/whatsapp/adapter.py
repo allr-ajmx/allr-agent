@@ -300,7 +300,7 @@ from utils import env_int
 
 def _is_allowed_bridge_path(url: str) -> bool:
     """Return True only when an absolute path from the bridge resolves inside a
-    known Hermes media cache directory.
+    known Allr media cache directory.
 
     The Baileys bridge is a local subprocess that downloads inbound media and
     hands back absolute file paths. A compromised or buggy bridge could hand
@@ -361,7 +361,7 @@ def check_whatsapp_requirements() -> bool:
     
     WhatsApp requires a Node.js bridge for most implementations.
     """
-    # Prefer Hermes-managed Node/npm so Windows installs are not broken by a
+    # Prefer Allr-managed Node/npm so Windows installs are not broken by a
     # bad or elevation-triggering system Node on PATH.
     _node = find_node_executable("node")
     if not _node:
@@ -516,7 +516,7 @@ class WhatsAppAdapter(WhatsAppBehaviorMixin, BasePlatformAdapter):
             logger.warning("[%s] Node.js not found. WhatsApp requires Node.js.", self.name)
             self._set_fatal_error(
                 "whatsapp_node_missing",
-                "Node.js is not installed — install Node.js and re-run `hermes gateway`.",
+                "Node.js is not installed — install Node.js and re-run `allr gateway`.",
                 retryable=False,
             )
             return False
@@ -542,13 +542,13 @@ class WhatsAppAdapter(WhatsAppBehaviorMixin, BasePlatformAdapter):
         if not creds_path.exists():
             logger.warning(
                 "[%s] WhatsApp is enabled but not paired (no creds.json at %s). "
-                "Pair from the dashboard or run `hermes whatsapp`; remove "
+                "Pair from the dashboard or run `allr whatsapp`; remove "
                 "WHATSAPP_ENABLED from your .env to disable.",
                 self.name, creds_path,
             )
             self._set_fatal_error(
                 "whatsapp_not_paired",
-                "WhatsApp enabled but not paired — pair from the dashboard or run `hermes whatsapp`.",
+                "WhatsApp enabled but not paired — pair from the dashboard or run `allr whatsapp`.",
                 retryable=False,
             )
             return False
@@ -567,7 +567,7 @@ class WhatsAppAdapter(WhatsAppBehaviorMixin, BasePlatformAdapter):
         try:
             # Auto-install npm dependencies when node_modules is missing OR
             # package.json changed since the last install (e.g. after
-            # `hermes update` bumps the Baileys pin).  The stamp file records
+            # `allr update` bumps the Baileys pin).  The stamp file records
             # the package.json hash of the last successful install.
             bridge_dir = bridge_path.parent
             _pkg_json = bridge_dir / "package.json"
@@ -584,7 +584,7 @@ class WhatsAppAdapter(WhatsAppBehaviorMixin, BasePlatformAdapter):
             if not _deps_fresh:
                 print(f"[{self.name}] Installing WhatsApp bridge dependencies...")
                 # Resolve npm path so Windows uses npm.cmd from the
-                # Hermes-managed portable Node before falling back to PATH.
+                # Allr-managed portable Node before falling back to PATH.
                 _npm_bin = find_node_executable("npm") or "npm"
                 try:
                     # Read timeout from environment variable, default to 300 seconds (5 minutes)
@@ -630,7 +630,7 @@ class WhatsAppAdapter(WhatsAppBehaviorMixin, BasePlatformAdapter):
                                 # bridge if it is serving the same bridge.js
                                 # that is on disk right now.  A long-lived
                                 # bridge survives gateway restarts AND
-                                # `hermes update`, so without this check it
+                                # `allr update`, so without this check it
                                 # keeps serving pre-update code forever
                                 # (e.g. no inbound media download).  Old
                                 # bridges that don't report scriptHash are
@@ -711,16 +711,16 @@ class WhatsAppAdapter(WhatsAppBehaviorMixin, BasePlatformAdapter):
                     bridge_env[_key] = _v
             # Pass the profile-aware cache directories so the bridge writes
             # media where the Python side reads it.  Without these the bridge
-            # hardcodes ~/.hermes/{image,audio,document}_cache, which diverges
-            # under HERMES_HOME overrides, profiles, and the new cache/ layout.
+            # hardcodes ~/.allr/{image,audio,document}_cache, which diverges
+            # under ALLR_HOME overrides, profiles, and the new cache/ layout.
             from gateway.platforms.base import (
                 get_audio_cache_dir as _get_audio_dir,
                 get_document_cache_dir as _get_doc_dir,
                 get_image_cache_dir as _get_img_dir,
             )
-            bridge_env["HERMES_IMAGE_CACHE_DIR"] = str(_get_img_dir())
-            bridge_env["HERMES_AUDIO_CACHE_DIR"] = str(_get_audio_dir())
-            bridge_env["HERMES_DOCUMENT_CACHE_DIR"] = str(_get_doc_dir())
+            bridge_env["ALLR_IMAGE_CACHE_DIR"] = str(_get_img_dir())
+            bridge_env["ALLR_AUDIO_CACHE_DIR"] = str(_get_audio_dir())
+            bridge_env["ALLR_DOCUMENT_CACHE_DIR"] = str(_get_doc_dir())
 
             self._bridge_process = subprocess.Popen(
                 [
@@ -800,7 +800,7 @@ class WhatsAppAdapter(WhatsAppBehaviorMixin, BasePlatformAdapter):
                     # auto-reconnect later, e.g. after a code 515 restart).
                     print(f"[{self.name}] ⚠ WhatsApp not connected after 30s")
                     print(f"[{self.name}]   Bridge log: {self._bridge_log}")
-                    print(f"[{self.name}]   If session expired, re-pair: hermes whatsapp")
+                    print(f"[{self.name}]   If session expired, re-pair: allr whatsapp")
             
             # Create a persistent HTTP session for all bridge communication
             self._http_session = aiohttp.ClientSession()
@@ -1875,7 +1875,7 @@ def _is_connected(config) -> bool:
     bridge token here — so the opt-in flag is the connection signal. The legacy
     built-in path keyed off ``WHATSAPP_ENABLED`` in both the connected-platforms
     check and the setup-status display; returning an unconditional True here
-    would make WhatsApp always show as "configured" in ``hermes setup`` even
+    would make WhatsApp always show as "configured" in ``allr setup`` even
     when the user never enabled it. #41112.
     """
     extra = getattr(config, "extra", {}) or {}
@@ -1897,7 +1897,7 @@ def _build_adapter(config):
 
 
 def register(ctx) -> None:
-    """Plugin entry point — called by the Hermes plugin system."""
+    """Plugin entry point — called by the Allr plugin system."""
     ctx.register_platform(
         name="whatsapp",
         label="WhatsApp",

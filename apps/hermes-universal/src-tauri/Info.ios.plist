@@ -39,11 +39,27 @@
   App Store note: NSAllowsArbitraryLoadsInWebContent can draw a justification request
   at review. The justification is real — this app connects to gateways its user runs
   on their own private network, which cannot carry a publicly trusted certificate.
+
+  NSFaceIDUsageDescription is required for the credential unlock gate
+  (src/secrets/gate.rs -> LAContext): evaluating a policy without it does not fail,
+  it CRASHES the app. It lived only in the generated gen/apple/.../Info.plist until
+  now, which made it two bugs at once: it still named the old brand on every
+  unlock, and because gen/ is regenerated from this file it would have vanished on
+  the next `tauri ios init`, taking the crash guard with it. It belongs here.
+
+  NSLocalNetworkUsageDescription covers the same gateways the ATS keys above do.
+  iOS 14+ puts local-network access behind a consent prompt, and the prompt needs
+  this string; without it the connection to a LAN gateway is refused rather than
+  merely unprompted.
+
+  ITSAppUsesNonExemptEncryption=false answers the export-compliance question at
+  build time instead of once per upload. The claim is accurate: everything here is
+  standard TLS (rustls) and the platform Keychain, which is exempt.
 -->
 <plist version="1.0">
 <dict>
   <key>NSMicrophoneUsageDescription</key>
-  <string>Hermes uses the microphone for voice conversations.</string>
+  <string>Allr uses the microphone for voice conversations.</string>
   <key>NSAppTransportSecurity</key>
   <dict>
     <key>NSAllowsArbitraryLoadsInWebContent</key>
@@ -56,5 +72,11 @@
     <key>UIApplicationSupportsMultipleScenes</key>
     <true/>
   </dict>
+  <key>NSFaceIDUsageDescription</key>
+  <string>Allr uses Face ID to unlock your saved gateway and SSH credentials.</string>
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>Allr connects to the gateways you run on your local network.</string>
+  <key>ITSAppUsesNonExemptEncryption</key>
+  <false/>
 </dict>
 </plist>

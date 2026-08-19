@@ -587,7 +587,7 @@ export function GatewayConfigurator({
       )
       notify({ kind: 'success', title: g.savedTitle, message: g.savedMessage })
     } catch (err) {
-      // A remote with no Hermes is the one SSH failure we can actually fix, and
+      // A remote with no Allr is the one SSH failure we can actually fix, and
       // the user is already authenticated to that machine. Offer the install
       // instead of only reporting the dead end.
       if (isSshError(err) && err.kind === 'hermes-not-found') {
@@ -769,6 +769,19 @@ export function GatewayConfigurator({
               onSelect={() => selectMode('cloud')}
               title={g.cloudTitle}
             />
+            {/* Allr's own hosted gateway is not live yet. Until it ships, the card
+                stays out of the build. When it lands: bump the grid literals above
+                to grid-cols-5 / grid-cols-4, add `settings.gateway.allrTitle`
+                ('Allr') / `allrDesc` ('One workspace, finished work. Opens
+                allr.work.') to i18n, import Sparkles + BRAND_HOME_URL, and render:
+            <ModeCard
+              active={false}
+              description={g.allrDesc}
+              icon={Sparkles}
+              onSelect={() => void openExternalLink(BRAND_HOME_URL)}
+              title={g.allrTitle}
+            />
+            */}
             <ModeCard
               active={pendingMode === 'remote'}
               description={g.remoteDesc}
@@ -819,12 +832,12 @@ export function GatewayConfigurator({
 
       {/* Local panel — first-run only. Local is the one mode with nothing to
           type, so instead of a bare connect button the wizard asks whether
-          Hermes is installed at all and offers to install it. Settings and the
+          Allr is installed at all and offers to install it. Settings and the
           embedded recovery card keep the plain action bar: they are for a user
           who already has a working install and wants to switch back to it. */}
       {showLocalInstall ? <LocalInstallPanel onContinue={() => void doConnectLocal()} /> : null}
 
-      {/* Hermes Cloud panel */}
+      {/* Nous Cloud panel */}
       {showPanels && pendingMode === 'cloud' ? (
         <CloudPanel connectAgent={connectAgent} connection={connection} g={g} />
       ) : null}
@@ -1004,7 +1017,7 @@ export function GatewayConfigurator({
   )
 }
 
-// ── Hermes Cloud panel: portal sign-in → org picker → discovered-agent list ──
+// ── Nous Cloud panel: portal sign-in → org picker → discovered-agent list ──
 function CloudPanel({
   connectAgent,
   connection,

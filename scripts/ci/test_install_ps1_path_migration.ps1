@@ -101,7 +101,7 @@ Assert-Equal "$NODE;C:\Program Files\nodejs;;C:\Users\me\bin;" $script:FakeUserP
     'empty segments are preserved'
 
 # Windows paths are case-insensitive, and -ne on strings is too.
-Invoke-Migration "C:\Program Files\nodejs;c:\users\me\appdata\local\HERMES\Node"
+Invoke-Migration "C:\Program Files\nodejs;c:\users\me\appdata\local\ALLR\Node"
 Assert-Equal "$NODE;C:\Program Files\nodejs" $script:FakeUserPath `
     'existing entry in different case is replaced, not duplicated'
 

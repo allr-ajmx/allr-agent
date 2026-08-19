@@ -13,7 +13,7 @@
 name = "tauri-plugin-mic"
 version = "0.1.0"
 description = "Microphone OS-permission declaration + check/request seam for Tauri v2 (Android/iOS/desktop). Capture stays in the webview."
-authors = ["Hermes Universal"]
+authors = ["Allr Universal"]
 edition = "2021"
 rust-version = "1.77.2"
 # REQUIRED: must match build.rs's plugin name; Tauri keys plugin discovery + the

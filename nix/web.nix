@@ -1,4 +1,4 @@
-# nix/web.nix — Hermes Web Dashboard (Vite/React) frontend build
+# nix/web.nix — Allr Web Dashboard (Vite/React) frontend build
 { hermesNpmLib, ... }:
 hermesNpmLib.buildNpmPackage {
   dirs = [

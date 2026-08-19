@@ -258,7 +258,7 @@ describe('the connecting state', () => {
 
     const { container } = summonAt('/')
 
-    expect(container.textContent).toContain('Connecting to Hermes…')
+    expect(container.textContent).toContain('Connecting to Allr…')
     expect(container.textContent).not.toContain('This tile is not available in this window.')
     expect(bandState(container)).toBe('collapsed')
   })
@@ -271,8 +271,8 @@ describe('the connecting state', () => {
 
     expect(container.textContent).toContain('connection refused')
     // Fixing a gateway is main-window work, and in background mode this bar may
-    // be the only Hermes on screen.
-    expect(container.textContent).toContain('Show Hermes')
+    // be the only Allr on screen.
+    expect(container.textContent).toContain('Show Allr')
   })
 
   // The resolution waits rather than gives up: `$connectionPhase` is a nanostore

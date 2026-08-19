@@ -187,7 +187,7 @@ export function WebhooksView({ onClose, variant }: WebhooksViewProps) {
     try {
       const result = await enableWebhooks()
 
-      // `restart_started` means a `hermes gateway restart` process was SPAWNED.
+      // `restart_started` means a `allr gateway restart` process was SPAWNED.
       // It does not mean the restart finished, and nothing in this response can
       // say the receiver bound its port — so neither does the copy.
       if (result.restart_started) {

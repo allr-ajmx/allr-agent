@@ -1,3 +1,4 @@
+import { sessionTokenHeaders } from '@/lib/session-token-header'
 import { $connection } from '@/store/connection'
 import { httpRequest, type HttpUpload } from '@/transport/http'
 
@@ -15,7 +16,7 @@ export interface ApiRequest {
   timeoutMs?: number
   // Threaded into a `?profile=` query (E7.a). The ported desktop REST client
   // (src/hermes.ts) merges { profile } into every profileScoped() call; the
-  // backend scopes that request to the named profile's HERMES_HOME
+  // backend scopes that request to the named profile's ALLR_HOME
   // (web_server.py _profile_scope). null/"current" = the gateway's own profile.
   profile?: string | null
 }
@@ -73,7 +74,7 @@ export async function api<T = unknown>({
   const conn = $connection.get()
 
   if (!conn) {
-    throw new Error('Not connected to a Hermes backend')
+    throw new Error('Not connected to an Allr backend')
   }
 
   const headers: Record<string, string> = {}
@@ -84,9 +85,7 @@ export async function api<T = unknown>({
     headers['Content-Type'] = 'application/json'
   }
 
-  if (conn.token) {
-    headers['X-Hermes-Session-Token'] = conn.token
-  }
+  Object.assign(headers, sessionTokenHeaders(conn.token))
 
   const res = await httpRequest(method, `${conn.baseUrl}${withProfile(path, profile)}`, {
     headers,

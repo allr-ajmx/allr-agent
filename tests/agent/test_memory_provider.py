@@ -317,7 +317,7 @@ class TestPluginMemoryDiscovery:
 
 
 class TestUserInstalledProviderDiscovery:
-    """Memory providers installed to $HERMES_HOME/plugins/ should be found.
+    """Memory providers installed to $ALLR_HOME/plugins/ should be found.
 
     Regression test for issues #4956 and #9099: load_memory_provider() and
     discover_memory_providers() only scanned the bundled plugins/memory/
@@ -346,7 +346,7 @@ class TestUserInstalledProviderDiscovery:
 
 
     def test_load_user_plugin(self, tmp_path, monkeypatch):
-        """load_memory_provider() can load from $HERMES_HOME/plugins/."""
+        """load_memory_provider() can load from $ALLR_HOME/plugins/."""
         from plugins.memory import load_memory_provider
         self._make_user_memory_plugin(tmp_path, "myexternal")
         monkeypatch.setattr(
@@ -919,11 +919,11 @@ class TestMemoryToolToolsetGate:
     def test_composite_toolset_with_memory_injects(self):
         """Composite toolsets that include memory should inject provider tools."""
         mgr = self._mgr_with_tools("hindsight_recall")
-        tools, names = self._run_memory_injection(["hermes-acp"], mgr)
+        tools, names = self._run_memory_injection(["allr-acp"], mgr)
         assert "hindsight_recall" in names
         assert any(t["function"]["name"] == "hindsight_recall" for t in tools)
 
-    @pytest.mark.parametrize("enabled_toolsets", [None, ["memory"], ["all"], ["hermes-acp"]])
+    @pytest.mark.parametrize("enabled_toolsets", [None, ["memory"], ["all"], ["allr-acp"]])
     def test_disabled_memory_toolset_blocks_injection(self, enabled_toolsets):
         """An explicit memory disable wins over default or composite enablement."""
         mgr = self._mgr_with_tools("hindsight_recall")

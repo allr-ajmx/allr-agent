@@ -1,8 +1,8 @@
 name: hermes-universal
 options:
-  bundleIdPrefix: com.jaxmatrix.mjx-unofficial-hermes
+  bundleIdPrefix: work.allr.app
   deploymentTarget:
-    iOS: 14.0
+    iOS: 15.0
 fileGroups: [../../src]
 configs:
   debug: debug
@@ -10,8 +10,8 @@ configs:
 settingGroups:
   app:
     base:
-      PRODUCT_NAME: Hermes
-      PRODUCT_BUNDLE_IDENTIFIER: com.jaxmatrix.mjx-unofficial-hermes
+      PRODUCT_NAME: Allr
+      PRODUCT_BUNDLE_IDENTIFIER: work.allr.app
       DEVELOPMENT_TEAM: 6M43WS4436
 targetTemplates:
   app:
@@ -52,8 +52,8 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        CFBundleShortVersionString: 0.0.1
-        CFBundleVersion: "0.0.1"
+        CFBundleShortVersionString: 0.0.2
+        CFBundleVersion: "0.0.2"
     entitlements:
       path: hermes-universal_iOS/hermes-universal_iOS.entitlements
     scheme:

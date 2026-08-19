@@ -109,7 +109,7 @@ def _lazy_call_llm(*args, **kwargs):
 # Browser-specific tool keys passed through to the agent-browser subprocess
 # AFTER credential stripping.  agent-browser is a Node process loading npm
 # deps; handing it the full operator keyring (#29157 / GHSA-m4m8-xjp4-5rmm)
-# means a compromised transitive dependency could read every Hermes secret
+# means a compromised transitive dependency could read every Allr secret
 # straight out of process.env.  Strip by default, then re-add only the
 # browser-backend keys the worker legitimately needs.
 _BROWSER_PASSTHROUGH_KEYS: tuple[str, ...] = (
@@ -125,7 +125,7 @@ _BROWSER_PASSTHROUGH_KEYS: tuple[str, ...] = (
 def _build_browser_env() -> dict:
     """Credential-scrubbed env for an agent-browser subprocess.
 
-    Strips Hermes-managed secrets (provider keys, gateway tokens, GitHub auth,
+    Strips Allr-managed secrets (provider keys, gateway tokens, GitHub auth,
     infra secrets) then re-adds only the browser-backend keys the worker needs.
     The ``hermes_subprocess_env`` import is deferred to keep ``browser_tool``
     importable under test harnesses that load it against a stubbed ``tools``
@@ -504,7 +504,7 @@ def _get_cdp_override_raw() -> str:
     This is the availability-check variant: callers that only need to know
     *whether* a CDP override is configured (tool ``check_fn`` gates,
     ``_is_local_mode`` / ``_is_local_backend`` routing decisions,
-    ``hermes doctor``) MUST use this instead of :func:`_get_cdp_override`.
+    ``allr doctor``) MUST use this instead of :func:`_get_cdp_override`.
 
     Rationale: ``_get_cdp_override`` resolves the endpoint over HTTP
     (``/json/version`` discovery, 10s timeout). Tool-schema assembly runs at
@@ -664,7 +664,7 @@ def _stop_cdp_supervisor(task_id: str) -> None:
 # When the test patches ``_PROVIDER_REGISTRY``, we honour it (so the cache
 # unit tests still drive the function); otherwise the registry-backed path
 # wins. This keeps the test surface stable while letting third-party
-# plugins drop in under ``~/.hermes/plugins/browser/<vendor>/``.
+# plugins drop in under ``~/.allr/plugins/browser/<vendor>/``.
 
 _PROVIDER_REGISTRY: Dict[str, type] = {
     "browserbase": BrowserbaseProvider,
@@ -743,7 +743,7 @@ def _get_cloud_provider() -> Optional[CloudBrowserProvider]:
     :data:`agent.browser_registry._LEGACY_PREFERENCE` walk.
 
     Selection routes through :mod:`agent.browser_registry` so third-party
-    browser plugins (``~/.hermes/plugins/browser/<vendor>/``) participate
+    browser plugins (``~/.allr/plugins/browser/<vendor>/``) participate
     in explicit-config resolution. Test fixtures that override
     ``_PROVIDER_REGISTRY`` or ``BrowserUseProvider`` / ``BrowserbaseProvider``
     on this module still drive the function — see
@@ -1011,7 +1011,7 @@ def _lightpanda_fallback_reason(engine: str, command: str, result: Dict[str, Any
     """Return the user-visible reason a Lightpanda result needs Chrome fallback.
 
     ``None`` means no fallback should run.  The returned string is copied into
-    the fallback result so CLI/TUI/gateway users can see when Hermes silently
+    the fallback result so CLI/TUI/gateway users can see when Allr silently
     switched from Lightpanda to Chrome for completeness.
     """
     if engine != "lightpanda":
@@ -1195,7 +1195,7 @@ def _run_chrome_fallback_command(
             #   and that grandchild's CreateProcess dies silently
             #   ("Daemon process exited during startup with no error output")
             #   when inherited parent handles are in a weird state. Observed
-            #   in the Hermes CLI where sys.stdout and sys.stderr both report
+            #   in the Allr CLI where sys.stdout and sys.stderr both report
             #   fileno=1 (stderr dup'd onto stdout at the OS level).
             # * close_fds=True → block inheritance of every other handle.
             #   (Default on POSIX; must be explicit on Windows for stdio.)
@@ -2089,7 +2089,7 @@ BROWSER_TOOL_SCHEMAS = [
     },
     {
         "name": "browser_vision",
-        "description": "Take a screenshot of the current page so you can inspect it visually. Use this when you need to understand what the page looks like - especially for CAPTCHAs, visual verification challenges, complex layouts, or cases where the text snapshot misses important visual information. When your active model has native vision, the screenshot is attached to your context directly and you inspect it on the next turn; otherwise Hermes falls back to an auxiliary vision model and returns a text analysis. Includes a screenshot_path that you can share with the user by including MEDIA:<screenshot_path> in your response. Requires browser_navigate to be called first.",
+        "description": "Take a screenshot of the current page so you can inspect it visually. Use this when you need to understand what the page looks like - especially for CAPTCHAs, visual verification challenges, complex layouts, or cases where the text snapshot misses important visual information. When your active model has native vision, the screenshot is attached to your context directly and you inspect it on the next turn; otherwise Allr falls back to an auxiliary vision model and returns a text analysis. Includes a screenshot_path that you can share with the user by including MEDIA:<screenshot_path> in your response. Requires browser_navigate to be called first.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -2295,7 +2295,7 @@ def _find_agent_browser(*, validate: bool = True) -> str:
     """
     Find the agent-browser CLI executable.
 
-    Checks in order: current PATH, Homebrew/common bin dirs, Hermes-managed
+    Checks in order: current PATH, Homebrew/common bin dirs, Allr-managed
     node, local node_modules/.bin/, npx fallback.
 
     Returns:
@@ -2322,7 +2322,7 @@ def _find_agent_browser(*, validate: bool = True) -> str:
     # Every candidate below is validated with ``agent_browser_runnable`` before
     # it is cached. A bare ``shutil.which`` hit is NOT trusted: agent-browser's
     # npm postinstall re-points a global install symlink at our local
-    # node_modules binary, which disappears on the next ``hermes update`` and
+    # node_modules binary, which disappears on the next ``allr update`` and
     # leaves a dangling link that ``which`` still reports but exec fails on with
     # exit 127 (issue #48521). Validating lets a dead candidate fall through to
     # the next working resolution (extended PATH → local .bin → npx) instead of
@@ -2339,7 +2339,7 @@ def _find_agent_browser(*, validate: bool = True) -> str:
         _agent_browser_resolved = True
         return which_result
 
-    # Build an extended search PATH including Hermes-managed Node, macOS
+    # Build an extended search PATH including Allr-managed Node, macOS
     # versioned Homebrew installs, and fallback system dirs like Termux.
     extended_path = _merge_browser_path("")
     if extended_path:
@@ -4173,7 +4173,7 @@ def browser_vision(question: str, annotate: bool = False, task_id: Optional[str]
 
     Captures what's visually displayed in the browser. When the active model
     supports native vision, the screenshot is attached directly to the
-    conversation so the model can inspect it on the next turn; otherwise Hermes
+    conversation so the model can inspect it on the next turn; otherwise Allr
     falls back to the auxiliary vision model and returns a text analysis. Useful
     for visual content the text-based snapshot may not capture (CAPTCHAs,
     verification challenges, images, complex layouts, etc.).

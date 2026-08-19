@@ -180,7 +180,7 @@ describe('background mode store', () => {
     expect($notifications.get()).toHaveLength(1)
     expect($notifications.get()[0]).toMatchObject({
       kind: 'error',
-      title: "Couldn't keep Hermes running in the background"
+      title: "Couldn't keep Allr running in the background"
     })
   })
 
@@ -316,7 +316,7 @@ describe('backgroundCloseAction', () => {
 
   // `false` is the ABSENCE of a behaviour, not a third one. Quitting the app here
   // would take any other open instance window down with it — something this
-  // preference never promised. Only the prompt's "Quit Hermes" ends everything.
+  // preference never promised. Only the prompt's "Quit Allr" ends everything.
   it('leaves an answered close-means-close to the ordinary path', () => {
     $backgroundMode.set(false)
 
@@ -324,7 +324,7 @@ describe('backgroundCloseAction', () => {
   })
 
   // The stranding case, and the reason this takes a label at all. A hidden window
-  // is reachable through exactly one affordance — the tray's Show Hermes — and
+  // is reachable through exactly one affordance — the tray's Show Allr — and
   // that resolves to `main`, the lowest surviving instance, or a rebuilt `main`.
   // A hidden `instance-2` would exist, hold a session, and have nothing anywhere
   // able to bring it back.

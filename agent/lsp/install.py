@@ -1,8 +1,8 @@
 """Auto-installation of LSP server binaries.
 
 Tries to install missing servers using whatever package manager is
-appropriate.  All installs go to a Hermes-owned bin staging dir,
-``<HERMES_HOME>/lsp/bin/``, so we don't pollute the user's global
+appropriate.  All installs go to an Allr-owned bin staging dir,
+``<ALLR_HOME>/lsp/bin/``, so we don't pollute the user's global
 toolchain.
 
 Strategies:
@@ -10,7 +10,7 @@ Strategies:
 - ``auto`` — attempt to install with the best available package
   manager.  This is the default.
 - ``manual`` — never install; if a binary is missing, the server is
-  silently skipped and the user is told about it via ``hermes lsp
+  silently skipped and the user is told about it via ``allr lsp
   status``.
 - ``off`` — same as ``manual`` for now (kept distinct so we can
   evolve behavior later, e.g. logging differently).
@@ -42,7 +42,7 @@ logger = logging.getLogger("agent.lsp.install")
 # Package-name → install-strategy hint registry.  Each entry is a
 # tuple of strategy name + package name + executable name.  When the
 # install completes, we look for the executable in
-# ``<HERMES_HOME>/lsp/bin/`` first, then on PATH.
+# ``<ALLR_HOME>/lsp/bin/`` first, then on PATH.
 #
 # Optional fields:
 #   - ``extra_pkgs``: list of sibling packages to install alongside
@@ -107,7 +107,7 @@ INSTALL_RECIPES: Dict[str, Dict[str, Any]] = {
     # PowerShell — PowerShellEditorServices ships as a GitHub release
     # zip driven by a pwsh bootstrap script, not a single binary.  We
     # require a manual bundle install and probe for the pwsh host so
-    # `hermes lsp status` reports the host's presence.
+    # `allr lsp status` reports the host's presence.
     "powershell": {"strategy": "manual", "pkg": "", "bin": "pwsh"},
 }
 
@@ -123,7 +123,7 @@ def _is_windows() -> bool:
 
 
 def hermes_lsp_bin_dir() -> Path:
-    """Return the Hermes-owned bin staging dir for LSP servers."""
+    """Return the Allr-owned bin staging dir for LSP servers."""
     from hermes_constants import get_hermes_home
 
     p = get_hermes_home() / "lsp" / "bin"
@@ -250,14 +250,14 @@ def _install_npm(
     peer deps that npm doesn't auto-pull (typescript-language-server
     needs ``typescript`` next to it; intelephense ships standalone).
     """
-    # Managed npm first: $HERMES_HOME/node is not on an arbitrary process's
-    # PATH, so a bare which() misses the Node that Hermes installed and
+    # Managed npm first: $ALLR_HOME/node is not on an arbitrary process's
+    # PATH, so a bare which() misses the Node that Allr installed and
     # reports "npm not on PATH" on a machine that has a perfectly good one.
     npm = find_node_executable("npm")
     if npm is None:
         logger.info("[install] cannot install %s: no usable npm found", pkg)
         return None
-    staging = hermes_lsp_bin_dir().parent  # <HERMES_HOME>/lsp/
+    staging = hermes_lsp_bin_dir().parent  # <ALLR_HOME>/lsp/
     install_targets = [pkg] + list(extra_pkgs or [])
     try:
         logger.info(
@@ -392,7 +392,7 @@ def _install_pip(pkg: str, bin_name: str) -> Optional[str]:
 def detect_status(pkg: str) -> str:
     """Return ``installed``, ``missing``, or ``manual-only`` for a package.
 
-    Used by the ``hermes lsp status`` CLI to give users a quick
+    Used by the ``allr lsp status`` CLI to give users a quick
     overview of what's available without spawning anything.
     """
     recipe = INSTALL_RECIPES.get(pkg)

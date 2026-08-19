@@ -2,7 +2,7 @@
 
 Forensic background (Aug 2026): pytest fixture rows (chat-1 / wx-chat
 sessions, gateway_routing scopes under /tmp/pytest-of-*) were found in the
-developer's REAL ~/.hermes/state.db, and a pytest-spawned process flipped
+developer's REAL ~/.allr/state.db, and a pytest-spawned process flipped
 the journal mode under the WAL-mode gateway writer, destroying committed
 transcripts. The guard under test makes any pytest-context ``SessionDB``
 construction that resolves to a production state.db fail hard instead of
@@ -24,12 +24,12 @@ from gateway.config import GatewayConfig
 from gateway.session import SessionStore
 from hermes_state import SessionDB
 
-REAL_ROOT = (Path.home() / ".hermes").resolve()
+REAL_ROOT = (Path.home() / ".allr").resolve()
 
 
 class TestProductionPathRefused:
     def test_explicit_production_db_path_raises(self):
-        """SessionDB pointed at the real ~/.hermes/state.db must fail hard."""
+        """SessionDB pointed at the real ~/.allr/state.db must fail hard."""
         with pytest.raises(RuntimeError, match="live-system guard"):
             SessionDB(db_path=REAL_ROOT / "state.db")
 
@@ -45,18 +45,18 @@ class TestProductionPathRefused:
 
     def test_unnormalized_production_path_raises(self):
         """Symlink-free but unnormalized spellings still resolve and refuse."""
-        sneaky = Path.home() / "subdir" / ".." / ".hermes" / "state.db"
+        sneaky = Path.home() / "subdir" / ".." / ".allr" / "state.db"
         with pytest.raises(RuntimeError, match="live-system guard"):
             SessionDB(db_path=sneaky)
 
     def test_default_resolution_to_production_raises(self, monkeypatch):
         """The argless-construction path is guarded, not just explicit paths.
 
-        Simulates the escape vector: HERMES_HOME leaked/reset to the real
+        Simulates the escape vector: ALLR_HOME leaked/reset to the real
         home (subprocess child, stale worktree, gateway-launched shell) so
         ``_default_db_path()`` resolves the production DB.
         """
-        monkeypatch.setenv("HERMES_HOME", str(REAL_ROOT))
+        monkeypatch.setenv("ALLR_HOME", str(REAL_ROOT))
         # Neutralize the conftest's DEFAULT_DB_PATH re-pin so the default
         # resolver follows the (production-pointing) env, as it would in a
         # process that never imported the hermetic conftest.
@@ -77,8 +77,8 @@ class TestHermeticPathsAllowed:
             db.close()
 
     def test_tmp_hermes_home_default_resolution_works(self, tmp_path, monkeypatch):
-        """Argless SessionDB() under a hermetic HERMES_HOME must succeed."""
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermetic-home"))
+        """Argless SessionDB() under a hermetic ALLR_HOME must succeed."""
+        monkeypatch.setenv("ALLR_HOME", str(tmp_path / "hermetic-home"))
         monkeypatch.setattr(
             hermes_state, "DEFAULT_DB_PATH", hermes_state._IMPORT_DEFAULT_DB_PATH
         )
@@ -136,7 +136,7 @@ class TestSessionStoreLoudFailure:
 
 class TestSubprocessChildCovered:
     def test_child_without_hermes_home_is_refused(self, tmp_path):
-        """A subprocess child of a test (no HERMES_HOME) must be blocked.
+        """A subprocess child of a test (no ALLR_HOME) must be blocked.
 
         This is the real leak vector: tests spawning ``python -m ...``
         children that never import the hermetic conftest. The guard is
@@ -147,7 +147,7 @@ class TestSubprocessChildCovered:
         env = {
             k: v
             for k, v in os.environ.items()
-            if k not in ("HERMES_HOME", "PYTEST_PLUGINS", "PYTHONPATH")
+            if k not in ("ALLR_HOME", "PYTEST_PLUGINS", "PYTHONPATH")
         }
         env["PYTEST_CURRENT_TEST"] = "tests/fake.py::test_child (call)"
         env["PYTHONPATH"] = str(Path(__file__).resolve().parents[2])
@@ -166,14 +166,14 @@ class TestSubprocessChildCovered:
         assert "live-system guard" in proc.stderr
 
     def test_child_with_tmp_hermes_home_succeeds(self, tmp_path):
-        """Same child, hermetic HERMES_HOME: must work — no false positive."""
+        """Same child, hermetic ALLR_HOME: must work — no false positive."""
         env = {
             k: v
             for k, v in os.environ.items()
             if k not in ("PYTEST_PLUGINS", "PYTHONPATH")
         }
         env["PYTEST_CURRENT_TEST"] = "tests/fake.py::test_child (call)"
-        env["HERMES_HOME"] = str(tmp_path / "child-home")
+        env["ALLR_HOME"] = str(tmp_path / "child-home")
         env["PYTHONPATH"] = str(Path(__file__).resolve().parents[2])
         code = (
             "from hermes_state import SessionDB\n"

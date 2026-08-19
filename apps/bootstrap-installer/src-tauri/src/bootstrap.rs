@@ -1,9 +1,9 @@
 //! Bootstrap orchestration.
 //!
-//! Direct port of `runBootstrap` from `apps/desktop/electron/bootstrap-runner.ts`.
+//! Direct port of `runBootstrap` from `the former apps/desktop/electron/bootstrap-runner.ts`.
 //! Drives install.ps1 / install.sh stage-by-stage, emits progress events
 //! over the Tauri `bootstrap` channel, writes a forensic log to
-//! HERMES_HOME/logs/bootstrap-<timestamp>.log.
+//! ALLR_HOME/logs/bootstrap-<timestamp>.log.
 //!
 //! Lifecycle:
 //!   1. `start_bootstrap` (Tauri command) → spawns the worker task.
@@ -38,18 +38,9 @@ pub struct StartBootstrapArgs {
     pub commit: Option<String>,
     /// Optional override for the branch pin. Defaults to `BUILD_PIN_BRANCH`.
     pub branch: Option<String>,
-    /// Include Stage-Desktop (build apps/desktop) in the manifest. The
-    /// signed bootstrap installer passes true; the deprecated Electron-side
-    /// bootstrap-runner passes false to avoid building-while-running.
-    #[serde(default = "default_true")]
-    pub include_desktop: bool,
-    /// Optional override for HERMES_HOME. Tests use this; production
+    /// Optional override for ALLR_HOME. Tests use this; production
     /// almost always falls back to the OS default.
     pub hermes_home: Option<String>,
-}
-
-fn default_true() -> bool {
-    true
 }
 
 #[derive(Debug, Serialize)]
@@ -156,50 +147,33 @@ pub async fn get_bootstrap_status(
     })
 }
 
-/// Spawn the locally-built Hermes desktop binary, then close the installer
-/// window. Caller resolves the binary path from `install_root`.
+/// Launch the installed Allr app, then close the installer window.
 ///
-/// Returns Err with a human-readable message if the binary doesn't exist
-/// (e.g. when Stage-Desktop was skipped) so the frontend can present
-/// actionable failure UI rather than silently doing nothing.
+/// The app is a separately-installed Tauri bundle, not something this
+/// installer builds. When it isn't present the install still succeeded — the
+/// CLI is on PATH — so we just close the window instead of failing.
 #[tauri::command]
-pub async fn launch_hermes_desktop(
-    app: AppHandle,
-    install_root: String,
-) -> Result<(), String> {
+pub async fn launch_hermes_desktop(app: AppHandle, install_root: String) -> Result<(), String> {
     let install_root = PathBuf::from(install_root);
-    let exe_path = resolve_hermes_desktop_exe(&install_root).ok_or_else(|| {
-        format!(
-            "Couldn't find a built Hermes desktop at {}. The desktop build step \
-             may have been skipped or failed. Run `hermes desktop` from a \
-             terminal to build and launch it.",
-            install_root.join("apps").join("desktop").join("release").display()
-        )
-    })?;
-
-    tracing::info!(?exe_path, "launching Hermes desktop");
-
-    // Detach from us — the installer is about to exit. On macOS launch the
-    // bundle through LaunchServices instead of exec'ing Contents/MacOS/Hermes
-    // directly; this matches user double-click/open behavior and avoids cwd /
-    // quarantine oddities after a self-update rebuild.
-    let mut cmd = desktop_launch_command(&exe_path, &install_root);
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        // DETACHED_PROCESS = 0x00000008
-        cmd.creation_flags(0x0000_0008);
+    match resolve_installed_app() {
+        Some(app_path) => {
+            tracing::info!(?app_path, "launching the installed Allr app");
+            let mut cmd = desktop_launch_command(&app_path, &install_root);
+            #[cfg(target_os = "windows")]
+            {
+                use std::os::windows::process::CommandExt;
+                // DETACHED_PROCESS = 0x00000008
+                cmd.creation_flags(0x0000_0008);
+            }
+            cmd.spawn()
+                .map_err(|e| format!("failed to launch {}: {e}", app_path.display()))?;
+            // Give Windows ~150ms to actually start the new process before we exit.
+            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        }
+        None => {
+            tracing::info!("no installed Allr app found — Allr CLI installed");
+        }
     }
-
-    cmd.spawn().map_err(|e| {
-        format!(
-            "failed to launch {}: {e}",
-            exe_path.display()
-        )
-    })?;
-
-    // Give Windows ~150ms to actually start the new process before we exit.
-    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
 
     // Exit the installer cleanly. Tauri's process plugin gives us the
     // right hook regardless of platform.
@@ -207,57 +181,48 @@ pub async fn launch_hermes_desktop(
     Ok(())
 }
 
-/// Walks the well-known electron-builder unpacked-app paths under
-/// `install_root`. Mirrors the resolver in `cmd_gui` (apps/desktop/release/
-/// <os>-unpacked/<exe>).
-pub(crate) fn resolve_hermes_desktop_exe(install_root: &std::path::Path) -> Option<PathBuf> {
-    let release_dir = install_root.join("apps").join("desktop").join("release");
-    let candidates: &[(&str, &str)] = if cfg!(target_os = "windows") {
-        &[
-            ("win-unpacked", "Hermes.exe"),
-            ("win-arm64-unpacked", "Hermes.exe"),
-        ]
-    } else if cfg!(target_os = "macos") {
-        &[
-            ("mac/Hermes.app/Contents/MacOS", "Hermes"),
-            ("mac-arm64/Hermes.app/Contents/MacOS", "Hermes"),
-        ]
-    } else {
-        &[("linux-unpacked", "hermes")]
-    };
-    for (subdir, exe) in candidates {
-        let p = release_dir.join(subdir).join(exe);
-        if p.exists() {
-            return Some(p);
-        }
-    }
-    None
-}
+/// Locate an installed Allr app bundle at the platform's well-known paths.
+///
+/// Returns the thing to hand to the OS launcher: the `.app` bundle on macOS,
+/// the executable everywhere else. `None` when Allr isn't installed.
+pub(crate) fn resolve_installed_app() -> Option<PathBuf> {
+    let mut candidates: Vec<PathBuf> = Vec::new();
 
-pub(crate) fn resolve_hermes_desktop_app(install_root: &std::path::Path) -> Option<PathBuf> {
-    let exe = resolve_hermes_desktop_exe(install_root)?;
     #[cfg(target_os = "macos")]
     {
-        // .../Hermes.app/Contents/MacOS/Hermes -> .../Hermes.app
-        let app = exe.parent()?.parent()?.parent()?.to_path_buf();
-        if app.extension().and_then(|e| e.to_str()) == Some("app") && app.is_dir() {
-            return Some(app);
+        candidates.push(PathBuf::from("/Applications/Allr.app"));
+        if let Some(home) = std::env::var_os("HOME") {
+            candidates.push(PathBuf::from(home).join("Applications").join("Allr.app"));
         }
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
     {
-        return Some(exe);
+        for var in ["LOCALAPPDATA", "ProgramFiles"] {
+            if let Some(base) = std::env::var_os(var) {
+                candidates.push(PathBuf::from(base).join("Allr").join("Allr.exe"));
+            }
+        }
     }
-    #[allow(unreachable_code)]
-    None
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        if let Some(path) = std::env::var_os("PATH") {
+            candidates.extend(std::env::split_paths(&path).map(|dir| dir.join("allr")));
+        }
+        if let Some(home) = std::env::var_os("HOME") {
+            let home = PathBuf::from(home);
+            candidates.push(home.join(".local").join("lib").join("allr").join("allr"));
+            candidates.push(home.join(".local").join("bin").join("allr"));
+        }
+    }
+
+    candidates.into_iter().find(|p| p.exists())
 }
 
-/// True when a prior install completed (bootstrap-complete marker present) AND a
-/// launchable desktop app exists on disk. Used by the installer's launcher fast
-/// path so a bare re-open just opens Hermes instead of re-running setup.
+/// True when a prior install completed (bootstrap-complete marker present).
+/// Used by the installer's launcher fast path so a bare re-open just opens
+/// Allr instead of re-running setup.
 pub(crate) fn hermes_is_installed(install_root: &std::path::Path) -> bool {
     install_root.join(".hermes-bootstrap-complete").exists()
-        && resolve_hermes_desktop_exe(install_root).is_some()
 }
 
 fn resolve_marker_commit(install_root: &Path, pin: &Pin) -> Option<String> {
@@ -361,12 +326,12 @@ fn write_bootstrap_complete_marker(install_root: &Path, pin: &Pin) -> Result<ser
     Ok(marker)
 }
 
-/// Spawn the already-built desktop app, detached. Returns Err if no built app
+/// Spawn the installed Allr app, detached. Returns Err if no installed app
 /// exists or the spawn fails, so the caller can fall back to showing the
 /// installer UI.
 pub(crate) fn spawn_installed_desktop(install_root: &std::path::Path) -> std::io::Result<()> {
-    let exe = resolve_hermes_desktop_exe(install_root).ok_or_else(|| {
-        std::io::Error::new(std::io::ErrorKind::NotFound, "no built Hermes desktop app")
+    let exe = resolve_installed_app().ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::NotFound, "no installed Allr app")
     })?;
     let mut cmd = desktop_launch_command_std(&exe, install_root);
     #[cfg(target_os = "windows")]
@@ -389,14 +354,11 @@ pub(crate) fn open_macos_app_detached(app_bundle: &std::path::Path) -> std::io::
     cmd.spawn().map(|_child| ())
 }
 
+/// The macOS launcher takes `.app` bundles; everything else is an executable.
 #[cfg(target_os = "macos")]
 fn app_bundle_for_exe(exe: &std::path::Path) -> Option<PathBuf> {
-    let app = exe.parent()?.parent()?.parent()?.to_path_buf();
-    if app.extension().and_then(|e| e.to_str()) == Some("app") && app.is_dir() {
-        Some(app)
-    } else {
-        None
-    }
+    (exe.extension().and_then(|e| e.to_str()) == Some("app") && exe.is_dir())
+        .then(|| exe.to_path_buf())
 }
 
 fn desktop_launch_command(
@@ -456,7 +418,6 @@ async fn run_bootstrap(
     tracing::info!(
         ?pin,
         kind = ?kind,
-        include_desktop = args.include_desktop,
         "bootstrap starting"
     );
 
@@ -505,18 +466,9 @@ async fn run_bootstrap(
     ));
 
     // 2. Fetch manifest
-    //
-    // -IncludeDesktop MUST be passed to the manifest call too — install.ps1
-    // gates the desktop stage inclusion on this flag, so without it here
-    // the manifest comes back missing the desktop stage and we never run
-    // it. The per-stage call below also passes -IncludeDesktop to keep
-    // the contracts identical.
     let manifest_args = build_pin_args(&script);
     let mut manifest_args_full = vec!["-Manifest".to_string()];
     manifest_args_full.extend(manifest_args.clone());
-    if args.include_desktop {
-        manifest_args_full.push("-IncludeDesktop".to_string());
-    }
 
     let manifest_result = run_install_script(
         &app,
@@ -569,23 +521,6 @@ async fn run_bootstrap(
 
     // 3. Iterate stages.
     for stage in &manifest.stages {
-        // Skip Stage-Desktop unless explicitly requested. install.ps1 may
-        // or may not include it in the manifest depending on the flag we
-        // pass, but if it slipped in, gate client-side too.
-        if !args.include_desktop && stage.name.eq_ignore_ascii_case("desktop") {
-            emit_event(
-                &app,
-                BootstrapEvent::Stage {
-                    name: stage.name.clone(),
-                    state: StageState::Skipped,
-                    duration_ms: Some(0),
-                    result: None,
-                    error: Some("skipped by include_desktop=false".into()),
-                },
-            );
-            continue;
-        }
-
         if cancellation_signalled(&cancel_rx_holder).await {
             let err = "bootstrap cancelled by user".to_string();
             emit_event(
@@ -617,9 +552,6 @@ async fn run_bootstrap(
             "-Json".to_string(),
         ];
         stage_args.extend(manifest_args.clone());
-        if args.include_desktop {
-            stage_args.push("-IncludeDesktop".to_string());
-        }
 
         // Each stage gets its own cancel receiver because tokio::select!
         // in run_script consumes it. Take/return through the Arc<Mutex>.
@@ -738,12 +670,12 @@ async fn run_bootstrap(
 
     // 4. Resolve install_root. install.ps1 doesn't (yet) report this back
     // explicitly; we infer it from $HermesHome which Stage-Repository clones
-    // the repo INTO at $HermesHome\hermes-agent. Mirrors hermes_constants.
+    // the repo INTO at $HermesHome\allr-agent. Mirrors hermes_constants.
     let hermes_home = args
         .hermes_home
         .clone()
         .unwrap_or_else(|| crate::paths::hermes_home().to_string_lossy().into_owned());
-    let install_root = PathBuf::from(&hermes_home).join("hermes-agent");
+    let install_root = PathBuf::from(&hermes_home).join("allr-agent");
 
     // Marker publish is terminal for this run: a write failure must emit Failed
     // so the UI leaves the progress state (it does not poll get_bootstrap_status).
@@ -762,13 +694,13 @@ async fn run_bootstrap(
         }
     };
 
-    // Copy ourselves to HERMES_HOME/hermes-setup.exe so the desktop app can
+    // Copy ourselves to ALLR_HOME/allr-setup.exe so the desktop app can
     // re-invoke us with `--update` and shortcuts have a stable target. This is
     // a one-shot install concern; an `--update` re-invocation no-ops because
     // we're already running from that path. Best-effort — a failure here must
     // not fail an otherwise-successful install.
     if let Err(err) = crate::paths::copy_self_to_hermes_home() {
-        tracing::warn!(?err, "failed to copy installer into HERMES_HOME (non-fatal)");
+        tracing::warn!(?err, "failed to copy installer into ALLR_HOME (non-fatal)");
         emit_log(&format!(
             "[bootstrap] warning: could not stage updater binary: {err}"
         ));
@@ -952,73 +884,6 @@ mod tests {
         base
     }
 
-    // Build a fake built-desktop release tree at the platform's expected path
-    // and return (install_root, expected_app_bundle_or_exe).
-    fn make_release_tree(install_root: &Path) -> PathBuf {
-        let release = install_root.join("apps").join("desktop").join("release");
-        if cfg!(target_os = "macos") {
-            let macos_dir = release
-                .join("mac-arm64")
-                .join("Hermes.app")
-                .join("Contents")
-                .join("MacOS");
-            std::fs::create_dir_all(&macos_dir).unwrap();
-            std::fs::write(macos_dir.join("Hermes"), b"#!/bin/sh\n").unwrap();
-            macos_dir.parent().unwrap().parent().unwrap().to_path_buf() // .../Hermes.app
-        } else if cfg!(target_os = "windows") {
-            let dir = release.join("win-unpacked");
-            std::fs::create_dir_all(&dir).unwrap();
-            let exe = dir.join("Hermes.exe");
-            std::fs::write(&exe, b"stub").unwrap();
-            exe
-        } else {
-            let dir = release.join("linux-unpacked");
-            std::fs::create_dir_all(&dir).unwrap();
-            let exe = dir.join("hermes");
-            std::fs::write(&exe, b"stub").unwrap();
-            exe
-        }
-    }
-
-    // The relaunch / install target is derived from the rebuilt desktop app.
-    // On macOS this MUST resolve to the .app bundle (what `open` relaunches and
-    // what the updater ditto's over /Applications/Hermes.app). A regression in
-    // this derivation breaks the post-update auto-relaunch, so guard it.
-    #[test]
-    fn resolve_hermes_desktop_app_finds_built_bundle() {
-        let root = unique_tmp_dir("app-ok");
-        let expected = make_release_tree(&root);
-
-        let resolved = resolve_hermes_desktop_app(&root)
-            .expect("should resolve the freshly-built desktop app");
-
-        #[cfg(target_os = "macos")]
-        {
-            assert_eq!(resolved, expected, "must resolve to the .app bundle");
-            assert_eq!(
-                resolved.extension().and_then(|e| e.to_str()),
-                Some("app"),
-                "relaunch target must be a .app bundle on macOS"
-            );
-        }
-        #[cfg(not(target_os = "macos"))]
-        {
-            assert_eq!(resolved, expected);
-        }
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn resolve_hermes_desktop_app_is_none_without_a_build() {
-        let root = unique_tmp_dir("app-none");
-        // No release tree created.
-        assert!(
-            resolve_hermes_desktop_app(&root).is_none(),
-            "no resolved app when nothing has been built"
-        );
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
     #[test]
     fn bootstrap_complete_marker_uses_desktop_compatible_schema() {
         let root = unique_tmp_dir("marker-schema");
@@ -1047,7 +912,6 @@ mod tests {
     #[test]
     fn bootstrap_complete_marker_is_published_atomically() {
         let root = unique_tmp_dir("marker-atomic");
-        make_release_tree(&root);
         let pin = Pin {
             commit: Some("abcdef1234567890".to_string()),
             branch: Some("main".to_string()),
@@ -1078,7 +942,6 @@ mod tests {
         // the launcher predicate only checks existence, so a partial/corrupt
         // final marker would still enable the fast path.
         let root = unique_tmp_dir("marker-existence-only");
-        make_release_tree(&root);
         std::fs::write(root.join(".hermes-bootstrap-complete"), b"").unwrap();
 
         assert!(

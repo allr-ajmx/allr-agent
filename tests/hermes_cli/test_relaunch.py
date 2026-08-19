@@ -9,7 +9,7 @@ from hermes_cli import relaunch as relaunch_mod
 
 class TestResolveHermesBin:
     def test_prefers_absolute_argv0_when_executable(self, monkeypatch):
-        fake = "/nix/store/abc/bin/hermes"
+        fake = "/nix/store/abc/bin/allr"
         monkeypatch.setattr(sys, "argv", [fake])
         monkeypatch.setattr(relaunch_mod.os.path, "isfile", lambda p: p == fake)
         monkeypatch.setattr(relaunch_mod.os, "access", lambda p, mode: p == fake)
@@ -28,9 +28,9 @@ class TestResolveHermesBin:
     def test_falls_back_to_path_which(self, monkeypatch):
         monkeypatch.setattr(sys, "argv", ["-c"])  # not a real path
         monkeypatch.setattr(
-            relaunch_mod.shutil, "which", lambda name: "/usr/bin/hermes" if name == "hermes" else None
+            relaunch_mod.shutil, "which", lambda name: "/usr/bin/allr" if name == "hermes" else None
         )
-        assert relaunch_mod.resolve_hermes_bin() == "/usr/bin/hermes"
+        assert relaunch_mod.resolve_hermes_bin() == "/usr/bin/allr"
 
 
 class TestExtractInheritedFlags:
@@ -69,13 +69,13 @@ class TestInheritedFlagTable:
 
 class TestBuildRelaunchArgv:
     def test_uses_bin_when_available(self, monkeypatch):
-        monkeypatch.setattr(relaunch_mod, "resolve_hermes_bin", lambda: "/usr/bin/hermes")
+        monkeypatch.setattr(relaunch_mod, "resolve_hermes_bin", lambda: "/usr/bin/allr")
         argv = relaunch_mod.build_relaunch_argv(["--resume", "abc"])
-        assert argv[0] == "/usr/bin/hermes"
+        assert argv[0] == "/usr/bin/allr"
 
 
     def test_preserves_inherited_flags(self, monkeypatch):
-        monkeypatch.setattr(relaunch_mod, "resolve_hermes_bin", lambda: "/usr/bin/hermes")
+        monkeypatch.setattr(relaunch_mod, "resolve_hermes_bin", lambda: "/usr/bin/allr")
         original = ["--tui", "--dev", "--profile", "work", "sessions", "browse"]
         argv = relaunch_mod.build_relaunch_argv(["--resume", "abc"], original_argv=original)
         assert "--tui" in argv
@@ -89,13 +89,13 @@ class TestBuildRelaunchArgv:
         assert "browse" not in argv
 
     def test_can_disable_preserve(self, monkeypatch):
-        monkeypatch.setattr(relaunch_mod, "resolve_hermes_bin", lambda: "/usr/bin/hermes")
+        monkeypatch.setattr(relaunch_mod, "resolve_hermes_bin", lambda: "/usr/bin/allr")
         original = ["--tui", "chat"]
         argv = relaunch_mod.build_relaunch_argv(
             ["--resume", "abc"], preserve_inherited=False, original_argv=original
         )
         assert "--tui" not in argv
-        assert argv == ["/usr/bin/hermes", "--resume", "abc"]
+        assert argv == ["/usr/bin/allr", "--resume", "abc"]
 
 
 class TestRelaunch:
@@ -107,12 +107,12 @@ class TestRelaunch:
             raise SystemExit(0)
 
         monkeypatch.setattr(relaunch_mod.os, "execvp", fake_execvp)
-        monkeypatch.setattr(relaunch_mod, "resolve_hermes_bin", lambda: "/usr/bin/hermes")
+        monkeypatch.setattr(relaunch_mod, "resolve_hermes_bin", lambda: "/usr/bin/allr")
 
         with pytest.raises(SystemExit):
             relaunch_mod.relaunch(["--resume", "abc"])
 
-        assert calls == [("/usr/bin/hermes", ["/usr/bin/hermes", "--resume", "abc"])]
+        assert calls == [("/usr/bin/allr", ["/usr/bin/allr", "--resume", "abc"])]
 
     def test_windows_uses_subprocess_not_execvp(self, monkeypatch):
         """On Windows, os.execvp raises OSError "Exec format error" when the
@@ -120,7 +120,7 @@ class TestRelaunch:
         hermes).  relaunch() must detect win32 and use subprocess.run +
         sys.exit instead."""
         monkeypatch.setattr(relaunch_mod.sys, "platform", "win32")
-        monkeypatch.setattr(relaunch_mod, "resolve_hermes_bin", lambda: r"C:\Users\test\hermes.exe")
+        monkeypatch.setattr(relaunch_mod, "resolve_hermes_bin", lambda: r"C:\Users\test\allr.exe")
 
         import subprocess as _subprocess
 
@@ -148,12 +148,12 @@ class TestRelaunch:
 
         assert exc_info.value.code == 0
         assert execvp_calls == []
-        assert captured_argv == [[r"C:\Users\test\hermes.exe", "chat"]]
+        assert captured_argv == [[r"C:\Users\test\allr.exe", "chat"]]
 
     def test_windows_propagates_child_exit_code(self, monkeypatch):
         """A non-zero exit from the child should flow through to sys.exit."""
         monkeypatch.setattr(relaunch_mod.sys, "platform", "win32")
-        monkeypatch.setattr(relaunch_mod, "resolve_hermes_bin", lambda: r"C:\hermes.exe")
+        monkeypatch.setattr(relaunch_mod, "resolve_hermes_bin", lambda: r"C:\allr.exe")
 
         import subprocess as _subprocess
 
@@ -187,16 +187,16 @@ class TestResolveHermesBinWindowsPyGuard:
 
         monkeypatch.setattr(relaunch_mod.sys, "platform", "win32")
         monkeypatch.setattr(relaunch_mod.sys, "argv", [str(script), "chat"])
-        # Force PATH lookup to return a hermes.exe so the test doesn't
+        # Force PATH lookup to return a allr.exe so the test doesn't
         # exercise the None-fallback path (that's a separate test).
         monkeypatch.setattr(
             relaunch_mod.shutil, "which",
-            lambda name: r"C:\venv\Scripts\hermes.exe" if name == "hermes" else None,
+            lambda name: r"C:\venv\Scripts\allr.exe" if name == "hermes" else None,
         )
 
         bin_path = relaunch_mod.resolve_hermes_bin()
-        # Must NOT be the .py — must be the hermes.exe PATH entry.
-        assert bin_path == r"C:\venv\Scripts\hermes.exe"
+        # Must NOT be the .py — must be the allr.exe PATH entry.
+        assert bin_path == r"C:\venv\Scripts\allr.exe"
 
     def test_posix_still_accepts_py_argv0(self, monkeypatch, tmp_path):
         """POSIX behaviour unchanged: argv[0] pointing at an executable
@@ -211,7 +211,7 @@ class TestResolveHermesBinWindowsPyGuard:
         assert relaunch_mod.resolve_hermes_bin() == str(script)
 
     def test_windows_py_argv0_with_no_hermes_on_path_returns_none(self, monkeypatch, tmp_path):
-        """Bulletproof fallback: if argv0 is .py on Windows AND hermes.exe
+        """Bulletproof fallback: if argv0 is .py on Windows AND allr.exe
         isn't on PATH, return None so the caller falls back to
         python -m hermes_cli.main."""
         script = tmp_path / "main.py"

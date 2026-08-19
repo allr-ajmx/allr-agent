@@ -49,18 +49,18 @@ beforeEach(() => {
   resetLocalInstall()
 })
 
-describe('when Hermes is already installed', () => {
+describe('when Allr is already installed', () => {
   beforeEach(() => {
     invokeMock.mockResolvedValue(
-      detected('path', { command: '/usr/local/bin/hermes', version: 'hermes 1.4.0' })
+      detected('path', { command: '/usr/local/bin/allr', version: 'hermes 1.4.0' })
     )
   })
 
   it('shows the install and offers Continue', async () => {
     renderPanel()
 
-    expect(await screen.findByText('Hermes is installed')).toBeInTheDocument()
-    expect(screen.getByText('/usr/local/bin/hermes')).toBeInTheDocument()
+    expect(await screen.findByText('Allr is installed')).toBeInTheDocument()
+    expect(screen.getByText('/usr/local/bin/allr')).toBeInTheDocument()
     expect(screen.getByText('Version hermes 1.4.0')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
@@ -69,12 +69,12 @@ describe('when Hermes is already installed', () => {
 
   it('does not offer to install anything', async () => {
     renderPanel()
-    await screen.findByText('Hermes is installed')
+    await screen.findByText('Allr is installed')
 
     // The found state is Continue-only: offering a reinstall here is how a
     // working install gets clobbered by accident.
-    expect(screen.queryByText('NousResearch Hermes Agent')).not.toBeInTheDocument()
-    expect(screen.queryByText('MJX Fork of Hermes Agent')).not.toBeInTheDocument()
+    expect(screen.queryByText('NousResearch Hermes Agent')).not.toBeInTheDocument() // rebrand:keep — names the upstream project, not ours
+    expect(screen.queryByText('MJX Fork of Hermes Agent')).not.toBeInTheDocument() // rebrand:keep — names the upstream project, not ours
   })
 })
 
@@ -87,18 +87,18 @@ describe('when nothing is installed', () => {
     renderPanel()
 
     expect(await screen.findByText('No local installation found')).toBeInTheDocument()
-    expect(screen.getByText('NousResearch Hermes Agent')).toBeInTheDocument()
-    expect(screen.getByText('MJX Fork of Hermes Agent')).toBeInTheDocument()
+    expect(screen.getByText('NousResearch Hermes Agent')).toBeInTheDocument() // rebrand:keep — names the upstream project, not ours
+    expect(screen.getByText('MJX Fork of Hermes Agent')).toBeInTheDocument() // rebrand:keep — names the upstream project, not ours
   })
 
   it('describes the fork when it is picked', async () => {
     renderPanel()
     await screen.findByText('No local installation found')
 
-    fireEvent.click(screen.getByText('MJX Fork of Hermes Agent'))
+    fireEvent.click(screen.getByText('MJX Fork of Hermes Agent')) // rebrand:keep — names the upstream project, not ours
 
     expect(
-      await screen.findByText('A fork of Hermes Agent built for testing experimental features in Hermes Agent.')
+      await screen.findByText('A fork of Hermes Agent built for testing experimental features in Hermes Agent.') // rebrand:keep — names the upstream project, not ours
     ).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Install' })).toBeInTheDocument()
   })
@@ -107,16 +107,16 @@ describe('when nothing is installed', () => {
     renderPanel()
     await screen.findByText('No local installation found')
 
-    fireEvent.click(screen.getByText('NousResearch Hermes Agent'))
+    fireEvent.click(screen.getByText('NousResearch Hermes Agent')) // rebrand:keep — names the upstream project, not ours
 
-    expect(await screen.findByText('The official Hermes Agent from NousResearch.')).toBeInTheDocument()
+    expect(await screen.findByText('The official Hermes Agent from NousResearch.')).toBeInTheDocument() // rebrand:keep — names the upstream project, not ours
   })
 
   it('renders no Back of its own — the wizard header owns the only one', async () => {
     renderPanel()
     await screen.findByText('No local installation found')
 
-    fireEvent.click(screen.getByText('MJX Fork of Hermes Agent'))
+    fireEvent.click(screen.getByText('MJX Fork of Hermes Agent')) // rebrand:keep — names the upstream project, not ours
     await screen.findByRole('button', { name: 'Install' })
 
     // A second Back stacked under the header's is what this replaced; the
@@ -138,14 +138,14 @@ describe('during and after an install', () => {
       protocolVersion: 1,
       stages: [
         { name: 'prerequisites', title: 'System prerequisites' },
-        { name: 'repository', title: 'Download Hermes Agent' }
+        { name: 'repository', title: 'Download Allr' }
       ],
       type: 'manifest'
     })
 
     // Titles come from the manifest — not from our locale files.
     expect(await screen.findByText('System prerequisites')).toBeInTheDocument()
-    expect(screen.getByText('Download Hermes Agent')).toBeInTheDocument()
+    expect(screen.getByText('Download Allr')).toBeInTheDocument()
     expect(screen.getByText('0 of 2 steps complete')).toBeInTheDocument()
   })
 
@@ -172,10 +172,10 @@ describe('during and after an install', () => {
 
     emit(
       { protocolVersion: 1, stages: [{ name: 'venv', title: 'Create venv' }], type: 'manifest' },
-      { installRoot: '/home/u/.hermes/hermes-agent', type: 'complete' }
+      { installRoot: '/home/u/.allr/allr-agent', type: 'complete' }
     )
 
-    expect(await screen.findByText('Hermes is ready')).toBeInTheDocument()
+    expect(await screen.findByText('Allr is ready')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Done' }))
     expect(onContinue).toHaveBeenCalled()
@@ -201,7 +201,7 @@ describe('during and after an install', () => {
     renderPanel()
     await screen.findByText('No local installation found')
 
-    fireEvent.click(screen.getByText('MJX Fork of Hermes Agent'))
+    fireEvent.click(screen.getByText('MJX Fork of Hermes Agent')) // rebrand:keep — names the upstream project, not ours
     fireEvent.click(await screen.findByRole('button', { name: 'Install' }))
 
     const start = await waitFor(() => {

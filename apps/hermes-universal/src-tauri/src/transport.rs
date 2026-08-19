@@ -2,7 +2,7 @@
 //!
 //! The webview never opens a socket or issues `fetch` itself — it drives this
 //! module over IPC. That removes the browser CORS constraint entirely (a native
-//! client has no origin policy), so the app can talk to any Hermes/service on
+//! client has no origin policy), so the app can talk to any Allr/service on
 //! the LAN or elsewhere.
 //!
 //! This is a *thin, generic* pipe on purpose: `http_request` proxies any REST
@@ -315,11 +315,36 @@ fn url_is_under(url: &str, base: &str) -> bool {
         .is_some_and(|rest| rest.is_empty() || rest.starts_with('/') || rest.starts_with('?'))
 }
 
-/// The path namespaces a Hermes gateway serves. Used only to decide whether an
+/// The path namespaces an Allr gateway serves. Used only to decide whether an
 /// UNKNOWN origin is worth one keyring lookup — never to decide that a URL is
 /// trustworthy. A gateway behind a path prefix (`https://host/hermes`, which the
 /// settings copy explicitly supports) matches neither, and is reached the other
 /// way: `oauth_status` registers its base the first time the webview probes it.
+/// Canonical token-mode session header. Current gateways read this one.
+pub(crate) const SESSION_TOKEN_HEADER: &str = "X-Allr-Session-Token";
+
+/// The same header as a gateway built before the Allr rename knows it. Nothing else
+/// authenticates against those builds.
+pub(crate) const LEGACY_SESSION_TOKEN_HEADER: &str = "X-Hermes-Session-Token"; // rebrand:keep
+
+/// Attach `token` under both header names.
+///
+/// The backends this is used against — a locally spawned one, a backend reached through
+/// an SSH tunnel — are installed and updated on their own schedule, so either spelling
+/// may be the only one that gateway reads. Sending both costs a few dozen bytes and
+/// removes the need to probe for a version before the first authenticated request; an
+/// unknown header is ignored by every server that receives it.
+///
+/// Mirrors `src/lib/session-token-header.ts`, which does the same for the webview.
+pub(crate) fn with_session_token(
+    request: reqwest::RequestBuilder,
+    token: &str,
+) -> reqwest::RequestBuilder {
+    request
+        .header(SESSION_TOKEN_HEADER, token)
+        .header(LEGACY_SESSION_TOKEN_HEADER, token)
+}
+
 const GATEWAY_PATH_PREFIXES: &[&str] = &["/api/", "/auth/"];
 
 /// A live raw WebSocket: `tx` feeds the writer task; the two task handles are
@@ -877,7 +902,7 @@ where
 /// `ws://{id}/open|message|close|error` BEFORE calling this, so no frame is
 /// missed. `origin` is set on the upgrade to whatever the JS caller passes — the
 /// gateway client sends `Origin: null` to mirror desktop's file:// renderer (the
-/// value Hermes gateways accept for native clients). Sending the gateway's own
+/// value Allr gateways accept for native clients). Sending the gateway's own
 /// origin instead is rejected by reverse proxies that guard /api/ws on Origin/Host.
 ///
 /// `binary_channel` is optional so an OLD JS bundle — one that never passes a
@@ -1066,7 +1091,8 @@ pub async fn ws_close(state: State<'_, TransportState>, id: String) -> Result<()
 
 /// Serialize the shared cookie jar to JSON so the JS layer can persist it in the
 /// OS keyring (R2b). Captures unexpired, persistent cookies — which includes the
-/// gateway session (`hermes_session_at/_rt`) and any portal (Privy) cookie — so a
+/// gateway session (`allr_session_at/_rt`, or `hermes_session_*` from a gateway
+/// deployed before the rename) and any portal (Privy) cookie — so a
 /// gateway/cloud login survives an app restart. The refresh-token cookie alone is
 /// enough: the gateway transparently re-mints the short-lived access cookie.
 #[tauri::command]
@@ -1731,9 +1757,9 @@ mod tests {
         headers.insert("content-type", "application/json".parse().unwrap());
         headers.append(
             "set-cookie",
-            "hermes_session_rt=s3cr3t; HttpOnly".parse().unwrap(),
+            "allr_session_rt=s3cr3t; HttpOnly".parse().unwrap(),
         );
-        headers.append("Set-Cookie", "hermes_session_at=s3cr3t2".parse().unwrap());
+        headers.append("Set-Cookie", "allr_session_at=s3cr3t2".parse().unwrap());
         headers.append("set-cookie2", "legacy=s3cr3t3".parse().unwrap());
 
         let visible = visible_response_headers(&headers);

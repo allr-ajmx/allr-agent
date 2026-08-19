@@ -15,7 +15,7 @@ Security features (based on OWASP + NIST SP 800-63-4 guidance):
   - File permissions: chmod 0600 on all data files
   - Codes are never logged to stdout
 
-Storage: ~/.hermes/pairing/
+Storage: ~/.allr/pairing/
 """
 
 import hashlib
@@ -340,8 +340,8 @@ def _load_json_file(path: Path) -> dict:
 def _merge_pairing_dir(active_dir: Path, alternate_dir: Path) -> None:
     """Merge split legacy/new pairing data into the active PairingStore dir.
 
-    Older installs use ``{HERMES_HOME}/pairing`` while newer code/docs may
-    write ``{HERMES_HOME}/platforms/pairing``. If both directories exist, the
+    Older installs use ``{ALLR_HOME}/pairing`` while newer code/docs may
+    write ``{ALLR_HOME}/platforms/pairing``. If both directories exist, the
     gateway must not silently ignore approved users sitting in the inactive
     location; otherwise already-paired Feishu users get asked for a fresh code.
     """
@@ -412,14 +412,14 @@ class PairingStore:
       - _rate_limits.json         : rate limit tracking
 
     When constructed with ``profile="<name>"``, storage resolves from that
-    profile's own HERMES_HOME using the same legacy/consolidated layout rules
+    profile's own ALLR_HOME using the same legacy/consolidated layout rules
     as ``hermes -p <name> pairing ...``. This keeps multiplex gateways and
     profile-scoped CLI approvals on one whitelist. Without a profile, storage
-    is the global pairing directory for the current HERMES_HOME.
+    is the global pairing directory for the current ALLR_HOME.
     """
 
     def __init__(self, profile: Optional[str] = None):
-        # Resolve storage directory lazily — tests use a temp HERMES_HOME
+        # Resolve storage directory lazily — tests use a temp ALLR_HOME
         # and PairingStore may be constructed before the env is set.
         if profile:
             root = get_default_hermes_root()
@@ -485,7 +485,7 @@ class PairingStore:
                 euid = os.geteuid() if hasattr(os, "geteuid") else "n/a"
                 logger.warning(
                     "Pairing file %s exists but is not readable as uid=%s (%s; %s). "
-                    "If you ran `docker exec <container> hermes pairing approve ...` as root, "
+                    "If you ran `docker exec <container> allr pairing approve ...` as root, "
                     "re-run with `docker exec -u hermes <container> ...` and "
                     "chown the existing file to the hermes user, or restart the "
                     "container so the entrypoint can fix ownership.",

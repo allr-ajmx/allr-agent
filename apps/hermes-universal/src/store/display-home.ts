@@ -15,7 +15,7 @@
  * and a gateway whose user lives outside those layouts never collapses at all.
  *
  * The gateway already tells us where it lives: `StatusResponse.hermes_home`, the
- * backend's own `get_hermes_home()`. Its default is `$HOME/.hermes` (POSIX) or
+ * backend's own `get_hermes_home()`. Its default is `$HOME/.allr` (POSIX) or
  * `%LOCALAPPDATA%/hermes` (Windows), so the home falls out of it exactly when it
  * has NOT been overridden — and when it has, we say "unknown" and let the old
  * heuristic stand rather than invent an answer.
@@ -27,12 +27,14 @@ import { displayPath, normalizeDisplayPath } from '@/lib/display-path'
 import { computed, useStore } from '@/store/atom'
 import { $statusSnapshot } from '@/store/system-status'
 
-/** `<home>/AppData/Local/hermes` — the Windows default, lowest segment first. */
-const WINDOWS_TAIL = ['hermes', 'local', 'appdata']
+/** `<home>/AppData/Local` — the Windows default's parents, lowest segment first. */
+const WINDOWS_TAIL = ['local', 'appdata']
+/** Its leaf. `hermes` is the pre-rename default, still reported by old installs. */
+const WINDOWS_LEAVES = ['allr', 'hermes']  // rebrand:keep
 
 /**
- * The gateway user's home directory, derived from the HERMES_HOME it reports.
- * `''` when it cannot be derived — an explicit `HERMES_HOME=/srv/hermes` says
+ * The gateway user's home directory, derived from the ALLR_HOME it reports.
+ * `''` when it cannot be derived — an explicit `ALLR_HOME=/srv/allr` says
  * nothing about where that user's home is, and guessing is what we're replacing.
  */
 export function homeFromHermesHome(hermesHome: null | string | undefined): string {
@@ -44,8 +46,8 @@ export function homeFromHermesHome(hermesHome: null | string | undefined): strin
 
   const segments = path.split('/')
   const leaf = segments[segments.length - 1]?.toLowerCase() ?? ''
-  // POSIX default: `<home>/.hermes`.
-  const strip = leaf === '.hermes' ? 1 : windowsStrip(segments)
+  // POSIX default: `<home>/.allr`.
+  const strip = leaf === '.allr' ? 1 : windowsStrip(segments)
 
   if (strip === 0) {
     return ''
@@ -53,20 +55,22 @@ export function homeFromHermesHome(hermesHome: null | string | undefined): strin
 
   const home = segments.slice(0, segments.length - strip).join('/')
 
-  // `/.hermes` leaves nothing, and `~` for the filesystem root is not a claim
+  // `/.allr` leaves nothing, and `~` for the filesystem root is not a claim
   // worth making. A drive root (`C:`) is the same case.
   return home && home !== '/' && !/^[A-Za-z]:$/.test(home) ? home : ''
 }
 
 /** How many trailing segments to drop for the Windows default, or 0 if it isn't one. */
 function windowsStrip(segments: string[]): number {
-  if (segments.length <= WINDOWS_TAIL.length) {
+  const depth = WINDOWS_TAIL.length + 1
+
+  if (segments.length <= depth || !WINDOWS_LEAVES.includes(segments[segments.length - 1]?.toLowerCase() ?? '')) {
     return 0
   }
 
-  const matches = WINDOWS_TAIL.every((want, back) => segments[segments.length - 1 - back]?.toLowerCase() === want)
+  const matches = WINDOWS_TAIL.every((want, back) => segments[segments.length - 2 - back]?.toLowerCase() === want)
 
-  return matches ? WINDOWS_TAIL.length : 0
+  return matches ? depth : 0
 }
 
 /**

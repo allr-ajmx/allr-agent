@@ -6,7 +6,7 @@ import { cn } from '../lib/utils'
  * HackeryButton — the onboarding "Begin" CTA, ported standalone.
  *
  * Bracketed [ LABEL ], mono/uppercase, primary accent on a --stroke-nous hairline.
- * Lifted from apps/desktop's desktop-onboarding-overlay.tsx (sans the exit-scramble
+ * Lifted from the former apps/desktop's desktop-onboarding-overlay.tsx (sans the exit-scramble
  * choreography, which is overlay-specific). Self-contained: cn + lucide only.
  */
 export function HackeryButton({

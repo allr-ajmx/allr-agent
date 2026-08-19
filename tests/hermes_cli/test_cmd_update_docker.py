@@ -1,10 +1,10 @@
-"""Tests for ``hermes update`` / ``--check`` inside the Docker container.
+"""Tests for ``allr update`` / ``--check`` inside the Docker container.
 
 Background: ``.dockerignore`` excludes ``.git``, so the existing git-pull
 update path can never succeed inside the published image.  Before this
-fix, ``hermes update`` would fall through to ``"✗ Not a git repository.
+fix, ``allr update`` would fall through to ``"✗ Not a git repository.
 Please reinstall: curl ... install.sh"`` — that script installs a *new*
-host-side Hermes, not an update to the running container, so the message
+host-side Allr, not an update to the running container, so the message
 was actively misleading.
 
 These tests pin the new behaviour: when ``detect_install_method`` reports
@@ -33,7 +33,7 @@ from hermes_cli.main import _cmd_update_check, cmd_update
 def test_cmd_update_in_docker_prints_guidance_and_exits(
     mock_run, _mock_method, _mock_managed, capsys
 ):
-    """``hermes update`` inside Docker → friendly message + exit 1, no git calls."""
+    """``allr update`` inside Docker → friendly message + exit 1, no git calls."""
     with pytest.raises(SystemExit) as excinfo:
         cmd_update(SimpleNamespace(check=False))
 
@@ -80,7 +80,7 @@ def test_format_docker_update_message_contents():
     assert "restart" in msg.lower(), "must explain that a restart is required"
     assert "--version" in msg, "must show how to verify the new version"
     assert ":latest" in msg, "must mention tag pinning caveat"
-    assert "HERMES_HOME" in msg or "/opt/data" in msg, (
+    assert "ALLR_HOME" in msg or "/opt/data" in msg, (
         "must address config persistence across upgrades"
     )
 

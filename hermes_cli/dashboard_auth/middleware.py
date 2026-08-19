@@ -346,7 +346,7 @@ async def gated_auth_middleware(
     # RFC 8252 native-app bearer path (goal: no session cookies). The desktop
     # authenticates REST with ``Authorization: Bearer <access_token>`` — the
     # SAME provider-minted access token the cookie flow stores in
-    # ``hermes_session_at``. Verify it with the identical ``verify_session``
+    # ``allr_session_at``. Verify it with the identical ``verify_session``
     # provider stack and attach the Session; on success we're done, with no
     # cookie set or read. A missing/expired/invalid bearer falls through to
     # the cookie path (a request may legitimately carry neither). Token
@@ -398,7 +398,7 @@ async def gated_auth_middleware(
     # cookie is set with ``Max-Age = access_token_expires_in`` (~15 min), so
     # the browser EVICTS it the moment the token lapses, while the
     # refresh-token cookie lives for 30 days. From that point the browser
-    # sends only ``hermes_session_rt``. If we bailed on ``not at`` here we'd
+    # sends only ``allr_session_rt``. If we bailed on ``not at`` here we'd
     # bounce the user to /login on every expiry despite holding a perfectly
     # good refresh token — defeating the whole transparent-refresh feature.
     session = None

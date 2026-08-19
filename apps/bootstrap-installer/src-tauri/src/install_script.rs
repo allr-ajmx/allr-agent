@@ -1,16 +1,16 @@
 //! Resolves and downloads `scripts/install.ps1` (and `install.sh`).
 //!
 //! Resolution order:
-//!   1. Dev shortcut: a sibling repo checkout via $HERMES_SETUP_DEV_REPO_ROOT
+//!   1. Dev shortcut: a sibling repo checkout via $ALLR_SETUP_DEV_REPO_ROOT
 //!      env var. Lets devs iterate without re-publishing the script.
 //!   2. Bundled fallback: if the installer was bundled with a script (e.g.
 //!      tauri's `resource` mechanism), serve from there. Not used today.
 //!   3. Network: download from GitHub raw at a pinned commit or branch.
 //!      Commit pins are immutable; branch pins are HEAD-tracking.
 //!
-//! Mirrors `apps/desktop/electron/bootstrap-runner.ts`'s `resolveInstallScript`,
+//! Mirrors `the former apps/desktop/electron/bootstrap-runner.ts`'s `resolveInstallScript`,
 //! but the dev-checkout resolution is driven by an env var rather than the
-//! Electron app's APP_ROOT/../.. trick, because Hermes-Setup.exe is meant
+//! Electron app's APP_ROOT/../.. trick, because Allr-Setup.exe is meant
 //! to live OUTSIDE any repo checkout.
 
 use anyhow::{anyhow, Context, Result};
@@ -95,7 +95,7 @@ pub(crate) fn cache_plan(immutable: bool, cached_exists: bool) -> CachePlan {
 
 /// Resolves the install script to use for this run.
 ///
-/// `pin` is the commit-or-branch from either Hermes-Setup's build-time
+/// `pin` is the commit-or-branch from either Allr-Setup's build-time
 /// constant (compiled into the installer) or a runtime override.
 pub async fn resolve(
     kind: ScriptKind,
@@ -103,7 +103,7 @@ pub async fn resolve(
     emit_log: &impl Fn(&str),
 ) -> Result<ResolvedScript> {
     // 1. Dev shortcut.
-    if let Ok(repo_root) = std::env::var("HERMES_SETUP_DEV_REPO_ROOT") {
+    if let Ok(repo_root) = std::env::var("ALLR_SETUP_DEV_REPO_ROOT") {
         let candidate = PathBuf::from(repo_root).join("scripts").join(kind.filename());
         if candidate.exists() {
             emit_log(&format!(
@@ -349,7 +349,7 @@ async fn download(kind: ScriptKind, commit_or_ref: &str, dest_path: &Path) -> Re
         .build()
         .context("building download client")?
         .get(&url)
-        .header("User-Agent", "hermes-setup/0.0.1")
+        .header("User-Agent", "allr-setup/0.0.1")
         .send()
         .await
         .with_context(|| format!("GET {url}"))?;

@@ -1,13 +1,13 @@
-"""Hermes skin/theme engine — the theme SDK for every surface.
+"""Allr skin/theme engine — the theme SDK for every surface.
 
-A data-driven skin system that lets users (and Hermes itself) customize the
+A data-driven skin system that lets users (and Allr itself) customize the
 visual appearance across the CLI, the TUI, and the desktop GUI from a single
-file. Skins are defined as YAML files in ~/.hermes/skins/ or as built-in presets.
+file. Skins are defined as YAML files in ~/.allr/skins/ or as built-in presets.
 No code changes are needed to add a new skin.
 
 This module is the source of truth: it resolves the active skin, and the gateway
 pushes the resolved palette to the TUI and desktop (see tui_gateway's
-``resolve_skin`` / ``skin.changed``). A skin dropped in ~/.hermes/skins/ therefore
+``resolve_skin`` / ``skin.changed``). A skin dropped in ~/.allr/skins/ therefore
 themes all three surfaces at once — the theme analogue of the plugin SDK.
 
 SKIN YAML SCHEMA
@@ -94,10 +94,10 @@ All fields are optional. Missing values inherit from the ``default`` skin.
 
     # Branding: text strings used throughout the CLI
     branding:
-      agent_name: "Hermes Agent"          # Banner title, status display
+      agent_name: "Allr"          # Banner title, status display
       welcome: "Welcome message"          # Shown at CLI startup
-      goodbye: "Goodbye! ⚕"              # Shown on exit
-      response_label: " ⚕ Hermes "       # Response box header label
+      goodbye: "Goodbye!"              # Shown on exit
+      response_label: " Allr "       # Response box header label
       prompt_symbol: "❯"                 # Input prompt symbol (bare token; renderers add trailing space)
       help_header: "(^_^)? Commands"      # /help header text
 
@@ -119,15 +119,15 @@ USAGE
 
     skin = get_active_skin()
     print(skin.colors["banner_title"])    # "#FFD700"
-    print(skin.get_branding("agent_name"))  # "Hermes Agent"
+    print(skin.get_branding("agent_name"))  # "Allr"
 
     set_active_skin("ares")               # Switch to built-in ares skin
-    set_active_skin("mytheme")            # Switch to user skin from ~/.hermes/skins/
+    set_active_skin("mytheme")            # Switch to user skin from ~/.allr/skins/
 
 BUILT-IN SKINS
 ==============
 
-- ``default`` — Classic Hermes gold/kawaii (the current look)
+- ``default`` — Classic Allr gold/kawaii (the current look)
 - ``ares``    — Crimson/bronze war-god theme with custom spinner wings
 - ``mono``    — Clean grayscale monochrome
 - ``slate``   — Cool blue developer-focused theme
@@ -137,7 +137,7 @@ BUILT-IN SKINS
 USER SKINS
 ==========
 
-Drop a YAML file in ``~/.hermes/skins/<name>.yaml`` following the schema above.
+Drop a YAML file in ``~/.allr/skins/<name>.yaml`` following the schema above.
 Activate with ``/skin <name>`` in the CLI or ``display.skin: <name>`` in config.yaml.
 """
 
@@ -173,8 +173,8 @@ class SkinConfig:
     branding: Dict[str, str] = field(default_factory=dict)
     tool_prefix: str = "┊"
     tool_emojis: Dict[str, str] = field(default_factory=dict)  # per-tool emoji overrides
-    banner_logo: str = ""    # Rich-markup ASCII art logo (replaces HERMES_AGENT_LOGO)
-    banner_hero: str = ""    # Rich-markup hero art (replaces HERMES_CADUCEUS)
+    banner_logo: str = ""    # Rich-markup ASCII art logo (replaces ALLR_AGENT_LOGO)
+    banner_hero: str = ""    # Rich-markup hero art (replaces ALLR_MARK)
 
     def get_color(self, key: str, fallback: str = "") -> str:
         """Get a color value with fallback."""
@@ -201,32 +201,32 @@ class SkinConfig:
 _BUILTIN_SKINS: Dict[str, Dict[str, Any]] = {
     "default": {
         "name": "default",
-        "description": "Classic Hermes — gold and kawaii",
+        "description": "Allr — warm paper, honey and green",
         # Dark-authored. Values match the TUI's DARK_THEME so the classic CLI
-        # and the TUI render the same Hermes gold.
+        # and the TUI render the same Allr honey.
         "colors": {
-            "banner_border": "#CD7F32",
-            "banner_title": "#FFD700",
-            "banner_accent": "#FFBF00",
-            "banner_dim": "#B8860B",
-            "banner_text": "#FFF8DC",
-            "ui_accent": "#FFBF00",
-            "ui_label": "#DAA520",
-            "ui_ok": "#4caf50",
+            "banner_border": "#b77e1f",
+            "banner_title": "#e9a83e",
+            "banner_accent": "#f7c14c",
+            "banner_dim": "#b77e1f",
+            "banner_text": "#fbf1e2",
+            "ui_accent": "#e9a83e",
+            "ui_label": "#f7c14c",
+            "ui_ok": "#2e9e63",
             "ui_error": "#ef5350",
-            "ui_warn": "#ffa726",
-            "prompt": "#FFF8DC",
-            "input_rule": "#CD7F32",
-            "response_border": "#FFD700",
+            "ui_warn": "#e9a83e",
+            "prompt": "#fbf8f2",
+            "input_rule": "#b77e1f",
+            "response_border": "#e9a83e",
             "status_bar_bg": "#1a1a2e",
             "status_bar_text": "#C0C0C0",
-            "status_bar_strong": "#FFD700",
+            "status_bar_strong": "#e9a83e",
             "status_bar_dim": "#8A7A4A",
-            "status_bar_good": "#8FBC8F",
+            "status_bar_good": "#2e9e63",
             "status_bar_warn": "#FFD700",
             "status_bar_bad": "#FF8C00",
             "status_bar_critical": "#FF6B6B",
-            "session_label": "#DAA520",
+            "session_label": "#f7c14c",
             "session_border": "#8B8682",
             "completion_menu_bg": "#1a1a2e",
             "completion_menu_current_bg": "#333355",
@@ -234,29 +234,25 @@ _BUILTIN_SKINS: Dict[str, Dict[str, Any]] = {
             "shell_dollar": "#4dabf7",
             "voice_status_bg": "#1a1a2e",
         },
-        # Light overlay (merged onto `colors`; dark mode renders the vivid
-        # block above untouched). The goldenrod ladder: on white, the vivid
-        # #FFD700/#FFBF00 read as glare and WCAG-darkened mustard (#867000)
-        # reads as mud — the sweet spot is the statusbar's goldenrod family
-        # (#B8860B/#DAA520): hue kept, saturation tamed, mid luminance.
-        # Hierarchy on white: ink body 8.9:1 > fade 5.2 > label 3.7 >
-        # muted 3.3 > title 2.7 > headers 2.4 (accents recede last, like
-        # slate's pastels — the raw-canon look, just not neon).
+        # Light overlay (merged onto `colors`; dark mode renders the honey
+        # block above untouched). On white the bright honeys read as glare,
+        # so the accents drop to the deep honey (#b77e1f) and the body text
+        # to green-leaning ink (#223b33) with a muted sage label (#5c7168).
         "light_colors": {
-            "banner_title": "#C8961E",
-            "banner_accent": "#D89B04",
+            "banner_title": "#b77e1f",
+            "banner_accent": "#b77e1f",
             "banner_dim": "#B8860B",
-            "banner_text": "#5C4718",
-            "ui_accent": "#D89B04",
-            "ui_label": "#A97E10",
-            "ui_ok": "#2E7D32",
+            "banner_text": "#223b33",
+            "ui_accent": "#b77e1f",
+            "ui_label": "#5c7168",
+            "ui_ok": "#1e7a49",
             "ui_error": "#C62828",
             "ui_warn": "#D97706",
-            "prompt": "#5C4718",
-            "response_border": "#C8961E",
-            "session_label": "#A97E10",
+            "prompt": "#223b33",
+            "response_border": "#b77e1f",
+            "session_label": "#5c7168",
             "status_bar_text": "#6F6F6F",
-            "status_bar_strong": "#C8961E",
+            "status_bar_strong": "#b77e1f",
             "status_bar_dim": "#9A8A5A",
             "status_bar_good": "#2E7D32",
             "status_bar_warn": "#C8961E",
@@ -274,10 +270,10 @@ _BUILTIN_SKINS: Dict[str, Dict[str, Any]] = {
             # Empty = use hardcoded defaults in display.py
         },
         "branding": {
-            "agent_name": "Hermes Agent",
-            "welcome": "Welcome to Hermes Agent! Type your message or /help for commands.",
-            "goodbye": "Goodbye! ⚕",
-            "response_label": " ⚕ Hermes ",
+            "agent_name": "Allr",
+            "welcome": "Welcome to Allr! Type your message or /help for commands.",
+            "goodbye": "Goodbye!",
+            "response_label": " Allr ",
             "prompt_symbol": "❯",
             "help_header": "(^_^)? Available Commands",
         },
@@ -395,10 +391,10 @@ _BUILTIN_SKINS: Dict[str, Dict[str, Any]] = {
         },
         "spinner": {},
         "branding": {
-            "agent_name": "Hermes Agent",
-            "welcome": "Welcome to Hermes Agent! Type your message or /help for commands.",
-            "goodbye": "Goodbye! ⚕",
-            "response_label": " ⚕ Hermes ",
+            "agent_name": "Allr",
+            "welcome": "Welcome to Allr! Type your message or /help for commands.",
+            "goodbye": "Goodbye!",
+            "response_label": " Allr ",
             "prompt_symbol": "❯",
             "help_header": "[?] Available Commands",
         },
@@ -439,10 +435,10 @@ _BUILTIN_SKINS: Dict[str, Dict[str, Any]] = {
         },
         "spinner": {},
         "branding": {
-            "agent_name": "Hermes Agent",
-            "welcome": "Welcome to Hermes Agent! Type your message or /help for commands.",
-            "goodbye": "Goodbye! ⚕",
-            "response_label": " ⚕ Hermes ",
+            "agent_name": "Allr",
+            "welcome": "Welcome to Allr! Type your message or /help for commands.",
+            "goodbye": "Goodbye!",
+            "response_label": " Allr ",
             "prompt_symbol": "❯",
             "help_header": "(^_^)? Available Commands",
         },
@@ -485,10 +481,10 @@ _BUILTIN_SKINS: Dict[str, Dict[str, Any]] = {
         },
         "spinner": {},
         "branding": {
-            "agent_name": "Hermes Agent",
-            "welcome": "Welcome to Hermes Agent! Type your message or /help for commands.",
-            "goodbye": "Goodbye! ⚕",
-            "response_label": " ⚕ Hermes ",
+            "agent_name": "Allr",
+            "welcome": "Welcome to Allr! Type your message or /help for commands.",
+            "goodbye": "Goodbye!",
+            "response_label": " Allr ",
             "prompt_symbol": "❯",
             "help_header": "[?] Available Commands",
         },
@@ -531,10 +527,10 @@ _BUILTIN_SKINS: Dict[str, Dict[str, Any]] = {
         },
         "spinner": {},
         "branding": {
-            "agent_name": "Hermes Agent",
-            "welcome": "Welcome to Hermes Agent! Type your message or /help for commands.",
+            "agent_name": "Allr",
+            "welcome": "Welcome to Allr! Type your message or /help for commands.",
             "goodbye": "Goodbye! \u2695",
-            "response_label": " \u2695 Hermes ",
+            "response_label": " \u2695 Allr ",
             "prompt_symbol": "\u276f",
             "help_header": "(^_^)? Available Commands",
         },
@@ -976,7 +972,7 @@ def get_active_help_header(fallback: str = "(^_^)? Available Commands") -> str:
 
 
 
-def get_active_goodbye(fallback: str = "Goodbye! ⚕") -> str:
+def get_active_goodbye(fallback: str = "Goodbye!") -> str:
     """Get the goodbye line from the active skin."""
     try:
         return get_active_skin().get_branding("goodbye", fallback)

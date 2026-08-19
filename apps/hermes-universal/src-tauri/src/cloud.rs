@@ -41,8 +41,9 @@ use tokio::sync::oneshot;
 
 use crate::transport::TransportState;
 
-#[cfg(desktop)]
-const PORTAL_WINDOW_LABEL: &str = "hermes-portal";
+/// The portal sign-in window (desktop only, like `oauth::OAUTH_WINDOW_LABEL`).
+/// Unconditional for the same reason: `lib.rs`'s credential gate matches on it.
+pub(crate) const PORTAL_WINDOW_LABEL: &str = "hermes-portal";
 const DEFAULT_PORTAL: &str = "https://portal.nousresearch.com";
 
 /// How long the silent SSO may stay silent before the hidden portal window is
@@ -66,10 +67,10 @@ const PORTAL_REVEAL_AFTER_MS: u64 = 4_000;
 #[cfg(mobile)]
 const PORTAL_TIMEOUT_SECS_MOBILE: u64 = 120;
 
-/// Portal base URL — env-overridable like desktop (`HERMES_PORTAL_BASE_URL` /
+/// Portal base URL — env-overridable like desktop (`ALLR_PORTAL_BASE_URL` /
 /// `NOUS_PORTAL_BASE_URL`), trailing slash stripped.
 pub fn portal_base() -> String {
-    std::env::var("HERMES_PORTAL_BASE_URL")
+    std::env::var("ALLR_PORTAL_BASE_URL")
         .or_else(|_| std::env::var("NOUS_PORTAL_BASE_URL"))
         .unwrap_or_else(|_| DEFAULT_PORTAL.to_string())
         .trim_end_matches('/')

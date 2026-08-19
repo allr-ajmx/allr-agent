@@ -97,9 +97,13 @@ pub fn redact_secrets(text: &str) -> String {
 /// query parameters (`[?&]`-prefixed), which misses a bare `token=…` in an error
 /// string. Over-redacting a diagnostic is the cheaper mistake.
 const SECRET_MARKERS: &[&str] = &[
-    "hermes_dashboard_session_token=",
-    "x-hermes-session-token:",
-    "x-hermes-session-token=",
+    "allr_dashboard_session_token=",
+    "x-allr-session-token:",
+    "x-allr-session-token=",
+    // Pre-rename spellings: an older gateway on the far end still emits these.
+    "hermes_dashboard_session_token=", // rebrand:keep
+    "x-hermes-session-token:",         // rebrand:keep
+    "x-hermes-session-token=",         // rebrand:keep
     "authorization: bearer",
     "token=",
     "ticket=",
@@ -268,12 +272,12 @@ mod tests {
     #[test]
     fn redacts_every_marker() {
         assert_eq!(
-            redact_secrets("env HERMES_DASHBOARD_SESSION_TOKEN=deadbeef hermes serve"),
-            "env HERMES_DASHBOARD_SESSION_TOKEN=<redacted> hermes serve"
+            redact_secrets("env ALLR_DASHBOARD_SESSION_TOKEN=deadbeef allr serve"),
+            "env ALLR_DASHBOARD_SESSION_TOKEN=<redacted> allr serve"
         );
         assert_eq!(
-            redact_secrets("X-Hermes-Session-Token: abc123"),
-            "X-Hermes-Session-Token: <redacted>"
+            redact_secrets("X-Allr-Session-Token: abc123"),
+            "X-Allr-Session-Token: <redacted>"
         );
         assert_eq!(
             redact_secrets("Authorization: Bearer sk-xyz"),

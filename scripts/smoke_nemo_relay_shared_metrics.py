@@ -1,4 +1,4 @@
-"""Run a real Hermes CLI turn and validate the Relay shared-metrics output."""
+"""Run a real Allr CLI turn and validate the Relay shared-metrics output."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ INSTALLED_SKILL_CANARY = "relay-smoke-private-installed-skill"
 def _resolve_hermes_executable(hermes_repo: Path) -> Path:
     for relative_path in (
         Path(".venv") / "bin" / "hermes",
-        Path(".venv") / "Scripts" / "hermes.exe",
+        Path(".venv") / "Scripts" / "allr.exe",
     ):
         candidate = hermes_repo / relative_path
         if candidate.is_file():
@@ -39,7 +39,7 @@ def _resolve_hermes_executable(hermes_repo: Path) -> Path:
     if discovered:
         return Path(discovered)
     raise SystemExit(
-        "Hermes executable not found in the repository virtual environment "
+        "Allr executable not found in the repository virtual environment "
         "or on PATH"
     )
 
@@ -238,7 +238,7 @@ def _arguments() -> argparse.Namespace:
         "--hermes-repo",
         type=Path,
         default=Path.cwd(),
-        help="Hermes source checkout containing .venv/bin/hermes",
+        help="Allr source checkout containing .venv/bin/allr",
     )
     parser.add_argument(
         "--relay-python",
@@ -250,7 +250,7 @@ def _arguments() -> argparse.Namespace:
         "--output-dir",
         type=Path,
         default=None,
-        help="Directory for the isolated HERMES_HOME and captured output",
+        help="Directory for the isolated ALLR_HOME and captured output",
     )
     return parser.parse_args()
 
@@ -298,31 +298,31 @@ def _validate_store(database_path: Path) -> list[dict[str, Any]]:
     for counter in counters:
         by_name.setdefault(counter["name"], []).append(counter)
     if set(by_name) != {
-        "hermes.client.active",
-        "hermes.model_route.count",
-        "hermes.skill.lifecycle.count",
-        "hermes.skill.load.count",
-        "hermes.task_run.finished",
-        "hermes.task_run.started",
-        "hermes.tool_call.count",
+        "allr.client.active",
+        "allr.model_route.count",
+        "allr.skill.lifecycle.count",
+        "allr.skill.load.count",
+        "allr.task_run.finished",
+        "allr.task_run.started",
+        "allr.tool_call.count",
     }:
         raise AssertionError(
             f"Unexpected SQLite counters:\n{json.dumps(counters, indent=2)}"
         )
-    if by_name["hermes.client.active"] != [
+    if by_name["allr.client.active"] != [
         {
-            "name": "hermes.client.active",
+            "name": "allr.client.active",
             "dimensions": {},
             "value": 1,
             "packaged_value": 1,
         }
     ]:
         raise AssertionError(
-            f"Unexpected client-active counter: {by_name['hermes.client.active']}"
+            f"Unexpected client-active counter: {by_name['allr.client.active']}"
         )
-    [model] = by_name["hermes.model_route.count"]
+    [model] = by_name["allr.model_route.count"]
     expected_model = {
-        "name": "hermes.model_route.count",
+        "name": "allr.model_route.count",
         "dimensions": {
             "model": MODEL_CANARY,
             "provider": "custom",
@@ -332,10 +332,10 @@ def _validate_store(database_path: Path) -> list[dict[str, Any]]:
     }
     if model != expected_model:
         raise AssertionError(
-            f"Unexpected model counter: {by_name['hermes.model_route.count']}"
+            f"Unexpected model counter: {by_name['allr.model_route.count']}"
         )
     expected_start = {
-        "name": "hermes.task_run.started",
+        "name": "allr.task_run.started",
         "dimensions": {
             "entrypoint": "interactive",
             "execution_surface": "cli",
@@ -343,11 +343,11 @@ def _validate_store(database_path: Path) -> list[dict[str, Any]]:
         "value": 1,
         "packaged_value": 1,
     }
-    if by_name["hermes.task_run.started"] != [expected_start]:
+    if by_name["allr.task_run.started"] != [expected_start]:
         raise AssertionError(
-            f"Unexpected task start: {by_name['hermes.task_run.started']}"
+            f"Unexpected task start: {by_name['allr.task_run.started']}"
         )
-    [terminal] = by_name["hermes.task_run.finished"]
+    [terminal] = by_name["allr.task_run.finished"]
     expected_terminal_dimensions = {
         "duration_bucket": terminal["dimensions"].get("duration_bucket"),
         "end_reason": "completed",
@@ -365,7 +365,7 @@ def _validate_store(database_path: Path) -> list[dict[str, Any]]:
         or terminal["packaged_value"] != 1
     ):
         raise AssertionError(f"Unexpected task terminal counter: {terminal}")
-    [tool] = by_name["hermes.tool_call.count"]
+    [tool] = by_name["allr.tool_call.count"]
     expected_tool_dimensions = {
         "approval_outcome": "not_required",
         "latency_bucket": tool["dimensions"].get("latency_bucket"),
@@ -380,7 +380,7 @@ def _validate_store(database_path: Path) -> list[dict[str, Any]]:
         or tool["packaged_value"] != 1
     ):
         raise AssertionError(f"Unexpected tool counter: {tool}")
-    lifecycle = by_name["hermes.skill.lifecycle.count"]
+    lifecycle = by_name["allr.skill.lifecycle.count"]
     expected_actions = {
         "archived",
         "created",
@@ -396,7 +396,7 @@ def _validate_store(database_path: Path) -> list[dict[str, Any]]:
         or any(counter["packaged_value"] != 1 for counter in lifecycle)
     ):
         raise AssertionError(f"Unexpected skill lifecycle counters: {lifecycle}")
-    loads = by_name["hermes.skill.load.count"]
+    loads = by_name["allr.skill.load.count"]
     expected_load_states = {
         ("first_use", "not_applicable", "1"),
         ("reused", "no_new_patch", "2"),
@@ -432,7 +432,7 @@ def _validate_packages(
         import jsonschema
     except ImportError as exc:
         raise RuntimeError(
-            "The Hermes development environment requires jsonschema"
+            "The Allr development environment requires jsonschema"
         ) from exc
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
     packages = [
@@ -467,37 +467,37 @@ def _validate_packages(
         for metric in package.get("metrics", []):
             metrics.setdefault(metric["name"], []).append(metric)
     if set(metrics) != {
-        "hermes.client.active",
-        "hermes.model_route.count",
-        "hermes.skill.lifecycle.count",
-        "hermes.skill.load.count",
-        "hermes.task_run.finished",
-        "hermes.task_run.started",
-        "hermes.tool_call.count",
+        "allr.client.active",
+        "allr.model_route.count",
+        "allr.skill.lifecycle.count",
+        "allr.skill.load.count",
+        "allr.task_run.finished",
+        "allr.task_run.started",
+        "allr.tool_call.count",
     }:
         raise AssertionError(
             f"Unexpected package metrics:\n{json.dumps(metrics, indent=2)}"
         )
-    if metrics["hermes.client.active"] != [
+    if metrics["allr.client.active"] != [
         {
-            "name": "hermes.client.active",
+            "name": "allr.client.active",
             "type": "counter",
             "dimensions": {},
             "value": 1,
         }
     ]:
         raise AssertionError(
-            f"Unexpected client-active metric: {metrics['hermes.client.active']}"
+            f"Unexpected client-active metric: {metrics['allr.client.active']}"
         )
-    [model] = metrics["hermes.model_route.count"]
+    [model] = metrics["allr.model_route.count"]
     if model["dimensions"] != {
         "model": MODEL_CANARY,
         "provider": "custom",
     } or model["value"] != 2:
         raise AssertionError(
-            f"Unexpected model metric: {metrics['hermes.model_route.count']}"
+            f"Unexpected model metric: {metrics['allr.model_route.count']}"
         )
-    [terminal] = metrics["hermes.task_run.finished"]
+    [terminal] = metrics["allr.task_run.finished"]
     if terminal["dimensions"] != {
         "duration_bucket": terminal["dimensions"].get("duration_bucket"),
         "end_reason": "completed",
@@ -510,7 +510,7 @@ def _validate_packages(
         "tool_call_count_bucket": "1",
     }:
         raise AssertionError(f"Unexpected task terminal metric: {terminal}")
-    [tool] = metrics["hermes.tool_call.count"]
+    [tool] = metrics["allr.tool_call.count"]
     if (
         tool["dimensions"]
         != {
@@ -523,7 +523,7 @@ def _validate_packages(
         or tool["dimensions"]["latency_bucket"] == "unknown"
     ):
         raise AssertionError(f"Unexpected tool metric: {tool}")
-    lifecycle = metrics["hermes.skill.lifecycle.count"]
+    lifecycle = metrics["allr.skill.lifecycle.count"]
     if {metric["dimensions"]["action"] for metric in lifecycle} != {
         "archived",
         "created",
@@ -534,7 +534,7 @@ def _validate_packages(
         "stale",
     }:
         raise AssertionError(f"Unexpected skill lifecycle metrics: {lifecycle}")
-    loads = metrics["hermes.skill.load.count"]
+    loads = metrics["allr.skill.load.count"]
     if {
         (
             metric["dimensions"]["reuse_state"],
@@ -608,7 +608,7 @@ def main() -> int:
     try:
         _write_config(home, server.server_port)
         env = os.environ.copy()
-        env["HERMES_HOME"] = str(home)
+        env["ALLR_HOME"] = str(home)
         python_paths = [str(hermes_repo)]
         if relay_python is not None:
             python_paths.append(str(relay_python))
@@ -646,7 +646,7 @@ def main() -> int:
     (root / "hermes.stderr.txt").write_text(result.stderr, encoding="utf-8")
     if result.returncode != 0:
         raise AssertionError(
-            f"Hermes exited with {result.returncode}\n"
+            f"Allr exited with {result.returncode}\n"
             f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
         )
     if len(_ModelHandler.requests) != 2:
@@ -660,9 +660,9 @@ def main() -> int:
         raise AssertionError("Hermes model request did not contain the prompt canary")
     follow_up = json.dumps(_ModelHandler.requests[1].get("messages", []))
     if TOOL_CALL_CANARY not in follow_up or TOOL_RESULT_CANARY not in follow_up:
-        raise AssertionError("Hermes did not return the tool result to the model")
+        raise AssertionError("Allr did not return the tool result to the model")
     if RESPONSE_CANARY not in result.stdout:
-        raise AssertionError("Hermes did not print the mock model response")
+        raise AssertionError("Allr did not print the mock model response")
 
     skill_result = subprocess.run(
         [
@@ -723,10 +723,10 @@ def main() -> int:
         / "hermes_cli"
         / "observability"
         / "schemas"
-        / "hermes.shared_metrics.v2.schema.json",
+        / "allr.shared_metrics.v2.schema.json",
     )
 
-    print("Hermes -> NeMo Relay shared-metrics smoke test passed")
+    print("Allr -> NeMo Relay shared-metrics smoke test passed")
     print(f"Artifact directory: {root}")
     print(f"Model requests: {len(_ModelHandler.requests)}")
     print(f"SQLite counters: {json.dumps(counters, indent=2)}")

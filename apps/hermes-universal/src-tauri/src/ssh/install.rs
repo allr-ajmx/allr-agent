@@ -1,6 +1,6 @@
-//! Installing Hermes on a remote host over SSH.
+//! Installing Allr on a remote host over SSH.
 //!
-//! `locate_hermes` can already tell you the remote has no Hermes; until now that
+//! `locate_hermes` can already tell you the remote has no Allr; until now that
 //! was the end of the road — a `HermesNotFound` error telling the user to go and
 //! install it themselves on a machine they are already authenticated to. This
 //! module does it for them.
@@ -170,7 +170,7 @@ fn emit_output(
     }
 }
 
-/// Install Hermes on the connected host. Returns the resolved `hermes` path.
+/// Install Allr on the connected host. Returns the resolved `hermes` path.
 pub async fn install_remote(
     session: &SshSession,
     app: &AppHandle,
@@ -186,14 +186,14 @@ pub async fn install_remote(
 
     if !git.succeeded() || git.stdout.trim().is_empty() {
         return Err(not_found(
-            "`git` is not installed on that host, and the Hermes installer cannot install it \
+            "`git` is not installed on that host, and the Allr installer cannot install it \
              itself. Install git there (for example `apt install git` or `xcode-select \
              --install`), then try again.",
         ));
     }
 
     let home = super::posix_lifecycle::probe_hermes_home(session).await?;
-    let root = format!("{}/hermes-agent", home.trim_end_matches('/'));
+    let root = format!("{}/allr-agent", home.trim_end_matches('/'));
 
     // 2. Ship the chosen repo's own installer up, rather than curl-ing it on the
     //    remote: the fork's script is then used verbatim, and one remote network
@@ -207,7 +207,7 @@ pub async fn install_remote(
     );
 
     let hermes_home = crate::plugins::hermes_home()
-        .ok_or_else(|| failed("could not determine the local HERMES_HOME"))?;
+        .ok_or_else(|| failed("could not determine the local ALLR_HOME"))?;
     let local_script = crate::local_install::script::resolve(&hermes_home, repo, branch, false)
         .await
         .map_err(failed)?;
@@ -454,8 +454,8 @@ mod tests {
         let cmd = stage_command(
             "/tmp/i.sh",
             "venv",
-            "/home/u/.hermes/hermes-agent",
-            "/home/u/.hermes",
+            "/home/u/.allr/allr-agent",
+            "/home/u/.allr",
         );
 
         assert!(
@@ -465,8 +465,8 @@ mod tests {
         assert!(cmd.contains("'--non-interactive'"));
         assert!(cmd.contains("'--json'"));
         assert!(cmd.contains("'--stage' 'venv'"));
-        assert!(cmd.contains("'/home/u/.hermes/hermes-agent'"));
-        assert!(cmd.contains("'/home/u/.hermes'"));
+        assert!(cmd.contains("'/home/u/.allr/allr-agent'"));
+        assert!(cmd.contains("'/home/u/.allr'"));
     }
 
     #[test]
@@ -495,7 +495,7 @@ mod tests {
 
     #[test]
     fn the_clone_targets_the_chosen_fork_over_https() {
-        let cmd = clone_command(Repo::Fork, "main", "/home/u/.hermes/hermes-agent");
+        let cmd = clone_command(Repo::Fork, "main", "/home/u/.allr/allr-agent");
 
         assert!(cmd.contains("jaxmatrix/mjx-hermes-agent"), "{cmd}");
         assert!(cmd.contains("--depth 1"));
@@ -551,14 +551,14 @@ mod tests {
 
     #[test]
     fn the_clone_guard_reports_busy_only_for_a_non_empty_directory() {
-        let cmd = clone_guard_command("/home/u/.hermes/hermes-agent");
+        let cmd = clone_guard_command("/home/u/.allr/allr-agent");
 
         assert!(
             cmd.contains("ls -A"),
             "emptiness, not mere existence: {cmd}"
         );
         assert!(cmd.contains("busy") && cmd.contains("free"));
-        assert!(cmd.contains("'/home/u/.hermes/hermes-agent'"));
+        assert!(cmd.contains("'/home/u/.allr/allr-agent'"));
         // It must never delete anything on someone else's machine.
         assert!(!cmd.contains("rm "), "{cmd}");
     }

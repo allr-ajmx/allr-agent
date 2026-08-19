@@ -31,8 +31,8 @@ Usage:
     a literal ``--`` is also passed through, and stacks with bare flags.
 
 Environment:
-    HERMES_TEST_WORKERS  Override worker count (default: os.cpu_count())
-    HERMES_TEST_PATHS    Override discovery roots (colon-sep; on Windows
+    ALLR_TEST_WORKERS  Override worker count (default: os.cpu_count())
+    ALLR_TEST_PATHS    Override discovery roots (colon-sep; on Windows
                          ';' also works and drive letters are handled;
                          default: 'tests')
 
@@ -65,7 +65,7 @@ _DEFAULT_ROOTS = ["tests"]
 #   tests/docker/      — .github/workflows/docker.yml ::
 #                        build-amd64 job (runs against the freshly-loaded
 #                        nousresearch/hermes-agent:test image, via
-#                        ``HERMES_TEST_IMAGE`` so the fixture skips
+#                        ``ALLR_TEST_IMAGE`` so the fixture skips
 #                        rebuild). The full pytest-shard runner can't
 #                        host these because the session-scoped
 #                        ``built_image`` fixture would do a 3-7min
@@ -75,7 +75,7 @@ _DEFAULT_ROOTS = ["tests"]
 _SKIP_PARTS = {"integration", "e2e", "docker"}
 
 # Per-file wall-clock cap. Override
-# via --file-timeout or HERMES_TEST_FILE_TIMEOUT.
+# via --file-timeout or ALLR_TEST_FILE_TIMEOUT.
 #
 # Set to 300s (5 min) deliberately generous: the per-test subprocess
 # isolation plugin spawns a fresh Python process per test, so a
@@ -93,7 +93,7 @@ _DEFAULT_FILE_TIMEOUT_SECONDS = 300.0
 # Deterministic failures fail both attempts — a real regression can never be
 # laundered into green by this (it would have to flake in our favor twice in
 # a row on the same runner, which is exactly the definition of a flake).
-# Set to 0 to disable (env: HERMES_TEST_FILE_RETRIES).
+# Set to 0 to disable (env: ALLR_TEST_FILE_RETRIES).
 _DEFAULT_FILE_RETRIES = 1
 
 # Duration cache: maps relative file paths to last-observed subprocess
@@ -104,7 +104,7 @@ _DURATIONS_FILE = "test_durations.json"
 
 def _split_pathspec(value: str) -> List[str]:
     """Split a separator-joined path list (``--paths``/``--files``/
-    ``HERMES_TEST_PATHS``) into individual paths.
+    ``ALLR_TEST_PATHS``) into individual paths.
 
     POSIX: ``:``-separated, as documented.
 
@@ -448,7 +448,7 @@ def _parse_pytest_summary(output: str) -> dict[str, int]:
 def _format_file(file: Path, repo_root: Path) -> str:
     """Render a test-file path for display: strip the repo-root prefix
     when possible so output reads ``tests/acp/test_auth.py`` instead of
-    ``/home/runner/work/hermes-agent/hermes-agent/tests/acp/test_auth.py``.
+    ``/home/runner/work/allr-agent/allr-agent/tests/acp/test_auth.py``.
 
     Falls back to the absolute path for anything outside the repo root.
     """
@@ -720,12 +720,12 @@ def main() -> int:
         "-j",
         "--jobs",
         type=int,
-        default=int(os.environ.get("HERMES_TEST_WORKERS") or (os.cpu_count() or 4) * 2),
-        help="Parallel worker count (default: $HERMES_TEST_WORKERS or cpu_count*2)",
+        default=int(os.environ.get("ALLR_TEST_WORKERS") or (os.cpu_count() or 4) * 2),
+        help="Parallel worker count (default: $ALLR_TEST_WORKERS or cpu_count*2)",
     )
     parser.add_argument(
         "--paths",
-        default=os.environ.get("HERMES_TEST_PATHS", ":".join(_DEFAULT_ROOTS)),
+        default=os.environ.get("ALLR_TEST_PATHS", ":".join(_DEFAULT_ROOTS)),
         help=(
             "Colon-separated discovery roots (default: 'tests'). On "
             "Windows, ';' also separates and drive letters (C:\\...) are "
@@ -741,25 +741,25 @@ def main() -> int:
         "--file-timeout",
         type=float,
         default=float(
-            os.environ.get("HERMES_TEST_FILE_TIMEOUT", _DEFAULT_FILE_TIMEOUT_SECONDS)
+            os.environ.get("ALLR_TEST_FILE_TIMEOUT", _DEFAULT_FILE_TIMEOUT_SECONDS)
         ),
         help=(
             "Per-file wall-clock cap in seconds. On timeout, the pytest "
             "subprocess and its full process tree are SIGKILL'd. "
-            f"Default: {_DEFAULT_FILE_TIMEOUT_SECONDS}s ({round(_DEFAULT_FILE_TIMEOUT_SECONDS/60)} min), env: HERMES_TEST_FILE_TIMEOUT."
+            f"Default: {_DEFAULT_FILE_TIMEOUT_SECONDS}s ({round(_DEFAULT_FILE_TIMEOUT_SECONDS/60)} min), env: ALLR_TEST_FILE_TIMEOUT."
         ),
     )
     parser.add_argument(
         "--file-retries",
         type=int,
         default=int(
-            os.environ.get("HERMES_TEST_FILE_RETRIES", _DEFAULT_FILE_RETRIES)
+            os.environ.get("ALLR_TEST_FILE_RETRIES", _DEFAULT_FILE_RETRIES)
         ),
         help=(
             "Re-run a failing test FILE this many times in a fresh subprocess "
             "before declaring it failed. A pass-on-retry counts as passed but "
             "is reported as FLAKY in the summary. 0 disables. "
-            f"Default: {_DEFAULT_FILE_RETRIES}, env: HERMES_TEST_FILE_RETRIES."
+            f"Default: {_DEFAULT_FILE_RETRIES}, env: ALLR_TEST_FILE_RETRIES."
         ),
     )
     parser.add_argument(
@@ -770,7 +770,7 @@ def main() -> int:
             "Files are distributed across slices using cached durations "
             "so each slice takes roughly equal wall time. "
             "Without a duration cache, files are distributed by count. "
-            "Env: HERMES_TEST_SLICE (format: I/N)."
+            "Env: ALLR_TEST_SLICE (format: I/N)."
         ),
     )
     parser.add_argument(
@@ -909,9 +909,9 @@ def main() -> int:
     # intuitive (``run_tests.sh tests/foo.py -q -- --tb=long`` → ``-q --tb=long``).
     pytest_passthrough = bare_passthrough + explicit_passthrough
 
-    # Parse --slice (or HERMES_TEST_SLICE) early so we can exit on bad input
+    # Parse --slice (or ALLR_TEST_SLICE) early so we can exit on bad input
     # before doing any expensive discovery.
-    slice_raw = args.slice or os.environ.get("HERMES_TEST_SLICE")
+    slice_raw = args.slice or os.environ.get("ALLR_TEST_SLICE")
     slice_index: int | None = None
     slice_count: int = 1
     if slice_raw:

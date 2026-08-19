@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Skills Hub — Source adapters and hub state management for the Hermes Skills Hub.
+Skills Hub — Source adapters and hub state management for the Allr Skills Hub.
 
 This is a library module (not an agent tool). It provides:
   - GitHubAuth: Shared GitHub API authentication (PAT, gh CLI, GitHub App)
@@ -100,7 +100,7 @@ def _index_cache_dir() -> Path:
 
 
 _DYNAMIC_PATH_RESOLVERS = {
-    "HERMES_HOME": _hermes_home,
+    "ALLR_HOME": _hermes_home,
     "SKILLS_DIR": _skills_dir,
     "HUB_DIR": _hub_dir,
     "LOCK_FILE": _lock_file,
@@ -3269,10 +3269,12 @@ class OptionalSkillSource(SkillSource):
 
     These skills are official (maintained by Nous Research) but not activated
     by default — they don't appear in the system prompt and aren't copied to
-    ~/.hermes/skills/ during setup.  They are discoverable via the Skills Hub
+    ~/.allr/skills/ during setup.  They are discoverable via the Skills Hub
     (search / install / inspect) and labelled "official" with "builtin" trust.
     """
 
+    # Data endpoint, not branding: the optional-skills manifests are fetched
+    # from the upstream repo, so this stays on Nous Research.
     OFFICIAL_REPO = "NousResearch/hermes-agent"
 
     def __init__(self):
@@ -3975,11 +3977,13 @@ def check_for_skill_updates(
 
 
 # ---------------------------------------------------------------------------
-# Hermes centralized index source
+# Allr centralized index source
 # ---------------------------------------------------------------------------
 
-HERMES_INDEX_URL = "https://hermes-agent.nousresearch.com/docs/api/skills-index.json"
-HERMES_INDEX_TTL = 6 * 3600  # 6 hours
+# Data endpoint, not branding: this manifest is published by Nous Research and
+# Allr consumes it as-is — keep it pointed at the upstream host.
+ALLR_INDEX_URL = "https://hermes-agent.nousresearch.com/docs/api/skills-index.json"
+ALLR_INDEX_TTL = 6 * 3600  # 6 hours
 
 
 def _hermes_index_cache_file() -> Path:
@@ -3990,7 +3994,7 @@ def _load_hermes_index() -> Optional[dict]:
     """Fetch the centralized skills index, with local cache.
 
     The index is a JSON file hosted on the docs site, rebuilt daily by CI.
-    We cache it locally for HERMES_INDEX_TTL seconds to avoid repeated
+    We cache it locally for ALLR_INDEX_TTL seconds to avoid repeated
     downloads within a session.
     """
     # Check local cache
@@ -3998,7 +4002,7 @@ def _load_hermes_index() -> Optional[dict]:
     if hermes_index_cache_file.exists():
         try:
             age = time.time() - hermes_index_cache_file.stat().st_mtime
-            if age < HERMES_INDEX_TTL:
+            if age < ALLR_INDEX_TTL:
                 return json.loads(hermes_index_cache_file.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             pass
@@ -4020,13 +4024,13 @@ def _load_hermes_index() -> Optional[dict]:
     for accept_encoding in ("gzip, deflate", "identity"):
         try:
             resp = httpx.get(
-                HERMES_INDEX_URL,
+                ALLR_INDEX_URL,
                 timeout=15,
                 follow_redirects=True,
                 headers={"Accept-Encoding": accept_encoding},
             )
             if resp.status_code != 200:
-                logger.debug("Hermes index fetch returned %d", resp.status_code)
+                logger.debug("Allr index fetch returned %d", resp.status_code)
                 return _load_stale_index_cache()
             data = resp.json()
             break
@@ -4034,13 +4038,13 @@ def _load_hermes_index() -> Optional[dict]:
             # Content-Encoding decode failed — retry once uncompressed before
             # giving up on the network path entirely.
             logger.debug(
-                "Hermes index decode failed (Accept-Encoding=%s): %s",
+                "Allr index decode failed (Accept-Encoding=%s): %s",
                 accept_encoding,
                 e,
             )
             continue
         except (httpx.HTTPError, json.JSONDecodeError) as e:
-            logger.debug("Hermes index fetch failed: %s", e)
+            logger.debug("Allr index fetch failed: %s", e)
             return _load_stale_index_cache()
 
     if data is None:
@@ -4072,7 +4076,7 @@ def _load_stale_index_cache() -> Optional[dict]:
 
 
 class HermesIndexSource(SkillSource):
-    """Skill source backed by the centralized Hermes Skills Index.
+    """Skill source backed by the centralized Allr Skills Index.
 
     The index is a JSON catalog published to the docs site and rebuilt
     daily by CI.  It contains metadata + resolved GitHub paths for every

@@ -11,7 +11,7 @@ use super::error::{SshError, SshErrorKind};
 
 /// Where per-install SSH state lives on the remote. A literal `~` — it is
 /// expanded by the remote shell, not by us.
-pub const REMOTE_LOCK_DIR: &str = "~/.hermes/desktop-ssh";
+pub const REMOTE_LOCK_DIR: &str = "~/.allr/desktop-ssh";
 
 /// Bumped when the desktop↔dashboard reuse contract changes in a way that makes
 /// an old running dashboard unsafe to reattach to. A mismatch forces a clean
@@ -183,7 +183,7 @@ mod tests {
 
     #[test]
     fn validate_remote_path_accepts_absolute_and_tilde() {
-        for good in ["/usr/local/bin/hermes", "~", "~/.local/bin/hermes", "~/x"] {
+        for good in ["/usr/local/bin/allr", "~", "~/.local/bin/allr", "~/x"] {
             assert!(
                 validate_remote_path(good).is_ok(),
                 "{good} should be accepted"
@@ -193,7 +193,7 @@ mod tests {
 
     #[test]
     fn validate_remote_path_rejects_relative_and_control_chars() {
-        for bad in ["", "hermes", "./hermes", "../hermes", "bin/hermes"] {
+        for bad in ["", "hermes", "./hermes", "../hermes", "bin/allr"] {
             assert!(
                 validate_remote_path(bad).is_err(),
                 "{bad} should be rejected"
@@ -216,12 +216,12 @@ mod tests {
     fn expand_remote_path_handles_the_three_shapes() {
         assert_eq!(expand_remote_path("~").unwrap(), "\"$HOME\"");
         assert_eq!(
-            expand_remote_path("~/.local/bin/hermes").unwrap(),
-            "\"$HOME\"'/.local/bin/hermes'"
+            expand_remote_path("~/.local/bin/allr").unwrap(),
+            "\"$HOME\"'/.local/bin/allr'"
         );
         assert_eq!(
-            expand_remote_path("/usr/local/bin/hermes").unwrap(),
-            "'/usr/local/bin/hermes'"
+            expand_remote_path("/usr/local/bin/allr").unwrap(),
+            "'/usr/local/bin/allr'"
         );
     }
 
@@ -277,15 +277,15 @@ mod tests {
     fn remote_paths_are_built_under_the_lock_dir() {
         assert_eq!(
             ownership_directory(OWNER).unwrap(),
-            format!("~/.hermes/desktop-ssh/{OWNER}")
+            format!("~/.allr/desktop-ssh/{OWNER}")
         );
         assert_eq!(
             lockfile_path(OWNER).unwrap(),
-            format!("~/.hermes/desktop-ssh/{OWNER}/backend.lock.json")
+            format!("~/.allr/desktop-ssh/{OWNER}/backend.lock.json")
         );
         assert_eq!(
             spawn_log_path(OWNER, NONCE).unwrap(),
-            format!("~/.hermes/desktop-ssh/{OWNER}/{NONCE}.log")
+            format!("~/.allr/desktop-ssh/{OWNER}/{NONCE}.log")
         );
     }
 

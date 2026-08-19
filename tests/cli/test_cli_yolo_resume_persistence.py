@@ -33,7 +33,7 @@ SESSION_ID = "yolo_persist_session"
 
 @pytest.fixture(autouse=True)
 def _hermetic_yolo(monkeypatch):
-    monkeypatch.delenv("HERMES_YOLO_MODE", raising=False)
+    monkeypatch.delenv("ALLR_YOLO_MODE", raising=False)
     monkeypatch.setattr(approval_module, "_YOLO_MODE_FROZEN", False)
     approval_module.clear_session(SESSION_ID)
     yield

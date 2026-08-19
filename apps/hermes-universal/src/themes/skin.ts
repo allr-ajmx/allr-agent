@@ -1,11 +1,11 @@
 /**
- * Hermes skin → DesktopTheme converter.
+ * Allr skin → DesktopTheme converter.
  *
- * A "skin" is the CLI/TUI theme unit: a YAML file in `$HERMES_HOME/skins/` (or a
+ * A "skin" is the CLI/TUI theme unit: a YAML file in `$ALLR_HOME/skins/` (or a
  * built-in) resolved by `hermes_cli/skin_engine.py` and pushed to every surface
  * over JSON-RPC (`gateway.ready`, `skin.changed`, `config.get skin`). This is the
  * one place the app turns that CLI-shaped palette into a `DesktopTheme`, so a
- * skin Hermes authors from a prompt lights up every surface from one file.
+ * skin Allr authors from a prompt lights up every surface from one file.
  *
  * Skins carry terminal-oriented keys (banner/status/completion). We seed the
  * desktop model from the load-bearing few (background, foreground, accent, error)
@@ -107,7 +107,7 @@ export function skinToDesktopTheme(skin: HermesSkin): DesktopTheme | null {
   return {
     name,
     label: titleCase(name),
-    description: 'Hermes skin',
+    description: 'Allr skin',
     // Single palette in both slots: a skin is one-mode, so the light/dark toggle
     // shouldn't invert it. renderedModeFor still paints `.dark` from luminance.
     colors: palette,

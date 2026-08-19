@@ -19,3 +19,18 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+# Rust reaches BiometricGate through JNI (FindClass + GetStaticMethodID in
+# src/secrets/gate.rs). R8 cannot see those references, so in a minified build it
+# strips or renames the static methods and the gate silently degrades to
+# "unavailable" — no biometric prompt in release while debug prompts fine.
+-keep class work.allr.app.BiometricGate { public static <methods>; }
+
+# wry 0.55 calls these two on RustWebView from Rust (src/android/main_pipe.rs)
+# but its generated proguard-wry.pro only keeps <init>/loadUrlMainThread/
+# loadHTMLMainThread/evalScript, so R8 strips them and the first cookie read in
+# a release build dies with NoSuchMethodError: RustWebView.getCookies. Upstream
+# gap; drop this once proguard-wry.pro lists them itself.
+-keep class work.allr.app.RustWebView {
+  java.lang.String getCookies(java.lang.String);
+  void clearAllBrowsingData();
+}

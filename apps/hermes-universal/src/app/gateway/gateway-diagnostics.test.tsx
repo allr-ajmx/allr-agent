@@ -33,7 +33,7 @@ function statusOf(overrides: Partial<StatusResponse> = {}): StatusResponse {
     gateway_running: true,
     gateway_state: 'running',
     gateway_updated_at: null,
-    hermes_home: '/home/alice/.hermes',
+    hermes_home: '/home/alice/.allr',
     latest_config_version: 34,
     release_date: '2026-08-01',
     version: '1.2.3',
@@ -150,6 +150,6 @@ describe('GatewayDiagnostics banner', () => {
     getStatus.mockResolvedValue(statusOf())
     renderPanel()
     const readout = await screen.findByText(/config v34/)
-    expect(readout.textContent).toBe('/home/alice/.hermes · config v34')
+    expect(readout.textContent).toBe('/home/alice/.allr · config v34')
   })
 })

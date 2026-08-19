@@ -8,8 +8,8 @@ endpoints — CI systems, dashboards, other agents — with zero changes to
 call sites and zero polling on the receiving end.
 
 This is the outbound mirror of the inbound webhook platform
-(``gateway/platforms/webhook.py``): inbound wakes Hermes when the world
-changes; outbound tells the world when Hermes does something.
+(``gateway/platforms/webhook.py``): inbound wakes Allr when the world
+changes; outbound tells the world when Allr does something.
 
 Design notes
 ------------
@@ -19,28 +19,28 @@ Design notes
   enqueue, and return ``None`` immediately.  Outbound targets can never
   block a tool call, inject context, or otherwise influence agent flow.
 * Payloads are signed with HMAC-SHA256 (GitHub-style
-  ``X-Hermes-Signature-256: sha256=<hexdigest>`` over the raw body) when
+  ``X-Allr-Signature-256: sha256=<hexdigest>`` over the raw body) when
   a secret is configured.  Receivers verify exactly like they verify
   GitHub webhooks.
 * No consent prompt: unlike shell hooks, an outbound target executes no
   code on this machine — it POSTs JSON to a URL the user themselves put
-  in config.  ``HERMES_SAFE_MODE=1`` still skips registration, matching
+  in config.  ``ALLR_SAFE_MODE=1`` still skips registration, matching
   plugins / MCP / shell hooks.
 * Registration is idempotent — safe to invoke from both the CLI entry
   point and the gateway entry point.
 
-Config schema (``~/.hermes/config.yaml``)::
+Config schema (``~/.allr/config.yaml``)::
 
     hooks:
       outbound:
         - url: https://ci.example.com/hermes-events
           events: [on_session_end, subagent_stop]
           # secret literal (discouraged) or env var name (preferred):
-          secret_env: HERMES_OUTBOUND_WEBHOOK_SECRET
+          secret_env: ALLR_OUTBOUND_WEBHOOK_SECRET
           # optional regex, honored for pre/post_tool_call only:
           matcher: "terminal|delegate_task"
           timeout: 10       # per-attempt seconds, clamped to [1, 60]
-          name: ci-notify   # optional label for logs / `hermes hooks list`
+          name: ci-notify   # optional label for logs / `allr hooks list`
 
 Wire format (POST body)::
 
@@ -58,10 +58,15 @@ Wire format (POST body)::
 Headers::
 
     Content-Type:            application/json
-    User-Agent:              Hermes-Agent-Outbound-Webhook
-    X-Hermes-Event:          <hook event name>
-    X-Hermes-Delivery:       <delivery_id>
-    X-Hermes-Signature-256:  sha256=<hmac hexdigest>   # only when secret set
+    User-Agent:              Allr-Outbound-Webhook
+    X-Allr-Event:            <hook event name>
+    X-Allr-Delivery:         <delivery_id>
+    X-Allr-Signature-256:    sha256=<hmac hexdigest>   # only when secret set
+
+Every ``X-Allr-*`` header above is also sent under its pre-rename spelling
+(``X-Hermes-Event``, ``X-Hermes-Delivery``, ``X-Hermes-Signature-256``) with an
+identical value, so receivers written against either name keep working.  Verify
+the signature against whichever one you read.
 """
 
 from __future__ import annotations
@@ -168,8 +173,8 @@ def register_from_config(cfg: Optional[Dict[str, Any]]) -> List[WebhookTarget]:
 
     from utils import env_var_enabled
 
-    if env_var_enabled("HERMES_SAFE_MODE"):
-        logger.info("HERMES_SAFE_MODE=1 — outbound webhook registration skipped")
+    if env_var_enabled("ALLR_SAFE_MODE"):
+        logger.info("ALLR_SAFE_MODE=1 — outbound webhook registration skipped")
         return []
 
     hooks_cfg = cfg.get("hooks")
@@ -209,7 +214,7 @@ def register_from_config(cfg: Optional[Dict[str, Any]]) -> List[WebhookTarget]:
 
 def iter_configured_targets(cfg: Optional[Dict[str, Any]]) -> List[WebhookTarget]:
     """Parse ``hooks.outbound`` without registering anything.
-    Used by ``hermes hooks list``."""
+    Used by ``allr hooks list``."""
     if not isinstance(cfg, dict):
         return []
     hooks_cfg = cfg.get("hooks")
@@ -407,7 +412,7 @@ def _serialize_payload(
     """Render the POST body.  Same top-level shape as shell hooks' stdin
     (documented in :mod:`agent.shell_hooks`), plus delivery metadata.
 
-    ``delivery_id`` is shared with the ``X-Hermes-Delivery`` header so
+    ``delivery_id`` is shared with the ``X-Allr-Delivery`` header so
     receivers can dedupe on either — and since it (plus ``timestamp``)
     lives inside the HMAC-signed body, it doubles as replay protection.
     """
@@ -434,17 +439,27 @@ def _serialize_payload(
 def _build_delivery(
     event: str, target: WebhookTarget, body: bytes, delivery_id: str,
 ) -> Dict[str, Any]:
+    # Both brand spellings go out on every delivery. These headers are consumed by
+    # receivers we do not ship or control -- a Zapier hook, someone's Flask endpoint,
+    # a script pinned to the header names in the docs a year ago. Renaming them
+    # wholesale silently broke every such receiver that dispatched on ``X-Hermes-Event``
+    # or verified ``X-Hermes-Signature-256``; the delivery still arrived, it just no
+    # longer looked like anything the receiver recognised. The duplicates carry
+    # identical values, so a receiver reading either one is correct.
     headers = {
         "Content-Type": "application/json",
-        "User-Agent": "Hermes-Agent-Outbound-Webhook",
-        "X-Hermes-Event": event,
-        "X-Hermes-Delivery": delivery_id,
+        "User-Agent": "Allr-Outbound-Webhook",
+        "X-Allr-Event": event,
+        "X-Allr-Delivery": delivery_id,
+        "X-Hermes-Event": event,  # rebrand:keep
+        "X-Hermes-Delivery": delivery_id,  # rebrand:keep
     }
     if target.secret:
         digest = hmac.new(
             target.secret.encode("utf-8"), body, hashlib.sha256
         ).hexdigest()
-        headers["X-Hermes-Signature-256"] = f"sha256={digest}"
+        headers["X-Allr-Signature-256"] = f"sha256={digest}"
+        headers["X-Hermes-Signature-256"] = f"sha256={digest}"  # rebrand:keep
     return {
         "url": target.url,
         "label": target.label,

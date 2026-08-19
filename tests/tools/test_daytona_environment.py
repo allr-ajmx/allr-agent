@@ -310,7 +310,7 @@ class TestSyncSafety:
 
         host_file = tmp_path / "token.txt"
         host_file.write_text("secret", encoding="utf-8")
-        remote_path = "/root/.hermes/skills/evil; touch /tmp/daytona-owned/file.txt"
+        remote_path = "/root/.allr/skills/evil; touch /tmp/daytona-owned/file.txt"
 
         env._daytona_upload(str(host_file), remote_path)
 
@@ -318,8 +318,8 @@ class TestSyncSafety:
         # The whole parent dir is a single quoted argument — the ';' cannot
         # break out into a second command.
         assert mkdir_cmd == (
-            "mkdir -p '/root/.hermes/skills/evil; touch /tmp/daytona-owned'"
+            "mkdir -p '/root/.allr/skills/evil; touch /tmp/daytona-owned'"
         )
         assert "; touch" not in mkdir_cmd.replace(
-            "'/root/.hermes/skills/evil; touch /tmp/daytona-owned'", ""
+            "'/root/.allr/skills/evil; touch /tmp/daytona-owned'", ""
         )

@@ -321,7 +321,7 @@ export function MobileController() {
             disable / delete) plus the receiver's real runtime state. Like cron and
             profiles it becomes a windowable surface on a phone. */}
         {!IS_MOBILE && connected && webhooksOpen && <WebhooksView onClose={closeOverlayToPreviousRoute} />}
-        {/* Star map overlay — the radial "what Hermes has learned" map. */}
+        {/* Star map overlay — the radial "what Allr has learned" map. */}
         {connected && starmapOpen && <StarmapView onClose={closeOverlayToPreviousRoute} />}
         {/* Provider-connect overlay — a focused per-provider sign-in card that
             floats OVER the settings page (z-70) without unmounting it. Opened from

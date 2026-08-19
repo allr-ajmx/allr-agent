@@ -3,17 +3,26 @@ import type {Config} from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
 
 const config: Config = {
-  title: 'Hermes Agent',
-  tagline: 'The self-improving AI agent',
+  title: 'Allr',
+  tagline: 'One workspace. Finished work.',
   favicon: 'img/favicon.ico',
 
-  url: 'https://hermes-agent.nousresearch.com',
+  url: 'https://allr.work',
   baseUrl: '/docs/',
 
-  organizationName: 'NousResearch',
-  projectName: 'hermes-agent',
+  organizationName: 'allr-ajmx',
+  projectName: 'allr-agent',
 
   onBrokenLinks: 'warn',
+
+  // Brand faces: Young Serif for headings, Nunito Sans for body. Loaded as a
+  // plain stylesheet link so the theme stays unswizzled.
+  stylesheets: [
+    {
+      href: 'https://fonts.googleapis.com/css2?family=Young+Serif&family=Nunito+Sans:wght@300;400;600;700&family=JetBrains+Mono:wght@400;500&display=swap',
+      type: 'text/css',
+    },
+  ],
 
   markdown: {
     mermaid: true,
@@ -80,7 +89,7 @@ const config: Config = {
         docs: {
           routeBasePath: '/',  // Docs at the root of /docs/
           sidebarPath: './sidebars.ts',
-          editUrl: 'https://github.com/NousResearch/hermes-agent/edit/main/website/',
+          editUrl: 'https://github.com/allr-ajmx/allr-agent/edit/main/website/',
         },
         blog: false,
         theme: {
@@ -91,7 +100,7 @@ const config: Config = {
   ],
 
   themeConfig: {
-    image: 'img/hermes-agent-banner.png',
+    image: 'img/allr-agent-banner.png',
     // Algolia DocSearch (replaces @easyops-cn/docusaurus-search-local).
     // The local plugin shipped a ~16 MB client-side lunr index that every
     // visitor downloaded and hydrated before their first result; DocSearch
@@ -117,10 +126,10 @@ const config: Config = {
       },
     },
     navbar: {
-      title: 'Hermes Agent',
+      title: 'Allr',
       logo: {
-        alt: 'Hermes Agent',
-        src: 'img/logo.png',
+        alt: 'Allr',
+        src: 'img/logo.svg',
       },
       items: [
         {
@@ -135,7 +144,7 @@ const config: Config = {
           position: 'left',
         },
         {
-          href: 'https://hermes-agent.nousresearch.com/',
+          href: 'https://allr.work/',
           label: 'Download',
           position: 'left',
         },
@@ -144,18 +153,13 @@ const config: Config = {
           position: 'right',
         },
         {
-          href: 'https://hermes-agent.nousresearch.com',
+          href: 'https://allr.work',
           label: 'Home',
           position: 'right',
         },
         {
-          href: 'https://github.com/NousResearch/hermes-agent',
+          href: 'https://github.com/allr-ajmx/allr-agent',
           label: 'GitHub',
-          position: 'right',
-        },
-        {
-          href: 'https://discord.gg/NousResearch',
-          label: 'Discord',
           position: 'right',
         },
       ],
@@ -175,21 +179,20 @@ const config: Config = {
         {
           title: 'Community',
           items: [
-            { label: 'Discord', href: 'https://discord.gg/NousResearch' },
-            { label: 'GitHub Issues', href: 'https://github.com/NousResearch/hermes-agent/issues' },
+            { label: 'GitHub Issues', href: 'https://github.com/allr-ajmx/allr-agent/issues' },
             { label: 'Skills Hub', href: 'https://agentskills.io' },
           ],
         },
         {
           title: 'More',
           items: [
-            { label: 'Desktop Download', href: 'https://hermes-agent.nousresearch.com/' },
-            { label: 'GitHub', href: 'https://github.com/NousResearch/hermes-agent' },
-            { label: 'Nous Research', href: 'https://nousresearch.com' },
+            { label: 'Download', href: 'https://allr.work/' },
+            { label: 'GitHub', href: 'https://github.com/allr-ajmx/allr-agent' },
+            { label: 'Upstream', href: 'https://github.com/NousResearch/hermes-agent' },
           ],
         },
       ],
-      copyright: `Built by <a href="https://nousresearch.com">Nous Research</a> · MIT License · ${new Date().getFullYear()}`,
+      copyright: `© ${new Date().getFullYear()} Allr. Built on <a href="https://github.com/NousResearch/hermes-agent">NousResearch/hermes-agent</a> (MIT).`,
     },
     prism: {
       theme: prismThemes.github,

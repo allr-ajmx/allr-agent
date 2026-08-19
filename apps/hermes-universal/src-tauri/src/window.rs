@@ -65,7 +65,7 @@ const SESSION_TILE_PREFIX: &str = "session-tile:";
 /// own `pagehide`, which is exactly the signal least likely to survive a window
 /// being torn down — and universal runs WebKitGTK on Linux, where that is not a
 /// theoretical worry. `RunEvent::WindowEvent` fires from tao regardless.
-pub const TILE_WINDOW_CLOSED_EVENT: &str = "hermes://tile-window-closed";
+pub const TILE_WINDOW_CLOSED_EVENT: &str = "allr://tile-window-closed";
 
 /// Whether a destroyed window was a detached tile. The label is SLUGGED
 /// (`session-tile:x` -> `tile-session-tile-x`) and therefore not the tile id, so
@@ -85,7 +85,7 @@ pub fn is_tile_window_label(label: &str) -> bool {
 /// `pagehide` would put the one message that must not be missed on the least
 /// reliable signal in the app. `RunEvent::WindowEvent` fires from tao regardless
 /// of whether the page got to run anything.
-pub const SATELLITE_WINDOW_CLOSED_EVENT: &str = "hermes://satellite-window-closed";
+pub const SATELLITE_WINDOW_CLOSED_EVENT: &str = "allr://satellite-window-closed";
 
 /// Whether a destroyed window was a satellite. Must agree with
 /// `SATELLITE_LABEL_PREFIX` in `src/store/windows.ts`, which reads these labels
@@ -464,7 +464,7 @@ fn build_satellite(
 
     #[allow(unused_mut)]
     let mut builder = WebviewWindowBuilder::new(app, label, WebviewUrl::App(url.into()))
-        .title("Hermes (MJX)")
+        .title("Allr")
         .inner_size(spec.width, spec.height)
         .decorations(false)
         .resizable(false)
@@ -815,7 +815,7 @@ fn app_window_builder<'a>(
 ) -> WebviewWindowBuilder<'a, tauri::Wry, tauri::AppHandle> {
     #[allow(unused_mut)]
     let mut builder = WebviewWindowBuilder::new(app, label, WebviewUrl::App(url.into()))
-        .title("Hermes (MJX)")
+        .title("Allr")
         .inner_size(WINDOW_WIDTH, WINDOW_HEIGHT)
         .min_inner_size(WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT);
     #[cfg(desktop)]
@@ -1010,13 +1010,13 @@ pub const MAIN_WINDOW_LABEL: &str = "main";
 #[cfg(desktop)]
 const INSTANCE_LABEL_PREFIX: &str = "instance-";
 
-/// Which window the tray's "Show Hermes" reveals: `main` first, then the lowest
+/// Which window the tray's "Show Allr" reveals: `main` first, then the lowest
 /// numbered instance. Never a tile, never a satellite.
 ///
 /// A pure function over labels so the preference order can be asserted without a
 /// window system — and so the exclusions are stated once. Revealing a satellite
 /// would be actively wrong: the HUD is a summoned overlay with no titlebar and
-/// no navigation, so "Show Hermes" landing there gives the user a 560x260 strip
+/// no navigation, so "Show Allr" landing there gives the user a 560x260 strip
 /// and no way to the app. A detached tile is the same problem one step down.
 ///
 /// The instance ordering is NUMERIC, not lexical: `instance-10` sorting before
@@ -1096,7 +1096,7 @@ pub async fn show_app_window(app: tauri::AppHandle) -> Result<String, String> {
 ///
 /// Refuses from anything but `main`, and the refusal is the point rather than
 /// paranoia: a hidden window is reachable through exactly one affordance — the
-/// tray's Show Hermes — and [`window_to_reveal`] resolves that to `main`, the
+/// tray's Show Allr — and [`window_to_reveal`] resolves that to `main`, the
 /// lowest surviving instance, or a rebuilt `main`. Anything else that hid itself
 /// would still exist, still hold whatever it was showing, and have nothing
 /// anywhere able to bring it back.
@@ -1140,7 +1140,7 @@ pub fn close_this_window(window: tauri::WebviewWindow) -> Result<(), String> {
 /// Hidden rather than shown, and that is the whole point: the action this window
 /// is being built to run opens a DIFFERENT window. A cold summon that also threw
 /// the full app on screen would be a spotlight that drags the room in with it.
-/// The window becomes visible only if the user asks for it — tray ▸ Show Hermes,
+/// The window becomes visible only if the user asks for it — tray ▸ Show Allr,
 /// which [`window_to_reveal`] resolves to this same `main`.
 ///
 /// **Main thread only.** `WebviewWindowBuilder::build` is a main-thread call on
@@ -1336,7 +1336,7 @@ mod tests {
     /// all four edges — so it is the size of the whole output. Taking clicks
     /// would mean swallowing every click on the desktop, and taking focus would
     /// mean stealing it from whatever the user was typing in at the exact moment
-    /// they spoke to Hermes instead. `build_satellite` refuses to show a
+    /// they spoke to Allr instead. `build_satellite` refuses to show a
     /// click-through satellite it could not make click-through, rather than
     /// degrading.
     #[test]
@@ -1571,8 +1571,8 @@ mod tests {
         }
     }
 
-    /// What "Show Hermes" is allowed to land on. The tray is the ONLY way back to
-    /// a hidden Hermes, so revealing the wrong window is not a cosmetic miss — a
+    /// What "Show Allr" is allowed to land on. The tray is the ONLY way back to
+    /// a hidden Allr, so revealing the wrong window is not a cosmetic miss — a
     /// 560x260 chromeless HUD strip with no navigation is a dead end, and a
     /// detached tile is one too.
     #[test]
@@ -1598,7 +1598,7 @@ mod tests {
         assert_eq!(window_to_reveal(&[]), None);
     }
 
-    /// `main` is the window the user thinks of as Hermes, so it wins over any
+    /// `main` is the window the user thinks of as Allr, so it wins over any
     /// pop-out instance regardless of the order the label map happens to yield.
     #[test]
     fn the_tray_prefers_main_over_any_instance() {

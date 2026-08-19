@@ -34,35 +34,35 @@ class TestGetDefaultHermesRoot:
     """Tests for get_default_hermes_root() — Docker/custom deployment awareness."""
 
     def test_no_hermes_home_returns_native(self, tmp_path, monkeypatch):
-        """When HERMES_HOME is not set, returns ~/.hermes."""
-        monkeypatch.delenv("HERMES_HOME", raising=False)
+        """When ALLR_HOME is not set, returns ~/.hermes."""
+        monkeypatch.delenv("ALLR_HOME", raising=False)
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
-        assert get_default_hermes_root() == tmp_path / ".hermes"
+        assert get_default_hermes_root() == tmp_path / ".allr"
 
 
 
 
 
     def test_docker_profile_active(self, tmp_path, monkeypatch):
-        """When a Docker profile is active (HERMES_HOME=<root>/profiles/<name>),
+        """When a Docker profile is active (ALLR_HOME=<root>/profiles/<name>),
         returns the Docker root, not the profile dir."""
         docker_root = tmp_path / "opt" / "data"
         profile = docker_root / "profiles" / "coder"
         profile.mkdir(parents=True)
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
-        monkeypatch.setenv("HERMES_HOME", str(profile))
+        monkeypatch.setenv("ALLR_HOME", str(profile))
         assert get_default_hermes_root() == docker_root
 
     def test_no_hermes_home_returns_localappdata_root_on_windows(self, tmp_path, monkeypatch):
-        """Native Windows falls back to %LOCALAPPDATA%\\hermes, not ~/.hermes."""
+        """Native Windows falls back to %LOCALAPPDATA%\\allr, not ~/.hermes."""
         local_appdata = tmp_path / "LocalAppData"
-        monkeypatch.delenv("HERMES_HOME", raising=False)
+        monkeypatch.delenv("ALLR_HOME", raising=False)
         monkeypatch.setenv("LOCALAPPDATA", str(local_appdata))
         monkeypatch.setattr(Path, "home", lambda: tmp_path / "Home")
         monkeypatch.setattr(hermes_constants.sys, "platform", "win32")
 
-        assert get_default_hermes_root() == local_appdata / "hermes"
+        assert get_default_hermes_root() == local_appdata / "allr"
 
 
 
@@ -70,15 +70,15 @@ class TestGetHermesHome:
     """Tests for get_hermes_home() platform-aware fallback."""
 
     def test_windows_fallback_uses_localappdata(self, tmp_path, monkeypatch):
-        """When HERMES_HOME is unset on Windows, use %LOCALAPPDATA%\\hermes."""
+        """When ALLR_HOME is unset on Windows, use %LOCALAPPDATA%\\hermes."""
         local_appdata = tmp_path / "LocalAppData"
-        monkeypatch.delenv("HERMES_HOME", raising=False)
+        monkeypatch.delenv("ALLR_HOME", raising=False)
         monkeypatch.setenv("LOCALAPPDATA", str(local_appdata))
         monkeypatch.setattr(Path, "home", lambda: tmp_path / "Home")
         monkeypatch.setattr(hermes_constants.sys, "platform", "win32")
         monkeypatch.setattr(hermes_constants, "_profile_fallback_warned", False)
 
-        assert get_hermes_home() == local_appdata / "hermes"
+        assert get_hermes_home() == local_appdata / "allr"
 
 
 class TestGetProcessHermesHome:
@@ -91,7 +91,7 @@ class TestGetProcessHermesHome:
 
     def test_env_set_returns_that_path(self, tmp_path, monkeypatch):
         home = tmp_path / "launch-home"
-        monkeypatch.setenv("HERMES_HOME", str(home))
+        monkeypatch.setenv("ALLR_HOME", str(home))
         assert get_process_hermes_home() == home
 
 
@@ -105,7 +105,7 @@ class TestHermesManagedNode:
         node_dir.mkdir(parents=True)
         bin_dir.mkdir()
         monkeypatch.setattr(hermes_constants.sys, "platform", "win32")
-        monkeypatch.setenv("HERMES_HOME", str(home))
+        monkeypatch.setenv("ALLR_HOME", str(home))
 
         assert iter_hermes_node_dirs() == [node_dir, bin_dir]
 
@@ -116,7 +116,7 @@ class TestHermesManagedNode:
         npm_cmd = node_dir / "npm.cmd"
         npm_cmd.write_text("@echo off\n")
         monkeypatch.setattr(hermes_constants.sys, "platform", "win32")
-        monkeypatch.setenv("HERMES_HOME", str(home))
+        monkeypatch.setenv("ALLR_HOME", str(home))
         monkeypatch.setattr(hermes_constants, "node_tool_runnable", lambda path: True)
 
         assert find_hermes_node_executable("npm") == str(npm_cmd)
@@ -133,7 +133,7 @@ class TestHermesManagedNode:
         path_npm = bin_dir / "npm.cmd"
         path_npm.write_text("@echo off\n")
         monkeypatch.setattr(hermes_constants.sys, "platform", "win32")
-        monkeypatch.setenv("HERMES_HOME", str(home))
+        monkeypatch.setenv("ALLR_HOME", str(home))
         monkeypatch.setenv("PATH", str(bin_dir))
         monkeypatch.setattr(hermes_constants, "_managed_node_heal_attempted", False)
         monkeypatch.setattr(hermes_constants, "heal_hermes_managed_node", lambda: False)
@@ -151,7 +151,7 @@ class TestHermesManagedNode:
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX shell stubs; Windows uses .cmd shims")
 class TestNodeToolRunnable:
-    """node_tool_runnable() rejects broken Hermes-managed npm/node wrappers."""
+    """node_tool_runnable() rejects broken Allr-managed npm/node wrappers."""
 
     def _stub(self, tmp_path, name, body, mode=0o755):
         path = tmp_path / name
@@ -178,7 +178,7 @@ class TestNodeToolRunnable:
         system_bin.mkdir()
         self._stub(system_bin, "npm", "#!/bin/sh\necho '11.10.0'\nexit 0\n")
 
-        monkeypatch.setenv("HERMES_HOME", str(profile_home))
+        monkeypatch.setenv("ALLR_HOME", str(profile_home))
         monkeypatch.setenv("PATH", str(system_bin))
         monkeypatch.setattr(hermes_constants, "_managed_node_heal_attempted", False)
 
@@ -206,7 +206,7 @@ class TestNodeToolRunnable:
         system_bin.mkdir()
         self._stub(system_bin, "npm", "#!/bin/sh\necho '11.10.0'\nexit 0\n")
 
-        monkeypatch.setenv("HERMES_HOME", str(profile_home))
+        monkeypatch.setenv("ALLR_HOME", str(profile_home))
         monkeypatch.setenv("PATH", str(system_bin))
         monkeypatch.setattr(hermes_constants, "_managed_node_heal_attempted", False)
         monkeypatch.setattr(hermes_constants, "heal_hermes_managed_node", lambda: False)
@@ -215,7 +215,7 @@ class TestNodeToolRunnable:
 
     def test_outdated_managed_node_heals_to_target_major(self, tmp_path, monkeypatch):
         """A healthy managed tree below the target major upgrades on next resolve."""
-        target = hermes_constants._HERMES_NODE_TARGET_MAJOR
+        target = hermes_constants._ALLR_NODE_TARGET_MAJOR
         profile_home = tmp_path / "profiles" / "assistant"
         managed_bin = profile_home / "node" / "bin"
         managed_bin.mkdir(parents=True)
@@ -224,7 +224,7 @@ class TestNodeToolRunnable:
         )
         heal_called = {"value": False}
 
-        monkeypatch.setenv("HERMES_HOME", str(profile_home))
+        monkeypatch.setenv("ALLR_HOME", str(profile_home))
         monkeypatch.setenv("PATH", "")
         monkeypatch.setattr(hermes_constants, "_managed_node_heal_attempted", False)
 
@@ -242,7 +242,7 @@ class TestNodeToolRunnable:
 
     def test_outdated_managed_node_survives_failed_heal(self, tmp_path, monkeypatch):
         """Offline heal failure keeps serving the old tree — old Node beats no Node."""
-        target = hermes_constants._HERMES_NODE_TARGET_MAJOR
+        target = hermes_constants._ALLR_NODE_TARGET_MAJOR
         profile_home = tmp_path / "profiles" / "assistant"
         managed_bin = profile_home / "node" / "bin"
         managed_bin.mkdir(parents=True)
@@ -250,7 +250,7 @@ class TestNodeToolRunnable:
             managed_bin, "node", f"#!/bin/sh\necho 'v{target - 1}.20.0'\nexit 0\n"
         )
 
-        monkeypatch.setenv("HERMES_HOME", str(profile_home))
+        monkeypatch.setenv("ALLR_HOME", str(profile_home))
         monkeypatch.setenv("PATH", "")
         monkeypatch.setattr(hermes_constants, "_managed_node_heal_attempted", False)
         monkeypatch.setattr(hermes_constants, "heal_hermes_managed_node", lambda: False)
@@ -259,7 +259,7 @@ class TestNodeToolRunnable:
 
     def test_target_major_managed_node_does_not_heal(self, tmp_path, monkeypatch):
         """A tree already at the target major never triggers the heal."""
-        target = hermes_constants._HERMES_NODE_TARGET_MAJOR
+        target = hermes_constants._ALLR_NODE_TARGET_MAJOR
         profile_home = tmp_path / "profiles" / "assistant"
         managed_bin = profile_home / "node" / "bin"
         managed_bin.mkdir(parents=True)
@@ -267,7 +267,7 @@ class TestNodeToolRunnable:
             managed_bin, "node", f"#!/bin/sh\necho 'v{target}.5.1'\nexit 0\n"
         )
 
-        monkeypatch.setenv("HERMES_HOME", str(profile_home))
+        monkeypatch.setenv("ALLR_HOME", str(profile_home))
         monkeypatch.setenv("PATH", "")
         monkeypatch.setattr(hermes_constants, "_managed_node_heal_attempted", False)
 
@@ -481,7 +481,7 @@ class TestSecureParentDir:
 
     def test_safe_path_calls_chmod(self, tmp_path, monkeypatch):
         """Normal nested path (depth >= 3) should call os.chmod."""
-        safe_dir = tmp_path / "home" / "user" / ".hermes"
+        safe_dir = tmp_path / "home" / "user" / ".allr"
         safe_dir.mkdir(parents=True)
         target = safe_dir / "auth.json"
         target.touch()
@@ -589,7 +589,7 @@ class TestGetHermesDir:
     """
 
     def _set_home(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("ALLR_HOME", str(tmp_path))
 
     def test_neither_exists_returns_new(self, tmp_path, monkeypatch):
         self._set_home(tmp_path, monkeypatch)

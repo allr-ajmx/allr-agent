@@ -1,4 +1,4 @@
-//! The system tray (desktop): the only affordance that reaches a hidden Hermes.
+//! The system tray (desktop): the only affordance that reaches a hidden Allr.
 //!
 //! Background mode is what makes this load-bearing rather than decorative. Once
 //! the window can be put away without the process ending, something has to be
@@ -28,7 +28,7 @@ mod imp {
 
     /// The tray icon's id. `install` is idempotent through it: a second call
     /// finds the icon already registered and leaves it alone.
-    const TRAY_ID: &str = "hermes";
+    const TRAY_ID: &str = "allr";
 
     /// Menu ids. `MenuEvent` carries the id as a string, so these are the wire
     /// format between the builder and the handler and must not drift.
@@ -41,17 +41,17 @@ mod imp {
     /// Announced when the Keep Running row is clicked, carrying the new state.
     /// Must match `BACKGROUND_MODE_CHANGED_EVENT` in
     /// `src/store/background-mode.ts`, which is what persists the toggle.
-    const BACKGROUND_MODE_CHANGED_EVENT: &str = "hermes://background-mode-changed";
+    const BACKGROUND_MODE_CHANGED_EVENT: &str = "allr://background-mode-changed";
 
     /// English fallbacks. The menu is built with these so a tray that appears
     /// before the webview has booted (or in a run where the push fails) still
     /// reads as words rather than as keys or as nothing at all.
-    const DEFAULT_SHOW: &str = "Show Hermes";
+    const DEFAULT_SHOW: &str = "Show Allr";
     const DEFAULT_HUD: &str = "Open HUD";
-    const DEFAULT_QUIT: &str = "Quit Hermes";
+    const DEFAULT_QUIT: &str = "Quit Allr";
     const DEFAULT_KEEP_RUNNING: &str = "Keep Running";
     const DEFAULT_STATUS: &str = "Not connected";
-    const DEFAULT_TOOLTIP: &str = "Hermes (MJX)";
+    const DEFAULT_TOOLTIP: &str = "Allr";
 
     /// The live menu rows, kept so their text can be replaced in place.
     ///
@@ -95,7 +95,7 @@ mod imp {
     /// Build the tray. Returns whether one is actually on screen.
     ///
     /// `Ok(false)` rather than `Err` for a refused icon: a machine with no
-    /// StatusNotifier host is a perfectly good machine to run Hermes on, it just
+    /// StatusNotifier host is a perfectly good machine to run Allr on, it just
     /// cannot run it hidden. Failing `setup` here would refuse to start the app
     /// at all over a feature the user may never turn on.
     pub fn install(app: &AppHandle) -> bool {
@@ -210,7 +210,7 @@ mod imp {
             // Summon the HUD without a keyboard. The row is the ONLY way to the
             // HUD on a machine where another application already owns the chord
             // — `global_shortcuts_sync` reports that as `refused` and the in-app
-            // binding needs Hermes focused, which a hidden Hermes is not.
+            // binding needs Allr focused, which a hidden Allr is not.
             hud: MenuItem::with_id(app, ID_HUD, DEFAULT_HUD, true, None::<&str>)?,
             // Disabled on purpose: this row is a readout. Clicking a connection
             // state has no meaning, and an enabled row that does nothing is a
@@ -255,20 +255,20 @@ mod imp {
 
     /// The Keep Running row: background mode's SECOND control surface.
     ///
-    /// Settings owns the same preference, but a hidden Hermes has no Settings to
+    /// Settings owns the same preference, but a hidden Allr has no Settings to
     /// reach — the tray is the only thing on screen — so this row has to be able
     /// to change the preference, not merely report it.
     ///
     /// Turning it OFF is the branch with consequences. The process was resident
     /// on the strength of that flag; with it gone nothing keeps the spawned
-    /// `hermes serve` child around, and if the window is already put away
+    /// `allr serve` child around, and if the window is already put away
     /// nothing keeps the app itself around either. So the child is stopped, and
     /// a toggle that leaves NOTHING on screen quits — the alternative is a
     /// process with no window, no reason to exist, and a tray row that has just
     /// stopped promising to bring anything back.
     ///
     /// Satellites count as "on screen". A user who turns this off while the HUD
-    /// is up still has a Hermes in front of them, and when that one goes away
+    /// is up still has an Allr in front of them, and when that one goes away
     /// `ExitRequested` finds `enabled == false` and lets the app end on its own.
     fn toggle_keep_running(app: &AppHandle) {
         let Some(state) = app.try_state::<crate::background::BackgroundState>() else {

@@ -92,7 +92,7 @@ describe('collectArtifactsForSession', () => {
   // outside the transport can authenticate that URL behind a gated gateway, so
   // pointing `<img>` at it renders a broken card and a 401 in the network log.
   it('reads a gateway-local image over the authenticated transport, not its download href', async () => {
-    const path = '/Users/me/.hermes/skills/x/images/step.jpeg'
+    const path = '/Users/me/.allr/skills/x/images/step.jpeg'
     const downloadHref = `https://gw/api/files/download?path=${encodeURIComponent(path)}&token=secret`
 
     await expect(artifactImageSrc(path, downloadHref)).resolves.toBe(DATA_URL)

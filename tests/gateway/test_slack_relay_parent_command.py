@@ -21,10 +21,12 @@ def _wire(text: str, *, platform: str = "slack") -> dict:
 @pytest.mark.parametrize(
     ("wire_text", "expected"),
     [
-        ("/hermes sethome", "/sethome"),
+        # The Slack slash command is registered with Slack as `/hermes`; it is
+        # an external contract, not a brand string.
+        ("/hermes sethome", "/sethome"),  # rebrand:keep
         ("/hermes\tsethome", "/sethome"),
         (
-            "/hermes model gpt-5.6 --provider openai",
+            "/hermes model gpt-5.6 --provider openai",  # rebrand:keep
             "/model gpt-5.6 --provider openai",
         ),
         ("/hermes", "/help"),
