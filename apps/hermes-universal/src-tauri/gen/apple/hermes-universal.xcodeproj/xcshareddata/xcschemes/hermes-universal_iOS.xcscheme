@@ -15,7 +15,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "2EE71C1E26E54D0607B05F0E"
-               BuildableName = "Hermes.app"
+               BuildableName = "Allr.app"
                BlueprintName = "hermes-universal_iOS"
                ReferencedContainer = "container:hermes-universal.xcodeproj">
             </BuildableReference>
@@ -31,7 +31,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "2EE71C1E26E54D0607B05F0E"
-            BuildableName = "Hermes.app"
+            BuildableName = "Allr.app"
             BlueprintName = "hermes-universal_iOS"
             ReferencedContainer = "container:hermes-universal.xcodeproj">
          </BuildableReference>
@@ -66,7 +66,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "2EE71C1E26E54D0607B05F0E"
-            BuildableName = "Hermes.app"
+            BuildableName = "Allr.app"
             BlueprintName = "hermes-universal_iOS"
             ReferencedContainer = "container:hermes-universal.xcodeproj">
          </BuildableReference>
@@ -95,7 +95,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "2EE71C1E26E54D0607B05F0E"
-            BuildableName = "Hermes.app"
+            BuildableName = "Allr.app"
             BlueprintName = "hermes-universal_iOS"
             ReferencedContainer = "container:hermes-universal.xcodeproj">
          </BuildableReference>
