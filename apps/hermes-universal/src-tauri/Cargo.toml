@@ -364,6 +364,21 @@ core-foundation-sys = "0.8"
 # The OS credential store behind src/secrets/. All MIT/Apache-2.0, unlike the
 # plugin that used to wrap them — see the keyring-core note under [dependencies].
 windows-native-keyring-store = "1.1"
+# WinRT projections for the Windows Hello gate (secrets/gate.rs). NOT the same
+# crate as `windows-sys` below and not interchangeable with it: `windows-sys` is
+# raw FFI with no WinRT support, and `UserConsentVerifier` is a WinRT class, so
+# `use windows::Security::Credentials::UI::...` cannot resolve against it. That
+# module carried a "UNVERIFIED: not compiled" note and was in fact uncompilable
+# -- the first Windows build ever run died on two E0433s in it, because CI was
+# disabled for the whole life of the repo and nobody had built this target.
+#
+# 0.61 rather than the current 0.62: that version is already in the tree, so
+# pinning to it adds no crate. `Foundation` is what supplies IAsyncOperation,
+# which every one of these calls goes through via `.get()`.
+windows = { version = "0.61", features = [
+  "Foundation",
+  "Security_Credentials_UI",
+] }
 windows-sys = { version = "0.61", features = [
   "Win32_Foundation",
   "Win32_Graphics_Dwm",
