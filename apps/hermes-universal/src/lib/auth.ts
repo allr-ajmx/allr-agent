@@ -125,11 +125,14 @@ export async function fetchAuthProviders(base: string): Promise<AuthProvider[]> 
  * difference is invisible from here except as `oauthStatus().sessionKind`.
  *
  * Where the user types their password differs by platform, and that difference is
- * why this may never resolve. Desktop hands the authorize URL to the system browser,
- * so nothing here is disturbed. Mobile drives the CALLING webview to it and back — an
- * app that opens the system browser is suspended by iOS and cannot answer its own
- * loopback listener (see src-tauri/src/oauth.rs). So on mobile BOTH flows destroy this
- * JS context, and `beginOAuthLogin` parks a resume marker before calling either.
+ * why this may never resolve. Desktop opens a dedicated sign-in WINDOW beside the app,
+ * so nothing here is disturbed and this resolves normally. Mobile drives the CALLING
+ * webview to the login and back, because neither phone can host a dismissable second
+ * window (see src-tauri/src/oauth.rs). So on mobile BOTH flows destroy this JS context,
+ * and `beginOAuthLogin` parks a resume marker before calling either.
+ *
+ * Neither platform uses the system browser: nothing in this project registers a URL
+ * scheme, so a browser that fails to reach our loopback listener has no way back.
  */
 export async function oauthLogin(base: string, provider?: string): Promise<void> {
   await invoke('oauth_login', { base, provider: provider ?? null })
