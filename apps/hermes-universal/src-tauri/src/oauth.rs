@@ -3,13 +3,10 @@
 //! # RFC 8252 native flow (preferred, MJXHRM-77)
 //!
 //! When `/api/status` advertises `auth_flows: [... "native_pkce"]` the gateway can
-//! broker a real native-app login: system browser + client-side PKCE + a loopback
-//! redirect, ending in bearer tokens handed to us in a JSON body with no cookie
-//! anywhere. That is strictly better than the webview flow below:
+//! broker a real native-app login: client-side PKCE + a loopback redirect, ending in
+//! bearer tokens handed to us in a JSON body with no cookie anywhere. That is
+//! strictly better than the webview flow below:
 //!
-//!   * **No second webview.** On DESKTOP the system browser is a separate app, so
-//!     nothing has to be built, bound to a partition, or dismissed. Mobile cannot
-//!     use that shape at all — see below.
 //!   * **No cookie plumbing.** Nothing has to be scraped out of a webview jar and
 //!     replayed into reqwest; the gated middleware accepts
 //!     `Authorization: Bearer` on every non-public route, ws-ticket included.
@@ -25,16 +22,33 @@
 //!
 //! ## Where the user types their password (the platform split)
 //!
-//! Desktop hands the authorize URL to the SYSTEM BROWSER. Mobile must not, and this
-//! is the whole reason the flow was broken there: an app that opens Safari is
-//! backgrounded, and iOS then SUSPENDS it — there is no `UIBackgroundModes`, no
-//! `beginBackgroundTask` and `background.rs` is `cfg(desktop)`. A suspended process
-//! cannot accept on its own loopback listener, so the redirect the browser makes to
-//! `127.0.0.1:<port>` hangs until Safari gives up on an error page. Nothing brings
-//! the app back either: there is no deep-link plugin, no `CFBundleURLTypes` and no
-//! `BROWSABLE` intent-filter anywhere in this project, and `callback_response` can
-//! only ask the user to switch back by hand. The token never reached the keyring and
-//! the user was left in a browser.
+//! **Neither platform uses the system browser.** They differ only in WHICH webview
+//! hosts the login: desktop builds a window beside the app, mobile takes over the
+//! calling webview. Both then answer the same loopback listener, which is a plain
+//! TCP socket and does not care which process connects to it.
+//!
+//! Both arms used to hand the authorize URL to the SYSTEM BROWSER, and the return
+//! leg is why neither does now.
+//!
+//! On MOBILE it could never work: an app that opens Safari is backgrounded, and iOS
+//! then SUSPENDS it — there is no `UIBackgroundModes`, no `beginBackgroundTask` and
+//! `background.rs` is `cfg(desktop)`. A suspended process cannot accept on its own
+//! loopback listener, so the redirect the browser makes to `127.0.0.1:<port>` hangs
+//! until Safari gives up on an error page.
+//!
+//! On DESKTOP it worked on paper — we are never suspended, so the listener stays
+//! live — but in practice the hop from the browser back to `127.0.0.1:<port>` is at
+//! the mercy of things we do not control: a browser that refuses a plaintext
+//! loopback navigation out of an https page, a proxy that eats the 302, an
+//! extension. Hosting the login in our own window costs nothing (PKCE, the code
+//! exchange and the keyring result are all unchanged) and removes that entire class
+//! of failure.
+//!
+//! When the return leg does fail there is nothing to fall back on: there is no
+//! deep-link plugin, no `CFBundleURLTypes` and no `BROWSABLE` intent-filter anywhere
+//! in this project, and `callback_response` can only ask the user to switch back by
+//! hand. The token never reached the keyring and the user was left signed in inside
+//! a browser we cannot read.
 //!
 //! A custom-scheme redirect would fix the return leg, but the gateway will not take
 //! one: `_validate_loopback_redirect_uri` (`routes.py`) accepts ONLY
@@ -42,13 +56,20 @@
 //! So `ASWebAuthenticationSession` (which needs a custom callback scheme) is out
 //! without a server change.
 //!
-//! What the webview CAN do is load our own loopback URL. So on mobile we navigate the
-//! CALLING webview to the authorize URL, let the gateway 302 it to
-//! `http://127.0.0.1:<port>/callback`, answer that from the listener we already
-//! bound, and navigate back — the same navigate-away contract the cookie cascade
-//! below and `cloud.rs::portal_login` already use, one-shot resume marker included.
-//! The gateway's `allr_session_pkce` broker cookie round-trips inside that webview
-//! for both hops, so nothing extra has to be plumbed.
+//! What a webview CAN do is load our own loopback URL. So both arms point a webview
+//! at the authorize URL, let the gateway 302 it to `http://127.0.0.1:<port>/callback`
+//! and answer that from the listener we already bound. The gateway's
+//! `allr_session_pkce` broker cookie round-trips inside that webview for both hops,
+//! so nothing extra has to be plumbed.
+//!
+//!   * DESKTOP builds a dedicated `OAUTH_WINDOW_LABEL` window beside the app, waits
+//!     on the listener, and closes the window. The app's own UI is never disturbed,
+//!     so closing that window is also the cancel gesture — see
+//!     `await_loopback_code_in_window`.
+//!   * MOBILE navigates the CALLING webview, because neither phone can host a
+//!     dismissable second window, then navigates back — the same navigate-away
+//!     contract the cookie cascade below and `cloud.rs::portal_login` already use,
+//!     one-shot resume marker included.
 //!
 //! # Legacy webview-cookie flow (fallback)
 //!
@@ -812,14 +833,15 @@ fn now_secs() -> i64 {
 
 /// Persist a token set, reporting whether it actually landed.
 ///
-/// The `Result` matters on mobile and only there. Desktop keeps the token set alive in
-/// process memory via `register_bearer_base`, so a machine with no working keyring
-/// (a Linux box with no Secret Service) still gets a usable session for the run —
-/// which is why this used to be a bare `log::warn!`. Mobile has no such grace: the
-/// sign-in ends by reloading the SPA, and the boot that follows reads the KEYRING
-/// (`ensure_native_tokens` → `load_native_tokens`). A write that silently failed there
-/// presents as "I signed in and the token was never captured", with the reason buried
-/// in a warning nobody is streaming.
+/// The `Result` matters on EVERY platform, and a caller that discards it is claiming a
+/// session it does not have. There is no in-memory fallback anywhere in this module:
+/// `register_bearer_base` records a base URL string in a `BTreeSet` (`transport.rs`) and
+/// holds no token, so every later read goes `gateway_bearer` → `ensure_native_tokens` →
+/// `load_native_tokens` → the keyring. If this write fails, the session is already dead.
+///
+/// This doc used to say the opposite — that desktop "keeps the token set alive in process
+/// memory via `register_bearer_base`" — and that sentence is what kept a swallowed write
+/// looking defensible. Both `run_native_login` arms now propagate the failure.
 fn store_native_tokens(
     _app: &AppHandle,
     state: &TransportState,
@@ -840,8 +862,22 @@ fn store_native_tokens(
     Ok(())
 }
 
+/// The stored token set for `base`, or `None` when there is not one.
+///
+/// A keyring that REFUSES the read is not the same as one that has nothing, and the two
+/// used to be indistinguishable here (`.ok()??`). They still return the same `None` — the
+/// caller has nothing better to do either way — but the refusal now says so, because
+/// "signed out" caused by a broken credential store is exactly the failure this module
+/// has no other way to report.
 fn load_native_tokens(_app: &AppHandle, base: &str) -> Option<native::NativeTokenSet> {
-    let json = crate::secrets::read_owned(crate::secrets::OwnedKey::NativeAuth, base).ok()??;
+    let json = match crate::secrets::read_owned(crate::secrets::OwnedKey::NativeAuth, base) {
+        Ok(found) => found?,
+        Err(e) => {
+            log::warn!("[oauth] could not read the stored session: {}", e.message);
+
+            return None;
+        }
+    };
 
     serde_json::from_str(&json).ok()
 }
@@ -976,6 +1012,101 @@ async fn await_loopback_code(
     }
 }
 
+/// Build the interactive sign-in window at `url` (desktop).
+///
+/// On the main thread because gtk/WKWebView require it, with a `oneshot` carrying
+/// the build result back so a failure surfaces here instead of as a dead wait on a
+/// listener nothing will ever reach. Any stale window from a previous attempt is
+/// dropped first — `OAUTH_WINDOW_LABEL` is a single reused label, and building over
+/// a live one fails.
+///
+/// The same shape the cookie cascade in `oauth_login` uses; both run through here.
+#[cfg(desktop)]
+async fn open_sign_in_window(app: &AppHandle, url: Url) -> Result<(), String> {
+    let (build_tx, build_rx) = oneshot::channel::<Result<(), String>>();
+    let app_build = app.clone();
+
+    app.run_on_main_thread(move || {
+        if let Some(existing) = app_build.get_webview_window(OAUTH_WINDOW_LABEL) {
+            let _ = existing.close();
+        }
+
+        let build =
+            WebviewWindowBuilder::new(&app_build, OAUTH_WINDOW_LABEL, WebviewUrl::External(url))
+                .title("Sign in to Allr")
+                .inner_size(520.0, 720.0)
+                .build();
+
+        let _ = build_tx.send(
+            build
+                .map(|_| ())
+                .map_err(|e| format!("could not open sign-in window: {e}")),
+        );
+    })
+    .map_err(|e| format!("failed to schedule sign-in window: {e}"))?;
+
+    build_rx
+        .await
+        .map_err(|_| "failed to open sign-in window".to_string())?
+}
+
+/// Drop the interactive sign-in window if it is still up (desktop).
+#[cfg(desktop)]
+fn close_sign_in_window(app: &AppHandle) {
+    if let Some(win) = app.get_webview_window(OAUTH_WINDOW_LABEL) {
+        let _ = win.close();
+    }
+}
+
+/// Wait for the loopback code, giving up as soon as the user closes the window.
+///
+/// The close watch is what keeps an abandoned sign-in from pinning the flow for the
+/// whole budget. It polls rather than subscribing to a window event because the
+/// window is torn down from the main thread and `get_webview_window` going `None` is
+/// the one signal that is true for every way it can die — closed by the user,
+/// closed by us, or destroyed by the platform. 500 ms matches the cookie cascade's
+/// poll, and the cost is a hashmap lookup.
+///
+/// The wait itself is unchanged (`await_loopback_code`); this only adds a second way
+/// out of it.
+#[cfg(desktop)]
+async fn await_loopback_code_in_window(
+    app: &AppHandle,
+    listener: tokio::net::TcpListener,
+    expected_state: &str,
+    timeout_secs: u64,
+) -> Result<String, NativeLoginError> {
+    let closed = async {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+            if app.get_webview_window(OAUTH_WINDOW_LABEL).is_none() {
+                return;
+            }
+        }
+    };
+
+    tokio::select! {
+        // Biased so a code that landed in the same tick as the close wins: the
+        // window is closed BY the callback arriving, and reporting that as a
+        // cancellation would throw away a completed sign-in.
+        biased;
+        // A timeout or listener failure keeps `navigated: false` (via `From<String>`)
+        // so a gateway with broken native routes still falls through to the cookie
+        // cascade — that fallback is the whole compatibility story.
+        code = await_loopback_code(listener, expected_state, timeout_secs, true) => {
+            code.map_err(NativeLoginError::from)
+        }
+        // A cancel is different in kind: the user dismissed the sign-in on purpose,
+        // and answering that by opening a second sign-in window would be the exact
+        // "I ended up on some other login screen" behaviour this flag exists to stop.
+        () = closed => Err(NativeLoginError {
+            message: "Sign-in window was closed before completing".to_string(),
+            navigated: true,
+        }),
+    }
+}
+
 /// POST a native-auth endpoint and parse the token set out of it.
 ///
 /// The secret (code + verifier, or the refresh token) is in the BODY, which
@@ -1034,7 +1165,7 @@ async fn post_native_tokens(
     native::parse_token_response(&parsed)
 }
 
-/// Why a native login failed, and whether it disturbed the app's UI on the way.
+/// Why a native login failed, and whether falling back would help or just repeat it.
 ///
 /// `navigated` is the entire reason this is a struct and not a `String`. On mobile the
 /// login runs in the app's ONLY webview, so a failure after the hand-off leaves the
@@ -1044,11 +1175,21 @@ async fn post_native_tokens(
 /// screen" this flow was reported for. See the match in `oauth_login`.
 struct NativeLoginError {
     message: String,
-    /// Set once the hand-off has been ISSUED, which is not the same as the webview
-    /// having moved — a refused navigation counts too. That is deliberate: the cookie
-    /// cascade would ask the same webview for a page on the same unreachable host and
-    /// be refused identically, so falling back there buys a second failure and a
-    /// second wait.
+    /// "The user has already been put in front of a sign-in surface, and showing them
+    /// another one is not a recovery." Both platforms set it; they just reach it
+    /// differently.
+    ///
+    /// MOBILE sets it once the hand-off has been ISSUED, which is not the same as the
+    /// webview having moved — a refused navigation counts too. That is deliberate: the
+    /// cookie cascade would ask the same webview for a page on the same unreachable
+    /// host and be refused identically, so falling back there buys a second failure
+    /// and a second wait.
+    ///
+    /// DESKTOP sets it only when the user CLOSED the sign-in window, i.e. cancelled.
+    /// A desktop timeout or transport failure deliberately leaves it false and does
+    /// fall through: that is the compatibility path for a gateway whose native routes
+    /// are broken. But answering a cancel by immediately opening a second sign-in
+    /// window is the one thing that is never right.
     navigated: bool,
 }
 
@@ -1125,21 +1266,56 @@ async fn run_native_login(
 
     #[cfg(desktop)]
     {
-        use tauri_plugin_opener::OpenerExt;
-
-        // The login happens in another application; ours is untouched.
+        // The login runs in OUR OWN window, not the system browser.
+        //
+        // It used to be the browser (that is what RFC 8252 §8.1 asks for), and on
+        // paper desktop can host that shape: unlike a phone we are never suspended,
+        // so the loopback listener stays live while the user is in another app. In
+        // practice the return leg is at the mercy of whatever is between the browser
+        // and `127.0.0.1:<port>` — a default browser that refuses a plaintext
+        // loopback hop out of an https page, a gateway or proxy that drops the 302,
+        // an extension. When it fails there is NOTHING to fall back on: this project
+        // has no deep-link plugin, no `CFBundleURLTypes` and no `BROWSABLE`
+        // intent-filter, so the socket is the only door home and the user is left
+        // signed in inside a browser we cannot read.
+        //
+        // Hosting the same flow in a webview we own removes that whole class of
+        // failure without giving anything up: the listener is a plain TCP socket on
+        // loopback and does not care which process connects, so PKCE, the one-shot
+        // code exchange and the bearer-in-the-keyring result are all unchanged. The
+        // mobile arm below already drives exactly this authorize -> loopback redirect
+        // through a Tauri webview; this is the same trick with a window beside the
+        // app instead of the app's own webview.
+        //
+        // The webview is a plain external-URL window with no IPC: `hermes-oauth` is
+        // deliberately outside the `windows` globs in capabilities/default.json.
         let _ = webview;
 
-        log::info!("[oauth] native sign-in: loopback on 127.0.0.1:{port}, opening system browser");
+        let authorize_url =
+            Url::parse(&authorize).map_err(|e| format!("invalid authorize URL: {e}"))?;
 
-        // The opener plugin's Rust API, not the JS one: a Rust-internal call is not
-        // gated by the opener ACL/scope (same reason `open_external` in lib.rs uses it).
-        app.opener()
-            .open_url(authorize, None::<&str>)
-            .map_err(|e| format!("could not open the system browser: {e}"))?;
+        log::info!(
+            "[oauth] native sign-in: loopback on 127.0.0.1:{port}, opening the sign-in window"
+        );
 
+        open_sign_in_window(app, authorize_url).await?;
+
+        // `in_app: true` — the callback page is rendered inside the window we are
+        // about to close, so it says "Returning to Allr…" rather than telling the
+        // user to close a tab that is not theirs.
+        //
+        // Raced against the window going away so that closing it cancels the sign-in
+        // immediately. Without that race an abandoned login pins the flow for the
+        // full NATIVE_LOGIN_TIMEOUT_SECS with no UI to explain itself, which is
+        // indistinguishable from the app having hung.
         let code =
-            await_loopback_code(listener, &csrf_state, NATIVE_LOGIN_TIMEOUT_SECS, false).await?;
+            await_loopback_code_in_window(app, listener, &csrf_state, NATIVE_LOGIN_TIMEOUT_SECS)
+                .await;
+
+        // Close the window on every exit, exactly as the cookie cascade does.
+        close_sign_in_window(app);
+
+        let code = code?;
 
         let tokens = post_native_tokens(
             state,
@@ -1149,12 +1325,20 @@ async fn run_native_login(
         )
         .await?;
 
-        // Survivable here: `register_bearer_base` keeps the session live for this run
-        // even on a machine with no working keyring, and nothing is about to reload and
-        // read it back. Mobile cannot say the same — see the other arm.
-        if let Err(e) = store_native_tokens(app, state, base, &tokens) {
-            log::warn!("[oauth] native session will not survive restart: {e}");
-        }
+        // NOT survivable, despite how this read for a long time. A token set that did
+        // not reach the keyring cannot be read back by `ensure_native_tokens`, so
+        // returning `Ok` here hands the caller a signed-in answer for a session that is
+        // already dead — the user completes a sign-in in the browser and the app says
+        // signed out. Fail instead.
+        //
+        // Failing is also the gentler option, which is why it is safe to do here: this
+        // converts with `navigated: false`, so `oauth_login` drops through to the cookie
+        // cascade rather than dead-ending. A machine whose keyring genuinely does not
+        // work (a Linux box with no Secret Service) therefore degrades to the flow that
+        // predates this one, which keeps its session in the reqwest jar and needs no
+        // keyring at all.
+        store_native_tokens(app, state, base, &tokens)
+            .map_err(|e| format!("Signed in, but the credential could not be saved: {e}"))?;
 
         log::info!("[oauth] native sign-in complete for base={base}");
 
@@ -1623,37 +1807,12 @@ pub async fn oauth_login(
 
     #[cfg(desktop)]
     {
-        // The caller hosts the login only on mobile; here we build our own window.
+        // The caller hosts the login only on mobile; here we build our own window —
+        // the same one the native flow above uses, via the same helper, so the two
+        // cannot drift apart in title, size, or stale-window handling.
         let _ = webview;
 
-        // Build the window on the main thread (gtk/WKWebView requirement). A oneshot
-        // carries the build result back so a failure surfaces instead of a dead poll.
-        let (build_tx, build_rx) = oneshot::channel::<Result<(), String>>();
-        let app_build = app.clone();
-        app.run_on_main_thread(move || {
-            // Drop any stale window from a previous attempt first.
-            if let Some(existing) = app_build.get_webview_window(OAUTH_WINDOW_LABEL) {
-                let _ = existing.close();
-            }
-            let build = WebviewWindowBuilder::new(
-                &app_build,
-                OAUTH_WINDOW_LABEL,
-                WebviewUrl::External(login_url),
-            )
-            .title("Sign in to Allr")
-            .inner_size(520.0, 720.0)
-            .build();
-            let _ = build_tx.send(
-                build
-                    .map(|_| ())
-                    .map_err(|e| format!("could not open sign-in window: {e}")),
-            );
-        })
-        .map_err(|e| format!("failed to schedule sign-in window: {e}"))?;
-
-        build_rx
-            .await
-            .map_err(|_| "failed to open sign-in window".to_string())??;
+        open_sign_in_window(&app, login_url).await?;
 
         log::info!("[oauth] sign-in window opened; polling cookies for base={base}");
 
@@ -1669,9 +1828,7 @@ pub async fn oauth_login(
         .await;
 
         // Close the interactive window either way.
-        if let Some(win) = app.get_webview_window(OAUTH_WINDOW_LABEL) {
-            let _ = win.close();
-        }
+        close_sign_in_window(&app);
 
         outcome
     }
