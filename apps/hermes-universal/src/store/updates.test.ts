@@ -1,26 +1,42 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const checkAppUpdate = vi.fn()
+const installAppUpdate = vi.fn<() => Promise<void>>()
 
-vi.mock('@/lib/updates', () => ({ checkAppUpdate: (force: boolean) => checkAppUpdate(force) }))
+vi.mock('@/lib/updates', () => ({
+  checkAppUpdate: (force: boolean) => checkAppUpdate(force),
+  installAppUpdate: () => installAppUpdate()
+}))
 
-import { $appUpdate, $appUpdateChecking, $appUpdateFailed, __resetUpdateState, runUpdateCheck } from './updates'
+import {
+  $appUpdate,
+  $appUpdateChecking,
+  $appUpdateFailed,
+  $appUpdateInstallFailed,
+  $appUpdateInstalling,
+  __resetUpdateState,
+  runUpdateCheck,
+  runUpdateInstall
+} from './updates'
 
 const STATUS = {
-  source: 'github',
+  source: 'updater',
   currentVersion: '1.0.0',
   latestVersion: '1.1.0',
   updateAvailable: true,
   downloadUrl: 'https://example.test/asset',
   notesUrl: 'https://example.test/release',
   checkedAtMs: 1,
-  reason: null
+  reason: null,
+  canSelfInstall: true
 }
 
 describe('update store', () => {
   beforeEach(() => {
     __resetUpdateState()
     checkAppUpdate.mockReset()
+    installAppUpdate.mockReset()
+    installAppUpdate.mockResolvedValue(undefined)
   })
 
   it('stores the native result and clears the checking flag', async () => {
@@ -58,5 +74,22 @@ describe('update store', () => {
 
     expect($appUpdateFailed.get()).toBe(true)
     expect($appUpdateChecking.get()).toBe(false)
+  })
+
+  it('dedupes concurrent installs so a double-tap downloads once', async () => {
+    installAppUpdate.mockImplementation(() => new Promise(resolve => setTimeout(resolve, 5)))
+
+    await Promise.all([runUpdateInstall(), runUpdateInstall()])
+
+    expect(installAppUpdate).toHaveBeenCalledTimes(1)
+  })
+
+  it('clears the installing flag and records failure when the install fails', async () => {
+    installAppUpdate.mockRejectedValue(new Error('signature mismatch'))
+
+    await runUpdateInstall()
+
+    expect($appUpdateInstalling.get()).toBe(false)
+    expect($appUpdateInstallFailed.get()).toBe(true)
   })
 })

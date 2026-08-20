@@ -72,7 +72,7 @@ use transport::{
     cookies_export, cookies_import, http_request, ws_close, ws_open, ws_send, TransportState,
 };
 use tray::{tray_set_labels, tray_set_status, TrayState};
-use updates::{update_check, update_open_download, UpdateState};
+use updates::{update_check, update_install, update_open_download, UpdateState};
 use voice::{
     voice_arm, voice_close, voice_force_turn, voice_open, voice_suspend, voice_update_auth,
     voice_wake_listen, VoiceState,
@@ -206,6 +206,14 @@ pub fn run() {
     // hardcoded here.
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     let builder = builder.plugin(tauri_plugin_global_shortcut::Builder::new().build());
+
+    // Self-installing updates (updates.rs). Desktop only, and a compile-time
+    // branch for the same reason as the hotkeys above: neither mobile OS lets
+    // an app replace its own binary, so the crate is not in the mobile
+    // dependency set at all. Nothing is checked or downloaded on startup --
+    // the frontend drives it from Settings -> About.
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
 
     builder
         .plugin(tauri_plugin_os::init())
@@ -371,6 +379,7 @@ pub fn run() {
             is_satellite_window_visible,
             resize_satellite_window,
             update_check,
+            update_install,
             update_open_download,
             ssh_connect,
             ssh_test,

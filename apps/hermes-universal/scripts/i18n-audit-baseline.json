@@ -182,7 +182,6 @@
     "settings.about.branchCommit",
     "settings.about.cantUpdate",
     "settings.about.justNowSuffix",
-    "settings.about.updateNow",
     "settings.appearance.importedBadge",
     "settings.appearance.installButton",
     "settings.appearance.installDesc",
@@ -337,8 +336,7 @@
     "updates.stages.pull",
     "updates.stages.pydeps",
     "updates.stages.rebuild",
-    "updates.unsupportedMessage",
-    "updates.updateNow"
+    "updates.unsupportedMessage"
   ],
   "untranslated": {
     "ar": [

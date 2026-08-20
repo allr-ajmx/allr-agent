@@ -504,6 +504,7 @@ export interface Translations {
       onLatest: string
       installing: string
       cantUpdate: string
+      updateInstallFailed: string
       cantReach: string
       cantRead: string
       newVersion: (version: string) => string

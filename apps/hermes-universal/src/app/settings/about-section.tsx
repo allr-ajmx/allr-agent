@@ -11,7 +11,15 @@ import { openAppDownload } from '@/lib/updates'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
 import { $status } from '@/store/connection'
-import { $appUpdate, $appUpdateChecking, $appUpdateFailed, runUpdateCheck } from '@/store/updates'
+import {
+  $appUpdate,
+  $appUpdateChecking,
+  $appUpdateFailed,
+  $appUpdateInstallFailed,
+  $appUpdateInstalling,
+  runUpdateCheck,
+  runUpdateInstall
+} from '@/store/updates'
 
 import { ListRow, SectionHeading, SettingsContent } from './primitives'
 
@@ -19,10 +27,14 @@ const RELEASE_NOTES_URL = 'https://github.com/allr-ajmx/allr-agent/releases'
 
 // About (Jc12 / MJX-16): app version + backend version + release notes, plus the
 // update check (MJX-6). Where an update comes from is the native side's problem
-// — GitHub Releases on desktop, the Play/App Store listing on mobile — so this
-// only renders whatever `$appUpdate` reports and opens `downloadUrl`. A build
-// without the `update-checks` cargo feature reports source 'disabled', and the
-// whole Updates block is hidden.
+// — the signed updater manifest on desktop, the Play/App Store listing on
+// mobile — so this only renders whatever `$appUpdate` reports.
+//
+// Two shapes, keyed off `canSelfInstall`: desktop installs in place and
+// restarts ("Update now"), while the mobile stores can only be opened
+// ("Download" / "Open in Play Store"), because no store lets an app replace its
+// own binary. A mobile build without the `update-checks` cargo feature reports
+// source 'disabled' and the whole Updates block is hidden.
 
 // Ported from apps/desktop/src/app/settings/about-settings.tsx.
 function relativeTime(ms: number | undefined, a: Translations['settings']['about']) {
@@ -54,6 +66,8 @@ export function AboutSection() {
   const update = useStore($appUpdate)
   const checking = useStore($appUpdateChecking)
   const failed = useStore($appUpdateFailed)
+  const installing = useStore($appUpdateInstalling)
+  const updateInstallFailed = useStore($appUpdateInstallFailed)
   const [appVersion, setAppVersion] = useState<null | string>(null)
 
   useEffect(() => {
@@ -79,7 +93,12 @@ export function AboutSection() {
   let statusLine: string
   let statusTone: 'available' | 'error' | 'idle' = 'idle'
 
-  if (checking) {
+  if (installing) {
+    statusLine = a.installing
+  } else if (updateInstallFailed) {
+    statusLine = a.updateInstallFailed
+    statusTone = 'error'
+  } else if (checking) {
     statusLine = a.checking
   } else if (failed || update?.reason === 'unreachable') {
     statusLine = a.cantReach
@@ -132,12 +151,24 @@ export function AboutSection() {
             </div>
 
             <div className="mt-3 flex flex-wrap items-center gap-3">
-              <Button disabled={checking} onClick={() => void runUpdateCheck(true)} size="sm" variant="outline">
+              <Button
+                disabled={checking || installing}
+                onClick={() => void runUpdateCheck(true)}
+                size="sm"
+                variant="outline"
+              >
                 {checking ? <Loader2 className="size-3 animate-spin" /> : <RefreshCw className="size-3" />}
                 {checking ? a.checking : a.checkNow}
               </Button>
 
-              {update?.updateAvailable && update.downloadUrl && (
+              {update?.updateAvailable && update.canSelfInstall && (
+                <Button disabled={installing} onClick={() => void runUpdateInstall()} size="sm">
+                  {installing ? <Loader2 className="size-3 animate-spin" /> : <Download className="size-3" />}
+                  {a.updateNow}
+                </Button>
+              )}
+
+              {update?.updateAvailable && !update.canSelfInstall && update.downloadUrl && (
                 <Button onClick={() => void openAppDownload(update.downloadUrl!, update.notesUrl)} size="sm">
                   <Download className="size-3" />
                   {downloadLabel}

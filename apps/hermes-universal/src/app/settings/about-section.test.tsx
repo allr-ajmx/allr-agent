@@ -5,9 +5,11 @@ vi.mock('@tauri-apps/api/app', () => ({ getVersion: vi.fn(async () => '1.2.3') }
 
 const checkAppUpdate = vi.fn()
 const openAppDownload = vi.fn<(url: string, fallback?: null | string) => Promise<void>>()
+const installAppUpdate = vi.fn<() => Promise<void>>()
 
 vi.mock('@/lib/updates', () => ({
   checkAppUpdate: (force: boolean) => checkAppUpdate(force),
+  installAppUpdate: () => installAppUpdate(),
   openAppDownload: (url: string, fallback?: null | string) => openAppDownload(url, fallback)
 }))
 
@@ -24,15 +26,27 @@ function renderAbout() {
   )
 }
 
+// A store-backed status (mobile): the app cannot install this itself, so the
+// UI may only open the listing.
 const AVAILABLE = {
-  source: 'github',
+  source: 'play',
   currentVersion: '1.2.3',
   latestVersion: '1.3.0',
   updateAvailable: true,
   downloadUrl: 'https://example.test/Hermes_1.3.0.AppImage',
   notesUrl: 'https://example.test/release',
   checkedAtMs: Date.now(),
-  reason: null
+  reason: null,
+  canSelfInstall: false
+}
+
+// The desktop updater: it installs in place, so there is nothing to open and
+// `downloadUrl` is deliberately null.
+const SELF_INSTALL = {
+  ...AVAILABLE,
+  source: 'updater',
+  downloadUrl: null,
+  canSelfInstall: true
 }
 
 describe('AboutSection', () => {
@@ -40,6 +54,8 @@ describe('AboutSection', () => {
     __resetUpdateState()
     checkAppUpdate.mockReset()
     openAppDownload.mockClear()
+    installAppUpdate.mockReset()
+    installAppUpdate.mockResolvedValue(undefined)
     checkAppUpdate.mockResolvedValue(null)
   })
 
@@ -87,6 +103,34 @@ describe('AboutSection', () => {
 
     expect(await screen.findByText("You're on the latest version.")).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /^Download$/ })).not.toBeInTheDocument()
+  })
+
+  it('installs in place instead of downloading when the app can self-update', async () => {
+    checkAppUpdate.mockResolvedValue(SELF_INSTALL)
+
+    renderAbout()
+
+    expect(await screen.findByText('Version 1.3.0 is available.')).toBeInTheDocument()
+    // The download affordance is wrong here — there is no file to hand over.
+    expect(screen.queryByRole('button', { name: /^Download$/ })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Update now/ }))
+
+    expect(installAppUpdate).toHaveBeenCalled()
+    expect(openAppDownload).not.toHaveBeenCalled()
+  })
+
+  it('surfaces a failed install rather than silently doing nothing', async () => {
+    checkAppUpdate.mockResolvedValue(SELF_INSTALL)
+    installAppUpdate.mockRejectedValue(new Error('signature mismatch'))
+
+    renderAbout()
+
+    expect(await screen.findByText('Version 1.3.0 is available.')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Update now/ }))
+
+    expect(await screen.findByText(/couldn't be installed/)).toBeInTheDocument()
   })
 
   it('reports an unreachable store without breaking the page', async () => {

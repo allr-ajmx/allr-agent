@@ -1,5 +1,5 @@
 import type { UpdateStatus } from '@/lib/updates'
-import { checkAppUpdate } from '@/lib/updates'
+import { checkAppUpdate, installAppUpdate } from '@/lib/updates'
 import { atom } from '@/store/atom'
 
 // App-update state (MJX-6). Deliberately pull-only: the About page checks once
@@ -11,8 +11,14 @@ import { atom } from '@/store/atom'
 export const $appUpdate = atom<null | UpdateStatus>(null)
 export const $appUpdateChecking = atom(false)
 export const $appUpdateFailed = atom(false)
+// Set while the desktop updater is downloading/swapping. It is only ever
+// cleared on FAILURE: a successful install replaces the process, so the state
+// dies with it and leaving the button spinning until then is the honest UI.
+export const $appUpdateInstalling = atom(false)
+export const $appUpdateInstallFailed = atom(false)
 
 let inflight: null | Promise<null | UpdateStatus> = null
+let installing: null | Promise<void> = null
 
 /**
  * Run a check, deduping concurrent callers (mount + a quick "Check now" tap
@@ -46,10 +52,40 @@ export function runUpdateCheck(force = false): Promise<null | UpdateStatus> {
   return inflight
 }
 
+/**
+ * Install the update the last check found and restart into it.
+ *
+ * Deduped like `runUpdateCheck`: a double-tap must not start two downloads.
+ * Resolves either way — the caller reads `$appUpdateInstallFailed` — because
+ * the success path does not come back at all.
+ */
+export function runUpdateInstall(): Promise<void> {
+  if (installing) {
+    return installing
+  }
+
+  $appUpdateInstalling.set(true)
+  $appUpdateInstallFailed.set(false)
+
+  installing = installAppUpdate()
+    .catch(() => {
+      $appUpdateInstallFailed.set(true)
+      $appUpdateInstalling.set(false)
+    })
+    .finally(() => {
+      installing = null
+    })
+
+  return installing
+}
+
 /** Test seam — drop cached state between cases. */
 export function __resetUpdateState(): void {
   inflight = null
+  installing = null
   $appUpdate.set(null)
   $appUpdateChecking.set(false)
   $appUpdateFailed.set(false)
+  $appUpdateInstalling.set(false)
+  $appUpdateInstallFailed.set(false)
 }

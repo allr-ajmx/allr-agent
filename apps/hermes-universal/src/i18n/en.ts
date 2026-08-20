@@ -606,6 +606,7 @@ export const en: Translations = {
       onLatest: "You're on the latest version.",
       installing: 'An update is currently installing.',
       cantUpdate: "This build can't update itself from inside the app.",
+      updateInstallFailed: "The update couldn't be installed. Try again, or download it manually.",
       cantReach: "We couldn't reach the update server.",
       cantRead: "We couldn't read the store listing.",
       newVersion: version => `Version ${version} is available.`,

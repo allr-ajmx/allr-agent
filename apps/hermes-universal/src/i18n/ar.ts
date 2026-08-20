@@ -599,6 +599,7 @@ export const ar = defineLocale({
       onLatest: 'أنت على أحدث إصدار',
       installing: 'جار التثبيت...',
       cantUpdate: 'تعذر التحديث',
+      updateInstallFailed: 'تعذر تثبيت التحديث. أعد المحاولة أو نزّله يدويا.',
       cantReach: 'تعذر الوصول لخدمة التحديث',
       tapCheck: 'اضغط للتحقق من التحديثات.',
       updateReady: count => `${count} تحديث متاح`,

@@ -687,6 +687,7 @@ export const ja = defineLocale({
       onLatest: '最新バージョンです。',
       installing: '更新をインストール中です。',
       cantUpdate: 'このビルドはアプリ内から更新できません。',
+      updateInstallFailed: 'アップデートをインストールできませんでした。再試行するか、手動でダウンロードしてください。',
       cantReach: '更新サーバーに接続できませんでした。',
       cantRead: 'ストアの情報を読み取れませんでした。',
       newVersion: version => `バージョン ${version} が利用可能です。`,

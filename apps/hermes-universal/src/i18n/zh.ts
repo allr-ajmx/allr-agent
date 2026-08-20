@@ -791,6 +791,7 @@ export const zh: Translations = {
       onLatest: '你已是最新版本。',
       installing: '正在安装更新。',
       cantUpdate: '此版本无法在应用内自我更新。',
+      updateInstallFailed: '更新安装失败。请重试，或手动下载。',
       cantReach: '无法连接更新服务器。',
       cantRead: '无法读取应用商店信息。',
       newVersion: version => `版本 ${version} 已发布。`,

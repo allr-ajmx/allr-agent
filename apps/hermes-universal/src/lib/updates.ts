@@ -8,9 +8,10 @@ import { IS_TAURI } from '@/lib/platform'
 // imported and guarded by IS_TAURI so plain-web dev and vitest degrade to null
 // instead of throwing on a missing runtime.
 
-/** Which authority answered the check. `disabled` = built without the
+/** Which authority answered the check. `updater` = the desktop updater plugin,
+ *  which can install what it found; `disabled` = a mobile build without the
  *  `update-checks` cargo feature (the default), so no network call was made. */
-export type UpdateSource = 'appstore' | 'disabled' | 'github' | 'play'
+export type UpdateSource = 'appstore' | 'disabled' | 'play' | 'updater'
 
 /** Why we don't know the published version. Absent on a successful check. */
 export type UpdateReason = 'checks_disabled' | 'unparsed' | 'unreachable'
@@ -26,6 +27,10 @@ export interface UpdateStatus {
   notesUrl: null | string
   checkedAtMs: number
   reason: null | UpdateReason
+  /** True when the app can install the update itself (desktop). The UI then
+   *  offers "Restart & update" rather than a download link — on the mobile
+   *  stores nothing may replace an app's own binary. */
+  canSelfInstall: boolean
 }
 
 /**
@@ -67,4 +72,24 @@ export async function openAppDownload(url: string, fallback?: null | string): Pr
   const webUrl = /^https?:\/\//i.test(url) ? url : (fallback ?? url)
 
   await openExternalLink(webUrl)
+}
+
+/**
+ * Download, verify and install the update the last check found, then relaunch.
+ *
+ * Only meaningful when `canSelfInstall` is true. The native side verifies the
+ * bundle's signature against a public key compiled into this binary before it
+ * swaps anything, so this cannot be pointed at an attacker's build.
+ *
+ * On success the process is REPLACED and this promise never settles — treat a
+ * resolve as "no restart happened" and a reject as a real failure.
+ */
+export async function installAppUpdate(): Promise<void> {
+  if (!IS_TAURI) {
+    return
+  }
+
+  const { invoke } = await import('@tauri-apps/api/core')
+
+  await invoke('update_install')
 }

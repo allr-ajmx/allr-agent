@@ -671,6 +671,7 @@ export const zhHant = defineLocale({
       onLatest: '你已是最新版本。',
       installing: '正在安裝更新。',
       cantUpdate: '此版本無法從應用程式內自行更新。',
+      updateInstallFailed: '更新安裝失敗。請重試，或手動下載。',
       cantReach: '無法連線到更新伺服器。',
       cantRead: '無法讀取應用程式商店資訊。',
       newVersion: version => `版本 ${version} 已發布。`,

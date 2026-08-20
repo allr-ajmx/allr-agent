@@ -3,10 +3,13 @@
 //! Where the new build comes from depends on how the app was installed, so each
 //! target asks a different authority:
 //!
-//! * desktop  — the GitHub Releases API for this repo; the "download" is the
-//!              release asset matching the host OS/arch (we do not self-install:
-//!              there is no signing key or update server, so the user gets the
-//!              file and runs it).
+//! * desktop  — `tauri-plugin-updater`, against the signed `latest.json` on our
+//!              own release channel. The app REPLACES ITSELF and restarts; the
+//!              bundle's minisign signature is verified against the public key
+//!              compiled into this binary, so a tampered download is refused.
+//!              (This is what changed: the desktop arm used to read the GitHub
+//!              Releases API and merely hand the user a file, because "there is
+//!              no signing key or update server". There is now both.)
 //! * Android  — the Play Store listing for our own package id, scraped for the
 //!              published version; the "download" is a `market://` deep link.
 //! * iOS      — the official iTunes Lookup API for our own bundle id; the
@@ -53,7 +56,22 @@ pub struct UpdateStatus {
     pub checked_at_ms: u64,
     /// `checks_disabled` | `unreachable` | `unparsed` — absent on success.
     pub reason: Option<String>,
+    /// Can this build install the update itself? True on desktop, where the
+    /// updater plugin owns the whole download/verify/swap/restart cycle, so the
+    /// UI offers "Restart & update" instead of a download link. False on the
+    /// mobile stores, which never let an app replace its own binary.
+    pub can_self_install: bool,
 }
+
+/// The `reason` vocabulary, shared by both backends. `imp` (mobile stores) is
+/// behind the `update-checks` feature and `selfupdate` (desktop) is not, so
+/// these live at module scope rather than inside either one.
+const REASON_UNREACHABLE: &str = "unreachable";
+#[cfg_attr(
+    not(feature = "update-checks"),
+    allow(dead_code, reason = "only the mobile store parsers report `unparsed`")
+)]
+const REASON_UNPARSED: &str = "unparsed";
 
 /// Last result, so `force: false` can answer from memory (see `CACHE_TTL_MS`).
 #[derive(Default)]
@@ -75,10 +93,21 @@ pub async fn update_check(
         }
     }
 
+    // Desktop asks the updater plugin (which reads the signed manifest named by
+    // `plugins.updater.endpoints`); the mobile arms ask their store. Split here
+    // rather than inside `imp` because only the mobile half is gated behind the
+    // `update-checks` feature — see the module note.
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    let status = selfupdate::check(&app, &current).await;
+
     // The store identity is the bundle/package id from tauri.conf.json — never
     // hardcoded per platform, so a rename can't silently query the wrong app.
-    let identifier = app.config().identifier.clone();
-    let status = imp::check(&identifier, &current).await;
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    let status = {
+        let identifier = app.config().identifier.clone();
+
+        imp::check(&identifier, &current).await
+    };
 
     *state.0.lock().await = Some(status.clone());
 
@@ -107,6 +136,111 @@ pub fn update_open_download(
                 .map_err(|e| e.to_string()),
             None => Err(err.to_string()),
         },
+    }
+}
+
+/// Download and install the update the last check found, then relaunch.
+///
+/// Desktop only. The plugin verifies the bundle's minisign signature against
+/// the public key baked in at build time (`plugins.updater.pubkey`) BEFORE it
+/// swaps anything, so an attacker who controls the release host still cannot
+/// ship a binary; the key never leaves the release machine.
+///
+/// This does not return on success: `app.restart()` diverges, replacing the
+/// process with the freshly installed build. Only the error paths come back.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[tauri::command]
+pub async fn update_install(app: AppHandle) -> Result<(), String> {
+    use tauri_plugin_updater::UpdaterExt;
+
+    let updater = app.updater().map_err(|err| err.to_string())?;
+
+    let Some(update) = updater.check().await.map_err(|err| err.to_string())? else {
+        return Err("no update available".to_string());
+    };
+
+    // The two closures are progress reporting, which we do not surface yet;
+    // the plugin requires them regardless.
+    update
+        .download_and_install(|_chunk, _total| {}, || {})
+        .await
+        .map_err(|err| err.to_string())?;
+
+    // Diverges -- `restart()` returns `!`, replacing this process with the
+    // freshly installed one. Nothing after it runs, and the 6h cache above dies
+    // with the process rather than needing to be invalidated.
+    app.restart()
+}
+
+/// Mobile stub. The stores own installation on Android/iOS -- neither lets an
+/// app replace its own binary -- so this can only ever fail. It exists so
+/// `generate_handler!` in lib.rs keeps ONE shape across all targets, which is
+/// the invariant that keeps the IPC surface from drifting per platform.
+#[cfg(any(target_os = "android", target_os = "ios"))]
+#[tauri::command]
+pub async fn update_install(_app: AppHandle) -> Result<(), String> {
+    Err("self-install is not supported on this platform".to_string())
+}
+
+// --------------------------------------------------------------------------
+// Desktop: tauri-plugin-updater.
+//
+// NOT behind the `update-checks` feature, unlike the mobile store scrapes
+// below. That feature exists to keep a stock build from touching the network
+// on someone else's schedule (scraping a Play listing, hitting the GitHub API).
+// This is different in kind: one request to our own signed manifest, which is
+// the shipping behaviour of a release build. Gating it would let a release go
+// out that silently cannot update -- and the symptom would be the reassuring
+// "You're on the latest version", not an error.
+// --------------------------------------------------------------------------
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+mod selfupdate {
+    use tauri::AppHandle;
+
+    use super::{status_for, UpdateStatus};
+
+    /// Human-facing page for whatever the updater found. The manifest carries
+    /// no link of its own, and the About page wants somewhere to send people.
+    const RELEASES_PAGE: &str = "https://github.com/allr-ajmx/allr-agent/releases";
+
+    pub async fn check(app: &AppHandle, current: &str) -> UpdateStatus {
+        use tauri_plugin_updater::UpdaterExt;
+
+        let mut status = status_for("updater", current);
+
+        status.can_self_install = true;
+        status.notes_url = Some(RELEASES_PAGE.to_string());
+
+        let updater = match app.updater() {
+            Ok(updater) => updater,
+            Err(_) => {
+                // Misconfiguration (no endpoint, malformed pubkey) rather than
+                // a network fault, but the UI distinction is the same: we do
+                // not know, and that is not an error the user can act on.
+                status.reason = Some(super::REASON_UNREACHABLE.to_string());
+
+                return status;
+            }
+        };
+
+        match updater.check().await {
+            Ok(Some(update)) => {
+                status.update_available = true;
+                status.latest_version = Some(update.version.clone());
+                // Deliberately no download_url: there is nothing for the user
+                // to open. `can_self_install` is what the UI branches on.
+            }
+            // The plugin did the version comparison against the manifest, so
+            // there is no `is_newer` call on this path.
+            Ok(None) => {
+                status.latest_version = Some(current.to_string());
+            }
+            Err(_) => {
+                status.reason = Some(super::REASON_UNREACHABLE.to_string());
+            }
+        }
+
+        status
     }
 }
 
@@ -180,23 +314,16 @@ fn version_parts(value: &str) -> Vec<u64> {
 mod imp {
     use std::time::Duration;
 
-    use super::{is_newer, status_for, UpdateStatus};
+    use super::{is_newer, status_for, UpdateStatus, REASON_UNPARSED, REASON_UNREACHABLE};
 
     const TIMEOUT: Duration = Duration::from_secs(10);
     /// GitHub rejects requests without a User-Agent.
     const API_USER_AGENT: &str = concat!("Allr/", env!("CARGO_PKG_VERSION"));
     /// Play serves a different (parseable) page to a browser-shaped agent.
-    /// (Android-only, like `GITHUB_LATEST` is desktop-only — hence the allows.)
+    /// (Android-only — hence the allow; the iOS build compiles it unused.)
     #[allow(dead_code)]
     const WEB_USER_AGENT: &str =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36";
-
-    #[allow(dead_code)]
-    // TODO(MJXHRM-144): point at the public Allr release channel
-    const GITHUB_LATEST: &str = "https://api.github.com/repos/allr-ajmx/allr-agent/releases/latest";
-
-    const REASON_UNREACHABLE: &str = "unreachable";
-    const REASON_UNPARSED: &str = "unparsed";
 
     /// A dedicated client, NOT `TransportState`'s — that one carries the gateway
     /// session cookie jar, which must never be sent to GitHub/Google/Apple.
@@ -214,32 +341,6 @@ mod imp {
         }
 
         response.text().await.ok()
-    }
-
-    // ---- desktop: GitHub Releases ----------------------------------------
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    pub async fn check(_identifier: &str, current: &str) -> UpdateStatus {
-        let mut status = status_for("github", current);
-
-        let Some(body) = get(GITHUB_LATEST, "application/vnd.github+json", API_USER_AGENT).await
-        else {
-            status.reason = Some(REASON_UNREACHABLE.to_string());
-
-            return status;
-        };
-
-        let Some(release) = parse_github(&body) else {
-            status.reason = Some(REASON_UNPARSED.to_string());
-
-            return status;
-        };
-
-        status.update_available = is_newer(&release.version, current);
-        status.latest_version = Some(release.version);
-        status.notes_url = Some(release.notes_url.clone());
-        status.download_url = Some(release.download_url.unwrap_or(release.notes_url));
-
-        status
     }
 
     // ---- Android: Play Store listing --------------------------------------
@@ -306,87 +407,6 @@ mod imp {
     // above is `cfg`-gated) so all three are compiled and unit-tested on the
     // dev host — the mobile ones would otherwise never be exercised.
     // ------------------------------------------------------------------
-
-    pub struct GithubRelease {
-        pub version: String,
-        pub notes_url: String,
-        pub download_url: Option<String>,
-    }
-
-    #[derive(serde::Deserialize)]
-    struct GithubReleaseJson {
-        tag_name: String,
-        html_url: String,
-        #[serde(default)]
-        assets: Vec<GithubAssetJson>,
-    }
-
-    #[derive(serde::Deserialize)]
-    struct GithubAssetJson {
-        name: String,
-        browser_download_url: String,
-    }
-
-    /// Installer extensions for the host OS, most-preferred first.
-    fn asset_suffixes() -> &'static [&'static str] {
-        #[cfg(target_os = "macos")]
-        {
-            &[".dmg", ".app.tar.gz"]
-        }
-        #[cfg(target_os = "windows")]
-        {
-            &[".msi", "-setup.exe", ".exe"]
-        }
-        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-        {
-            &[".appimage", ".deb", ".rpm"]
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn parse_github(body: &str) -> Option<GithubRelease> {
-        let release: GithubReleaseJson = serde_json::from_str(body).ok()?;
-        let version = release
-            .tag_name
-            .trim()
-            .trim_start_matches(['v', 'V'])
-            .to_string();
-
-        if version.is_empty() {
-            return None;
-        }
-
-        // Prefer an asset that also names this architecture (a release carries
-        // both aarch64 and x86_64 builds); otherwise take the first match.
-        let arch = std::env::consts::ARCH;
-        let mut download_url = None;
-
-        for suffix in asset_suffixes() {
-            let matching: Vec<&GithubAssetJson> = release
-                .assets
-                .iter()
-                .filter(|asset| asset.name.to_ascii_lowercase().ends_with(suffix))
-                .collect();
-
-            if matching.is_empty() {
-                continue;
-            }
-
-            let chosen = matching
-                .iter()
-                .find(|asset| asset.name.to_ascii_lowercase().contains(arch))
-                .unwrap_or(&matching[0]);
-
-            download_url = Some(chosen.browser_download_url.clone());
-            break;
-        }
-
-        Some(GithubRelease {
-            version,
-            notes_url: release.html_url,
-            download_url,
-        })
-    }
 
     /// Pull the published version out of a Play listing page. Ordered by how
     /// stable each shape has proven: the `[[["1.2.3"]]]` blob in the embedded
@@ -458,8 +478,15 @@ mod imp {
 // --------------------------------------------------------------------------
 // Stub — the default build. Same signature, so everything above is identical
 // either way and `generate_handler!` never changes shape.
+//
+// Mobile-only, like `imp` itself now is: desktop resolves `check` through
+// `selfupdate` regardless of this feature, so compiling the stub there would
+// be a function with no caller.
 // --------------------------------------------------------------------------
-#[cfg(not(feature = "update-checks"))]
+#[cfg(all(
+    not(feature = "update-checks"),
+    any(target_os = "android", target_os = "ios")
+))]
 mod imp {
     use super::{status_for, UpdateStatus};
 
@@ -504,42 +531,7 @@ mod tests {
 
 #[cfg(all(test, feature = "update-checks"))]
 mod backend_tests {
-    use super::imp::{parse_github, parse_itunes, parse_play};
-
-    #[test]
-    fn reads_a_github_release() {
-        let body = r#"{
-            "tag_name": "v1.4.0",
-            "html_url": "https://github.com/NousResearch/hermes-agent/releases/tag/v1.4.0",
-            "assets": [
-                {"name": "Hermes_1.4.0_amd64.deb", "browser_download_url": "https://example.test/deb"},
-                {"name": "Hermes_1.4.0_x86_64.AppImage", "browser_download_url": "https://example.test/x86"},
-                {"name": "Hermes_1.4.0_aarch64.AppImage", "browser_download_url": "https://example.test/arm"}
-            ]
-        }"#;
-
-        let release = parse_github(body).expect("parsed");
-
-        assert_eq!(release.version, "1.4.0");
-        assert!(release.notes_url.ends_with("v1.4.0"));
-        // Which asset wins depends on the host, but it must be one of them.
-        assert!(release.download_url.is_some());
-    }
-
-    #[test]
-    fn falls_back_to_the_release_page_without_assets() {
-        let body = r#"{"tag_name": "1.0.0", "html_url": "https://example.test/rel", "assets": []}"#;
-        let release = parse_github(body).expect("parsed");
-
-        assert_eq!(release.download_url, None);
-        assert_eq!(release.notes_url, "https://example.test/rel");
-    }
-
-    #[test]
-    fn rejects_unparseable_github_payloads() {
-        assert!(parse_github("not json").is_none());
-        assert!(parse_github(r#"{"tag_name": "", "html_url": "x"}"#).is_none());
-    }
+    use super::imp::{parse_itunes, parse_play};
 
     #[test]
     fn reads_the_play_version_blob() {
