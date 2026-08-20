@@ -92,16 +92,42 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ needs.verify-version.outputs.version }}
         run: |
+          # A DRAFT is not reachable through /releases/tags/{tag}: that endpoint
+          # matches PUBLISHED releases only, so it 404s however many drafts carry
+          # the tag -- which is why this job failed on its first ever run, having
+          # just successfully created the draft it then could not find. The list
+          # endpoint does include drafts for an authenticated caller, so resolve
+          # the id there.
+          #
+          # `env.TAG` inside the jq filter rather than shell interpolation: the
+          # tag would otherwise have to be spliced through two layers of quoting
+          # inside a YAML block scalar.
+          draft_id() {
+            gh api "repos/${GITHUB_REPOSITORY}/releases" --paginate \
+              --jq '.[] | select(.tag_name == env.TAG) | .id' | head -1
+          }
+
           # Idempotent: a re-run of the same tag reuses its draft rather than
           # failing, so a single flaky leg can be retried without starting over.
-          if ! gh release view "$TAG" >/dev/null 2>&1; then
+          # This is also what stops a retry stacking up a second draft for one tag.
+          id="$(draft_id)"
+
+          if [ -z "$id" ]; then
             gh release create "$TAG" \
               --draft \
               --title "Allr Desktop v$VERSION" \
               --notes "Desktop builds of Allr and Allr Setup. See the assets below."
+            id="$(draft_id)"
           fi
 
-          id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" --jq '.id')"
+          # Never hand an empty releaseId to the matrix: tauri-action would treat
+          # it as "no release" and the six legs would build for 40 minutes and
+          # upload nowhere.
+          if [ -z "$id" ]; then
+            echo "::error::could not resolve a release id for $TAG"
+            exit 1
+          fi
+
           echo "release_id=$id" >> "$GITHUB_OUTPUT"
 
   # ---------------------------------------------------------------------------
