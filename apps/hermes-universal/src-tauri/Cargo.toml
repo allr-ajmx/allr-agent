@@ -1,6 +1,6 @@
 [package]
 name = "hermes-universal"
-version = "0.0.2"
+version = "0.1.0"
 description = "Allr Universal — Tauri v2 client (desktop + Android + iOS from one codebase)."
 authors = ["Nous Research <info@nousresearch.com>"]
 edition = "2021"
@@ -240,6 +240,18 @@ keepawake = "0.6"
 # plugin has nothing to do there and no reason to be in the NDK build.
 tauri-plugin-global-shortcut = "2"
 
+# Self-installing updates (MJX-6 follow-on). Gated by TARGET, not behind a cargo
+# feature, and deliberately so: this is the shipping behaviour now, and a
+# default-off feature is a build whose release job can forget it -- producing a
+# signed release plus a latest.json that nothing in the wild can consume, with
+# no error anywhere to say so. `update-checks` continues to gate ONLY the mobile
+# store scrapes, which is all it was ever about; see updates.rs.
+#
+# Android/iOS keep the Play/App Store paths instead: neither store lets an app
+# replace its own binary, so the plugin has nothing to do there and this keeps
+# it out of the NDK build.
+tauri-plugin-updater = "2"
+
 # Route Rust `log::` output to logcat on Android. tao does not reliably install a
 # logger, so our connect/OAuth diagnostics were invisible; init it ourselves in
 # `run()`. See the `oslog` entry below for the iOS half. (Desktop still installs no
@@ -312,9 +324,22 @@ webkit2gtk = { version = "2.0", features = ["v2_8"] }
 [target.'cfg(target_os = "macos")'.dependencies]
 # The OS credential store behind src/secrets/. All MIT/Apache-2.0, unlike the
 # plugin that used to wrap them — see the keyring-core note under [dependencies].
-# `protected` selects the Protected Data keychain. Required on iOS (the crate
-# errors without it) and used on macOS too, so both Apple targets store alike.
-apple-native-keyring-store = { version = "1.0", features = ["protected"] }
+#
+# `keychain` — the file-based login keychain — and NOT the `protected` Protected
+# Data store the iOS block below selects. The two Apple targets deliberately do
+# not store alike, because only one of them has a provisioning profile.
+#
+# The Protected Data keychain writes with `kSecUseDataProtectionKeychain`, which
+# on macOS requires the process to carry a keychain access group — granted by a
+# `keychain-access-groups`/`application-identifier` entitlement, which only a
+# provisioning profile supplies. This bundle has neither (there is no
+# `bundle.macOS` section in tauri.conf.json, and `tauri dev` runs a bare binary),
+# so every write returned `errSecMissingEntitlement (-34018)`. Nothing surfaced
+# it: `protected::Store::new()` is infallible, so the store reported itself
+# available and only the writes failed. The visible symptom was an RFC 8252
+# sign-in that completed in the browser and left the app signed out, because the
+# token set could not reach the keyring (`oauth.rs::store_native_tokens`).
+apple-native-keyring-store = { version = "1.0", features = ["keychain"] }
 core-graphics = "0.25"
 core-foundation = "0.10"
 core-foundation-sys = "0.8"
@@ -351,6 +376,9 @@ windows-sys = { version = "0.61", features = [
 [target.'cfg(target_os = "ios")'.dependencies]
 # The OS credential store behind src/secrets/. All MIT/Apache-2.0, unlike the
 # plugin that used to wrap them — see the keyring-core note under [dependencies].
+# `protected` is REQUIRED here — the crate `compile_error!`s on iOS without it,
+# and iOS has a provisioning profile so the entitlement macOS lacks is present.
+# Do not "unify" this with the macOS block above; see the note there.
 apple-native-keyring-store = { version = "1.0", features = ["protected"] }
 oslog = { version = "0.2.0", default-features = false, features = ["logger"] }
 

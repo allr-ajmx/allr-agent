@@ -90,7 +90,32 @@ fn install() -> Result<(), SecretsError> {
         return Ok(());
     }
 
-    #[cfg(all(not(test), any(target_os = "macos", target_os = "ios")))]
+    // The two Apple targets take different stores, and the split is load-bearing.
+    //
+    // The Protected Data keychain writes with `kSecUseDataProtectionKeychain`, which
+    // needs the process to carry a keychain access group. That comes from a
+    // `keychain-access-groups`/`application-identifier` entitlement, i.e. from a
+    // provisioning profile. iOS always has one; a macOS bundle only has one if it is
+    // signed with a profile, and this one is not (no `bundle.macOS` in
+    // tauri.conf.json, and `tauri dev` runs a bare binary). Using it there returned
+    // `errSecMissingEntitlement (-34018)` on every single write.
+    //
+    // That failure was invisible from here: `protected::Store::new()` is infallible,
+    // so `ensure` succeeded and `secrets_status` advertised a working store while
+    // nothing could be written to it. What it looked like from the outside was a
+    // desktop sign-in that finished in the browser and left the app signed out —
+    // `oauth.rs::store_native_tokens` could not persist the token set.
+    #[cfg(all(not(test), target_os = "macos"))]
+    {
+        // The file-based login keychain. Available to any process, entitlement or not.
+        let store = apple_native_keyring_store::keychain::Store::new()
+            .map_err(|e| SecretsError::unavailable(format!("the Keychain is unavailable: {e}")))?;
+        keyring_core::set_default_store(store);
+
+        return Ok(());
+    }
+
+    #[cfg(all(not(test), target_os = "ios"))]
     {
         // The `protected` store is the Protected Data keychain, and is required
         // on iOS — the crate errors without it.
