@@ -202,7 +202,7 @@ const HUD_TOP_MARGIN: i32 = 96;
 /// the first measured report after the window paints does not immediately ask
 /// for a different height than the one it was built at.
 #[cfg(desktop)]
-const HUD_COLLAPSED_HEIGHT: f64 = 88.0;
+const HUD_COLLAPSED_HEIGHT: f64 = 40.0;
 
 /// How tall the HUD may grow once a reply is streaming into the panel below the
 /// bar. Also a multiple of 8.
