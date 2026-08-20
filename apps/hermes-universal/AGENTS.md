@@ -1,11 +1,34 @@
 # Universal Engineering Guide
 
 How to build Allr Universal (Tauri, desktop + Android/iOS from one React app)
-well. Read it with the repository `AGENTS.md` — the root rules still apply — and
-with `apps/desktop/AGENTS.md`, whose seams and state rules universal shares.
+well. Read it with the repository `AGENTS.md` — the root rules still apply.
+
+(This used to also point at `apps/desktop/AGENTS.md`, the Electron app's guide.
+That workspace was deleted in 3adad3bbb5 and only a stray `node_modules/` is
+left on disk, so there is nothing to read there.)
 
 When a rule here and the code disagree, trust the code and fix whichever is
 wrong.
+
+## Commands
+
+**npm, never pnpm or yarn** — this repo is one npm workspace tree pinned by the
+root `package-lock.json` (see the root `AGENTS.md`). This package is
+`@hermes/universal`, so every script below also works from the repo root as
+`npm run <script> --workspace @hermes/universal`.
+
+```bash
+npm run tauri dev     # desktop shell (Vite is started for you)
+npm run android:dev   # Android; ios:build:debug / dev:ios for iOS
+npm test              # vitest (this package only)
+npm run check         # the full gate: typecheck, lint, test, build, i18n,
+                      #   cargo fmt --check, cargo check, cargo test
+```
+
+`npm run check` is the one to run before calling a change done — it covers both
+halves, and the Rust half is easy to forget because nothing in the JS tooling
+touches `src-tauri/`. `README.md` has the full script table, the several-shells-
+on-one-dev-server workflow (`dev:ext:*`), and what `tauri build` emits.
 
 ## `position: fixed` is not above the soft keyboard
 

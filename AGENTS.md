@@ -260,6 +260,31 @@ source .venv/bin/activate   # or: source venv/bin/activate
 `$HOME/.allr/allr-agent/venv` (for worktrees that share a venv with the
 main checkout).
 
+### JavaScript: npm workspaces, never pnpm or yarn
+
+The JS side of this repo is a single **npm workspace tree**, pinned by the root
+`package-lock.json`. There is no `pnpm-lock.yaml` and no `yarn.lock`, and adding
+one would split the dependency graph the lockfile exists to pin.
+
+```jsonc
+// package.json
+"workspaces": ["apps/*", "ui-tui", "ui-tui/packages/*", "web", "tests-js"]
+```
+
+Run a workspace's scripts either from its own directory or with `--workspace`
+from the root — both resolve through the same lockfile:
+
+```bash
+cd apps/hermes-universal && npm run tauri dev   # or:
+npm run tauri dev --workspace @hermes/universal
+```
+
+That `pnpm` appears all over `agent/`, `tests/` and the skills is unrelated and
+must not be "fixed": the agent DETECTS a user project's package manager
+(`agent/coding_context.py`, `agent/verify/recipes.py` key off `pnpm-lock.yaml`),
+and those fixtures are asserting that detection works. Package-manager strings
+in test data describe someone else's repo, not ours.
+
 ## Project Structure
 
 File counts shift constantly — don't treat the tree below as exhaustive.
@@ -298,6 +323,11 @@ allr-agent/
 │                         #   strike-freedom-cockpit, ...
 ├── optional-skills/      # Heavier/niche skills shipped but NOT active by default
 ├── skills/               # Built-in skills bundled with the repo
+├── apps/                 # npm workspaces for the shipped GUI apps
+│   ├── hermes-universal/ # Tauri app (desktop + Android/iOS from one React app).
+│   │                     #   Has its own AGENTS.md and README; `src-tauri/` is the Rust half.
+│   ├── bootstrap-installer/ # Tauri installer ("Allr Setup"); ships on the same release
+│   └── shared/           # Code both apps import
 ├── ui-tui/               # Ink (React) terminal UI — `hermes --tui`
 │   └── src/              # entry.tsx, app.tsx, gatewayClient.ts + app/components/hooks/lib
 ├── tui_gateway/          # Python JSON-RPC backend for the TUI
