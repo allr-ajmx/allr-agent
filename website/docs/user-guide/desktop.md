@@ -194,7 +194,11 @@ For the full backend-side setup (auth providers, env vars, close-code triage), s
 
 ## Updating
 
-Update checking is a **build-time option** and is off in a default build — such a build reports "disabled" rather than an error, and you update the app the way you installed it. When it is compiled in, the check is per platform: desktop looks at the project's GitHub releases and hands you the matching download to run yourself (the app never self-installs), Android points at the Play Store listing, and iOS at the App Store. Results are cached for a few hours.
+On **desktop the app updates itself.** Open **Settings → About** and choose **Update now**: it downloads the new build, verifies it, swaps it in and restarts. Every bundle is signed, and the signature is checked against a key compiled into the app before anything is replaced, so a tampered or substituted download is refused rather than installed. Results are cached for a few hours, and **Check now** forces a fresh look.
+
+Two exceptions on desktop. `.deb` and `.rpm` installs update through your package manager instead — they are owned by the system packager, not by the app. And builds installed from a distro repository or built from source have no update channel at all.
+
+On **mobile** the stores own installation: Android points at the Play Store listing and iOS at the App Store, because neither platform lets an app replace its own binary. Those checks remain a build-time option and are off in a default build, which reports "disabled" rather than an error.
 
 The [manual update process](https://allr.work/docs/getting-started/updating) always works.
 

@@ -15,7 +15,14 @@ platform-gated features are supported), see **[Platform Support](./platform-supp
 
 ## Quick Install
 ### With the Allr Desktop installer on macOS or Windows (recommended)
-To easily install the command-line and desktop applications, [download the Allr Desktop installer](https://allr.work/) from our website and run it.
+To easily install the command-line and desktop applications, [download the Allr Desktop installer](https://allr.work/) from our website and run it. Builds for every platform are also attached to the [`desktop-v*` releases](https://github.com/allr-ajmx/allr-agent/releases) — `.dmg` for macOS, `.exe` / `.msi` for Windows, `.AppImage` / `.deb` / `.rpm` for Linux.
+
+Two things worth knowing before you run it:
+
+- **macOS** builds are signed and notarized, so they open normally — no right-click → Open, no Gatekeeper override. The first launch still asks the standard "downloaded from the Internet, are you sure?" question once.
+- **Windows** builds are **not yet code-signed**, so SmartScreen shows "Windows protected your PC". Choose **More info → Run anyway**. Each release publishes a `SHA256SUMS.txt` you can check the download against if you would rather verify it than trust the prompt.
+
+Once installed, the desktop app keeps itself up to date — see [Updating](../user-guide/desktop.md#updating).
 
 ### Without Allr Desktop:
 For a command-line only install without Allr Desktop, run:
