@@ -19,8 +19,17 @@ To easily install the command-line and desktop applications, [download the Allr 
 
 Two things worth knowing before you run it:
 
-- **macOS** builds are signed and notarized, so they open normally — no right-click → Open, no Gatekeeper override. The first launch still asks the standard "downloaded from the Internet, are you sure?" question once.
-- **Windows** builds are **not yet code-signed**, so SmartScreen shows "Windows protected your PC". Choose **More info → Run anyway**. Each release publishes a `SHA256SUMS.txt` you can check the download against if you would rather verify it than trust the prompt.
+- **macOS** builds are **not yet signed or notarized**, so Gatekeeper blocks the first launch — macOS reports that it "cannot verify" the app, or that it "is damaged" (that wording is misleading; it means unsigned, not corrupt). Open it once from **System Settings → Privacy & Security**, where an **Open Anyway** button appears just after you are refused. On older macOS versions, right-click the app → **Open** instead. After that first launch it opens normally.
+- **Windows** builds are **not yet code-signed** either, so SmartScreen shows "Windows protected your PC". Choose **More info → Run anyway**.
+
+Because neither platform's download carries a signature you can check, every release publishes a `SHA256SUMS.txt`. Verifying against it is the only integrity check available today — prefer it to trusting the prompt:
+
+```bash
+# macOS / Linux
+shasum -a 256 -c SHA256SUMS.txt --ignore-missing
+```
+
+Code signing is planned for both platforms; until it lands these warnings are expected rather than a sign of a bad download.
 
 Once installed, the desktop app keeps itself up to date — see [Updating](../user-guide/desktop.md#updating).
 
