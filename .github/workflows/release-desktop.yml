@@ -1,0 +1,341 @@
+name: Release Desktop
+
+# Signed, cross-platform desktop releases for BOTH Tauri apps: Allr
+# (apps/hermes-universal) and Allr Setup (apps/bootstrap-installer). They ship
+# together on one release and carry one version, so the tag names one number.
+#
+# TRIGGER: `desktop-v<semver>` tags ONLY, and the prefix is load-bearing.
+# `v<semver>` is the Python CLI's CalVer channel (scripts/release.py), and
+# install-e2e.yml fires an ~11-minute-per-leg matrix on `v[0-9]+.[0-9]+.[0-9]+`.
+# A desktop tag must not look like one.
+#
+# THE RELEASE IS NEVER "latest". `updates.rs` in shipped builds, install.sh, and
+# install-e2e.yml all read /releases/latest and expect the Python CalVer
+# release, so the final `gh release edit` passes --latest=false. The desktop
+# update channel is addressed by its own fixed `desktop-updater` tag instead
+# (see the `publish` job) -- which is also why plugins.updater.endpoints in
+# tauri.conf.json points at that tag and NOT at /releases/latest/download/.
+# Pointing it at "latest" would resolve to a Python release with no latest.json,
+# and the failure would surface to users as a reassuring "You're on the latest
+# version" rather than an error.
+#
+# Everything here is optional-by-presence, the same rule
+# gen/android/keystore.properties follows: with no signing secrets the jobs
+# still succeed and produce UNSIGNED artifacts. Windows is unsigned today by
+# design -- see the "Windows code signing" step.
+
+on:
+  push:
+    tags:
+      - 'desktop-v[0-9]+.[0-9]+.[0-9]+'
+      - 'desktop-v[0-9]+.[0-9]+.[0-9]+-*' # -rc.1, -beta.2
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing desktop-v* tag to (re)build.'
+        required: true
+        type: string
+
+permissions:
+  contents: write # create the release and upload assets
+
+concurrency:
+  # Never cancel: a half-uploaded release is worse than a slow one.
+  group: release-desktop-${{ inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # A 30-second gate in front of ~40 minutes of compilation. The version lives
+  # in eleven places (see scripts/bump-desktop-version.py) and a stale one does
+  # not fail loudly -- tauri catches some, the tracked Apple project catches
+  # none. Better to find out here than after notarization.
+  # ---------------------------------------------------------------------------
+  verify-version:
+    name: Verify version
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.TAG }}
+
+      - id: resolve
+        run: |
+          version="${TAG#desktop-v}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          python3 scripts/bump-desktop-version.py --check "$version"
+
+  # ---------------------------------------------------------------------------
+  # One draft release up front, so the six matrix legs upload into the same
+  # place and a failed leg never leaves a half-populated public release.
+  # ---------------------------------------------------------------------------
+  create-draft:
+    name: Create draft release
+    needs: verify-version
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      release_id: ${{ steps.draft.outputs.release_id }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.TAG }}
+
+      - id: draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.verify-version.outputs.version }}
+        run: |
+          # Idempotent: a re-run of the same tag reuses its draft rather than
+          # failing, so a single flaky leg can be retried without starting over.
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" \
+              --draft \
+              --title "Allr Desktop v$VERSION" \
+              --notes "Desktop builds of Allr and Allr Setup. See the assets below."
+          fi
+
+          id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" --jq '.id')"
+          echo "release_id=$id" >> "$GITHUB_OUTPUT"
+
+  # ---------------------------------------------------------------------------
+  # Six legs: two apps x three platforms. `include` rather than a cross product
+  # so each row can carry its own target and updater setting.
+  # ---------------------------------------------------------------------------
+  build:
+    name: ${{ matrix.label }} · ${{ matrix.app }}
+    needs: [verify-version, create-draft]
+    strategy:
+      fail-fast: false # report all six results, not just the first failure
+      matrix:
+        include:
+          # macOS is built UNIVERSAL, not per-arch, and that is deliberate.
+          # Tauri names per-arch DMGs `_x64.dmg`, but `updates.rs` matches an
+          # asset by `contains(std::env::consts::ARCH)` -- i.e. "x86_64", which
+          # "x64" does not contain. A split build would hand Intel users the
+          # aarch64 DMG. One universal artifact makes the ambiguity impossible.
+          - { os: macos-14, app: hermes-universal, target: universal-apple-darwin, label: macOS, updater: true }
+          - { os: macos-14, app: bootstrap-installer, target: universal-apple-darwin, label: macOS, updater: false }
+          # ubuntu-22.04, NOT ubuntu-latest: ubuntu-latest is 24.04 (glibc 2.39)
+          # and glibc is forward- but not backward-compatible, so a binary built
+          # there refuses to start on Ubuntu 22.04 / Debian 12 / Mint 21 with
+          # `GLIBC_2.38 not found` -- which users experience as "the AppImage
+          # does nothing when I double-click it". Build on the oldest distro we
+          # intend to support.
+          - { os: ubuntu-22.04, app: hermes-universal, target: x86_64-unknown-linux-gnu, label: Linux, updater: true }
+          - { os: ubuntu-22.04, app: bootstrap-installer, target: x86_64-unknown-linux-gnu, label: Linux, updater: false }
+          - { os: windows-latest, app: hermes-universal, target: x86_64-pc-windows-msvc, label: Windows, updater: true }
+          - { os: windows-latest, app: bootstrap-installer, target: x86_64-pc-windows-msvc, label: Windows, updater: false }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90 # a cold universal macOS build plus notarization
+    # Job-level, not step-level: a step's own `env:` block is NOT in scope for
+    # that step's `if:`, so an optional-by-presence gate written there would
+    # read '' and skip forever -- silently shipping unsigned artifacts.
+    env:
+      APPLE_API_KEY_P8_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
+      APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.TAG }}
+          # NOT a sparse or filtered checkout, for two reasons:
+          #   * hermes-universal pins `[patch.crates-io] tao` at a path inside
+          #     src-tauri/vendor/, which is tracked and must be present;
+          #   * bootstrap-installer's build.rs shells out to `git rev-parse` to
+          #     bake ALLR_BUILD_PIN_COMMIT into the binary.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 26
+          cache: npm
+
+      - name: grab npm 12
+        run: npm i -g npm@12
+
+      - uses: ./.github/actions/retry
+        with:
+          command: npm ci
+
+      # rustup is preinstalled on every runner image, so no third-party
+      # toolchain action is pulled in -- same reasoning as js-tests.yml.
+      - name: Rust toolchain
+        shell: bash
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+
+          # A universal binary is lipo'd from two real builds, so both halves
+          # need their target installed.
+          if [ "${{ matrix.target }}" = "universal-apple-darwin" ]; then
+            rustup target add x86_64-apple-darwin aarch64-apple-darwin
+          fi
+
+      - uses: Swatinem/rust-cache@bc2d2e71bd35c5549942babaa51a89c586b981d1 # v2.8.1
+        with:
+          workspaces: apps/${{ matrix.app }}/src-tauri
+          key: ${{ matrix.target }}
+
+      # librsvg2-dev and patchelf are AppImage-only and fail at the very LAST
+      # step of a 30-minute build, with an appimagetool error that names
+      # neither package. Keep this list in step with the prerequisites in
+      # apps/hermes-universal/README.md.
+      - name: Linux prerequisites
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libasound2-dev \
+            libxdo-dev \
+            libssl-dev \
+            patchelf \
+            file
+
+      # The App Store Connect API key has to exist as a file on disk. Written
+      # under RUNNER_TEMP, which is wiped with the runner, and skipped entirely
+      # when the secret is absent so an unsigned build still succeeds.
+      - name: Materialize App Store Connect API key
+        if: runner.os == 'macOS' && env.APPLE_API_KEY_P8_BASE64 != ''
+        run: |
+          mkdir -p "$RUNNER_TEMP/asc"
+          key_path="$RUNNER_TEMP/asc/AuthKey_${APPLE_API_KEY}.p8"
+          echo "$APPLE_API_KEY_P8_BASE64" | base64 --decode > "$key_path"
+          echo "APPLE_API_KEY_PATH=$key_path" >> "$GITHUB_ENV"
+
+      # Windows ships UNSIGNED today: there is no certificate. This step is the
+      # seam that turns it on, and it is optional-by-presence exactly like
+      # gen/android/keystore.properties -- with no AZURE_CLIENT_ID secret it is
+      # skipped and nothing else in the workflow changes.
+      #
+      # Azure Trusted Signing rather than a .pfx-in-a-secret: OV/EV certificates
+      # now require an FIPS-140-2 hardware token that a hosted runner cannot
+      # hold, so a .pfx design would have to be unpicked later. Until this is
+      # switched on, SmartScreen will warn on first run -- documented in
+      # website/docs/getting-started/installation.md.
+      - name: Windows code signing (optional)
+        if: runner.os == 'Windows' && env.AZURE_CLIENT_ID != ''
+        run: echo "Trusted Signing secrets present - wire trusted-signing-cli here."
+
+      - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # action-v1.0.0
+        env:
+          # Updater signing. Only the product app declares an updater, but the
+          # variables are harmless on the installer legs.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # macOS signing + notarization. Every one is optional-by-presence:
+          # absent means an unsigned build, not a failed one.
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_PATH: ${{ env.APPLE_API_KEY_PATH }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: apps/${{ matrix.app }}
+          releaseId: ${{ needs.create-draft.outputs.release_id }}
+          args: --target ${{ matrix.target }} --verbose
+          # latest.json is generated only for the app that has an updater; the
+          # installer would otherwise overwrite it with a manifest for itself.
+          uploadUpdaterJson: ${{ matrix.updater }}
+          retryAttempts: 2
+
+  # ---------------------------------------------------------------------------
+  # Publish. Order matters: the updater pointer must only be moved once every
+  # asset URL it will name actually exists.
+  # ---------------------------------------------------------------------------
+  publish:
+    name: Publish release
+    needs: [verify-version, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      VERSION: ${{ needs.verify-version.outputs.version }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.TAG }}
+
+      - name: Checksums for every asset
+        run: |
+          mkdir -p dist && cd dist
+          gh release download "$TAG" --clobber
+
+          # Windows is unsigned, so a published checksum is the only integrity
+          # signal a careful user has. Excludes the updater signatures (already
+          # signatures) and any previous SHA256SUMS. -print0/-d '' rather than
+          # word-splitting `ls`, so an asset name with a space can never split.
+          find . -maxdepth 1 -type f \
+            ! -name '*.sig' ! -name 'SHA256SUMS*' -print0 \
+            | sort -z \
+            | xargs -0 -r sha256sum > SHA256SUMS.txt
+
+          gh release upload "$TAG" SHA256SUMS.txt --clobber
+
+      - name: Sanity-check the updater manifest
+        id: manifest
+        run: |
+          cd dist
+
+          if [ ! -f latest.json ]; then
+            echo "::error::latest.json is missing - the updater legs did not produce one."
+            exit 1
+          fi
+
+          # A manifest missing a platform silently strands that platform on the
+          # old build, reporting "up to date" rather than an error. Fail loudly.
+          for platform in darwin-aarch64 darwin-x86_64 linux-x86_64 windows-x86_64; do
+            if ! jq -e --arg p "$platform" '.platforms[$p].url' latest.json >/dev/null; then
+              echo "::error::latest.json has no entry for $platform"
+              exit 1
+            fi
+          done
+
+          jq -e --arg v "$VERSION" '.version == $v' latest.json >/dev/null \
+            || { echo "::error::latest.json version != $VERSION"; exit 1; }
+
+          echo "latest.json covers all four platforms at $VERSION"
+
+      - name: Publish
+        run: |
+          # --latest=false is load-bearing: /releases/latest must keep resolving
+          # to the Python CalVer release that install.sh and install-e2e.yml are
+          # built around.
+          if [[ "$VERSION" == *-* ]]; then
+            gh release edit "$TAG" --draft=false --prerelease --latest=false
+          else
+            gh release edit "$TAG" --draft=false --latest=false
+          fi
+
+      # LAST, and deliberately so. latest.json names asset URLs on the
+      # desktop-v* release, and a DRAFT release's asset URLs 404 -- moving
+      # the pointer before publishing would advertise a version nobody can
+      # download. A prerelease never moves the stable pointer at all.
+      - name: Move the updater pointer
+        if: ${{ !contains(needs.verify-version.outputs.version, '-') }}
+        run: |
+          # A permanent, fixed-tag prerelease whose ONLY asset is latest.json.
+          # Prerelease so it can never become /releases/latest and displace the
+          # Python CalVer channel that install.sh depends on. This fixed URL is
+          # what plugins.updater.endpoints names; do not "simplify" it to
+          # /releases/latest/download/.
+          if ! gh release view desktop-updater >/dev/null 2>&1; then
+            gh release create desktop-updater \
+              --prerelease \
+              --title "Desktop update channel" \
+              --notes "Pointer release. Its only asset is latest.json, which the Allr desktop updater reads. Not a downloadable build - see the desktop-v* releases."
+          fi
+
+          gh release upload desktop-updater dist/latest.json --clobber

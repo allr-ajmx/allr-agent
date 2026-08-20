@@ -146,6 +146,114 @@ Without that file the release variant is unsigned and Play Console rejects it. E
 `versionCode`, which Tauri derives from the version in `tauri.conf.json` / `package.json` — bump the patch
 before building. `jarsigner -verify <aab>` confirms the signature.
 
+## Desktop release build
+
+Desktop releases are cut by CI, not by hand: push a `desktop-v*` tag and
+`.github/workflows/release-desktop.yml` builds, signs, notarizes and publishes
+both apps (Allr and Allr Setup) for macOS, Linux and Windows.
+
+```
+python scripts/bump-desktop-version.py 0.1.1   # all 11 version sites, both apps
+git commit -am 'chore(desktop): bump to 0.1.1'
+git tag desktop-v0.1.1 && git push origin main desktop-v0.1.1
+```
+
+The bump must land **before** the tag: the workflow's first job runs
+`bump-desktop-version.py --check` against the tag and fails in seconds rather
+than after a 40-minute universal macOS build.
+
+The tag prefix matters. `v0.1.1` is the Python CLI's CalVer channel
+(`scripts/release.py`) and would fire `install-e2e.yml`; `desktop-v*` is
+invisible to it.
+
+### Building one locally
+
+`npm run tauri build` produces, under `src-tauri/target/`:
+
+| Platform | Installer | Updater artifact |
+| --- | --- | --- |
+| macOS | `universal-apple-darwin/release/bundle/dmg/Allr_0.1.1_universal.dmg` | `.../bundle/macos/Allr.app.tar.gz` + `.sig` |
+| Linux | `release/bundle/appimage/Allr_0.1.1_amd64.AppImage`, plus `.deb` and `.rpm` | `.../Allr_0.1.1_amd64.AppImage.tar.gz` + `.sig` |
+| Windows | `release/bundle/nsis/Allr_0.1.1_x64-setup.exe`, plus `.msi` | `.../Allr_0.1.1_x64-setup.nsis.zip` + `.sig` |
+
+macOS is built **universal** (`--target universal-apple-darwin`, needs
+`rustup target add x86_64-apple-darwin`). That is not just convenience:
+`updates.rs` picks a release asset with
+`name.contains(std::env::consts::ARCH)`, and Tauri names Intel bundles `_x64`,
+which does not contain `x86_64` — a per-arch release would hand Intel users the
+aarch64 build. One universal artifact makes that impossible.
+
+arm64 Linux is not built; those users build from source with the prerequisites
+at the top of this file.
+
+### Signing credentials
+
+Like `gen/android/keystore.properties`, these are **optional by presence** —
+with none of them set the build still succeeds and simply produces unsigned
+artifacts:
+
+```
+export TAURI_SIGNING_PRIVATE_KEY="$(cat ~/.tauri/allr-updater.key)"
+export TAURI_SIGNING_PRIVATE_KEY_PASSWORD='<password set at generation>'
+
+export APPLE_SIGNING_IDENTITY='Developer ID Application: Jai Shukla (6M43WS4436)'
+export APPLE_API_ISSUER='<App Store Connect issuer UUID>'
+export APPLE_API_KEY='<10-char key id>'
+export APPLE_API_KEY_PATH="$HOME/private_keys/AuthKey_<key id>.p8"
+```
+
+The first local signed build pops a **keychain prompt** ("codesign wants to use
+key ... in your keychain") and blocks until you answer — choose *Always Allow*
+so later builds run unattended. CI never hits this: `tauri-action` creates a
+throwaway keychain from `KEYCHAIN_PASSWORD` and imports the `.p12` into it.
+
+`Developer ID Application`, not `Apple Distribution`: this is direct
+distribution, and a Mac App Store identity produces a bundle Gatekeeper rejects
+on download. Notarization uses an App Store Connect **API key** rather than an
+Apple ID + app-specific password, so it is team-scoped, individually revocable,
+and survives a password rotation.
+
+Windows is **unsigned** for now — there is no certificate. Users see a
+SmartScreen warning on first run; `SHA256SUMS.txt` on each release is the
+integrity signal until that changes. The workflow already carries the seam that
+turns signing on.
+
+### Verifying a signed build
+
+```
+codesign -dv --verbose=4 /Applications/Allr.app     # flags=0x10000(runtime), Developer ID
+codesign -d --entitlements :- /Applications/Allr.app  # the audio-input entitlement
+spctl -a -vvv -t install /Applications/Allr.app     # accepted, source=Notarized Developer ID
+xcrun stapler validate Allr_0.1.1_universal.dmg     # proves stapling actually happened
+lipo -archs /Applications/Allr.app/Contents/MacOS/Allr  # x86_64 arm64
+```
+
+These are the counterpart of `jarsigner -verify` for the Android AAB above.
+
+**Test voice capture on a notarized build, not a dev build.** Hardened runtime
+is what `entitlements.plist` exists for, and a missing entitlement makes the
+microphone return silence with no error, no prompt and no log line — only in the
+signed artifact. Download the DMG through a browser so the quarantine bit is
+set, then record something.
+
+### The update channel
+
+The app self-updates via `tauri-plugin-updater`. It reads `latest.json` from a
+permanent, fixed-tag pointer release (`desktop-updater`) rather than
+`/releases/latest` — because `/releases/latest` resolves to the newest Python
+CalVer release, which carries no `latest.json`. Do not "simplify" the endpoint
+in `tauri.conf.json`: the failure mode is silent, surfacing to users as
+"You're on the latest version" forever.
+
+Bundles are verified against the public key compiled into the binary
+(`plugins.updater.pubkey`). **Losing `~/.tauri/allr-updater.key` or its password
+is unrecoverable** — every installed copy is pinned to that key, so a new keypair
+orphans the entire installed base and the only remedy is asking every user to
+reinstall by hand. Back it up before the first release.
+
+`.deb` and `.rpm` installs are not self-updating; those update through the
+package manager or a fresh download.
+
 ## Performance harness
 
 Markdown/KaTeX rendering is the app's heaviest path. Three tools, deliberately measuring different layers:

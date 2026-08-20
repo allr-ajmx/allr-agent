@@ -1,6 +1,11 @@
 # Rust / Cargo
 /src-tauri/target/
-/src-tauri/Cargo.lock
+# Cargo.lock is deliberately TRACKED (it used to be ignored here). This crate
+# produces a signed, notarized binary that ships to users, so the dependency
+# graph has to be pinned: without the lockfile every release resolves fresh,
+# a transitive patch release silently changes the artifact being signed, and
+# `--locked` is impossible. apps/hermes-universal tracks its lockfile for the
+# same reason.
 
 # Vite / build output
 /dist/

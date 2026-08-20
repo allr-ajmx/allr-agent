@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+ "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Hardened-runtime entitlements for the Developer ID build. Referenced from
+  tauri.conf.json -> bundle.macOS.entitlements.
+
+  Hardened runtime is REQUIRED for notarization, and it revokes capabilities by
+  default rather than granting them. So the one key below buys back something
+  the app actually does. Nothing should be added "just in case": the notary
+  service does not care how long this list is, but every entry widens what a
+  signed binary may do, and future readers have to justify each one.
+
+  The failure mode this file guards is RELEASE-ONLY. An unsigned `tauri dev`
+  build has no hardened runtime, so the microphone works there whether or not
+  this file is correct — only the signed artifact goes silent. That is the same
+  shape as the Android R8 bugs in acfcc64e4a / 7108fbf7b7: test voice capture on
+  a NOTARIZED, quarantined build (downloaded through a browser), never on a
+  locally built .app.
+-->
+<plist version="1.0">
+<dict>
+	<!--
+	  Voice capture. Rust owns the whole audio lifecycle (voice/, MJX-96): cpal
+	  opens a CoreAudio input stream IN THIS PROCESS, not in the webview, so the
+	  webview's own getUserMedia grant is not what is being asked about here.
+	  Without this key the hardened runtime denies the device and capture
+	  returns SILENCE — no error, no TCC prompt, no log line.
+
+	  NSMicrophoneUsageDescription in Info.plist is the other half. Both are
+	  required; either one alone fails.
+	-->
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
+
+	<!--
+	  DELIBERATELY ABSENT, with reasons — these are the ones people add by
+	  reflex, and each would weaken the binary for nothing:
+
+	  * com.apple.security.cs.allow-jit and
+	    com.apple.security.cs.allow-unsigned-executable-memory
+	      Electron folklore. Electron needs them because V8 JITs inside the app
+	      process. WKWebView does not: JavaScriptCore runs in Apple's own,
+	      separately-signed com.apple.WebKit.WebContent XPC process, which
+	      carries its own entitlements. Ours are irrelevant to it.
+
+	  * com.apple.security.cs.disable-library-validation
+	      The only runtime dlopen in the tree is libloading -> gtk-layer-shell
+	      (surface/layer_shell.rs), which is cfg(target_os = "linux"). Nothing
+	      is loaded unsigned on macOS. Add this only if a signed build actually
+	      fails library validation, and record what loaded.
+
+	  * com.apple.security.app-sandbox and the network.* / files.* family
+	      App Sandbox keys, and this is a non-sandboxed Developer ID build, so
+	      they would do nothing. Sandboxing would also break portable-pty
+	      spawning user shells, CGWindowListCopyWindowInfo in surface/mac.rs,
+	      and keepawake's IOPMAssertion.
+
+	  Screen Recording (the window-title read in surface/mac.rs) is a TCC grant,
+	  not an entitlement — and that code preflights it and never requests it, so
+	  there is no key and no usage-description string to add.
+	-->
+</dict>
+</plist>

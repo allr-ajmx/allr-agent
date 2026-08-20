@@ -60,6 +60,25 @@ agent-browser/
 *.ppk
 *.pem
 privvy*
+
+# Code-signing material. None of this belongs in the repo: it lives in a
+# password manager and in GitHub Actions secrets. See the "Desktop release
+# build" section of apps/hermes-universal/README.md for what each one is.
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.cer
+*.p8
+AuthKey_*.p8
+
+# The Tauri updater's minisign keypair. Losing the PRIVATE key is the one
+# unrecoverable failure in the desktop release pipeline: the matching public key
+# is compiled into every shipped binary, so a new keypair orphans every existing
+# install from the update channel permanently. Back it up before the first tag.
+allr-updater.key
+allr-updater.key.pub
+*.tauri-key
 images/
 __pycache__/
 hermes_agent.egg-info/
