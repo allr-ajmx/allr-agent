@@ -167,6 +167,14 @@ jobs:
       APPLE_API_KEY_P8_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
       APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
       AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      # A BOOLEAN, not the certificate. An absent secret still DEFINES its env
+      # var as the empty string, and the Tauri CLI turns signing on when
+      # APPLE_CERTIFICATE merely exists rather than when it is non-empty -- so
+      # naming the real variable here would hand every step an empty
+      # certificate and make the unsigned build the one that fails. It did:
+      # `security import cert.p12 -P` with an empty password and an empty file,
+      # on the first release run. Tauri reads no variable called this.
+      HAS_APPLE_CERT: ${{ secrets.APPLE_CERTIFICATE != '' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -252,21 +260,50 @@ jobs:
         if: runner.os == 'Windows' && env.AZURE_CLIENT_ID != ''
         run: echo "Trusted Signing secrets present - wire trusted-signing-cli here."
 
+      # macOS signing + notarization, exported HERE rather than in the build
+      # step's `env:` block, because a YAML `env:` mapping cannot omit a key.
+      # Every `${{ secrets.X }}` that names an absent secret still DEFINES X as
+      # the empty string, and the Tauri CLI enables signing on the existence of
+      # APPLE_CERTIFICATE, not on its contents -- so listing these below turned
+      # the no-secrets build into a FAILING one instead of an unsigned one.
+      # $GITHUB_ENV defines only what is written to it, so when there is no
+      # certificate these names never exist and Tauri skips signing.
+      #
+      # The heredoc form is required: a certificate is base64 that may wrap, and
+      # `KEY=value` in $GITHUB_ENV is single-line only. The delimiter is fixed
+      # rather than random because the values are base64/identifiers and cannot
+      # contain it. Values stay masked; they came from `secrets`.
+      - name: Apple signing environment (optional)
+        if: runner.os == 'macOS' && env.HAS_APPLE_CERT == 'true'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD \
+                      APPLE_SIGNING_IDENTITY KEYCHAIN_PASSWORD APPLE_API_ISSUER; do
+            value="${!name}"
+            [ -n "$value" ] || continue
+            {
+              echo "${name}<<__ALLR_EOF__"
+              echo "$value"
+              echo "__ALLR_EOF__"
+            } >> "$GITHUB_ENV"
+          done
+
+          # Set by the API-key step above, and only when that secret existed.
+          if [ -n "${APPLE_API_KEY_PATH:-}" ]; then
+            echo "APPLE_API_KEY=$APPLE_API_KEY" >> "$GITHUB_ENV"
+          fi
+
       - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # action-v1.0.0
         env:
           # Updater signing. Only the product app declares an updater, but the
           # variables are harmless on the installer legs.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # macOS signing + notarization. Every one is optional-by-presence:
-          # absent means an unsigned build, not a failed one.
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-          APPLE_API_KEY_PATH: ${{ env.APPLE_API_KEY_PATH }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: apps/${{ matrix.app }}
