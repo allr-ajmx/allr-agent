@@ -1328,8 +1328,8 @@ async fn run_native_login(
         // NOT survivable, despite how this read for a long time. A token set that did
         // not reach the keyring cannot be read back by `ensure_native_tokens`, so
         // returning `Ok` here hands the caller a signed-in answer for a session that is
-        // already dead — the user completes a sign-in in the browser and the app says
-        // signed out. Fail instead.
+        // already dead — the user completes a sign-in in the window above and the app
+        // says signed out. Fail instead.
         //
         // Failing is also the gentler option, which is why it is safe to do here: this
         // converts with `navigated: false`, so `oauth_login` drops through to the cookie

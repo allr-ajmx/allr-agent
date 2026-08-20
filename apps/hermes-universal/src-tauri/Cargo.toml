@@ -252,11 +252,23 @@ tauri-plugin-global-shortcut = "2"
 # it out of the NDK build.
 tauri-plugin-updater = "2"
 
+# Route Rust `log::` output to stderr on desktop — the third of the three logger
+# entries in this file, and the last platform that had none.
+#
+# Added for the same reason as the `oslog` one below: its absence hid a real bug.
+# macOS could not write to the keychain at all, and the single line that said so
+# (`store_native_tokens` failing inside the RFC 8252 sign-in) was a `log::warn!`
+# on a platform where nothing consumes `log::`. The symptom reaching the user was
+# "the desktop app can't capture the token", with no diagnostic anywhere.
+#
+# `default-features = false` drops regex/colour/humantime; the level still comes
+# from RUST_LOG, and `run()` sets a default so a plain launch is not silent.
+env_logger = { version = "0.11", default-features = false }
+
 # Route Rust `log::` output to logcat on Android. tao does not reliably install a
 # logger, so our connect/OAuth diagnostics were invisible; init it ourselves in
-# `run()`. See the `oslog` entry below for the iOS half. (Desktop still installs no
-# logger — the comment here used to claim "desktop uses stdout", which was never
-# true; nothing bridges `log::` there outside the optional `tracing` feature.)
+# `run()`. See the `oslog` entry below for the iOS half, and the `env_logger`
+# entry above for desktop.
 # cpal's Android backend (oboe) needs the NDK/oboe toolchain — see the cpal note
 # under [dependencies].
 [target.'cfg(target_os = "android")'.dependencies]

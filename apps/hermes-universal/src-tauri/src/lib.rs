@@ -165,6 +165,23 @@ pub fn run() {
         .level_filter(log::LevelFilter::Info)
         .init();
 
+    // The desktop half, and the last platform to get one. Its absence hid the macOS
+    // keychain failure completely: `store_native_tokens` could not write, said so with
+    // a `log::warn!`, and nothing on desktop consumes `log::` — so a sign-in that
+    // finished in the browser and left the app signed out came with no diagnostic at
+    // all. Every `[oauth]` breadcrumb already in that path is now readable.
+    //
+    // Fire-and-forget for the same reason as the two above: `telemetry::init` may win
+    // the race to install the global logger, and losing it must cost a log sink, never
+    // the app. `try_init` (not `init`) is what makes that true — `init` panics.
+    //
+    // RUST_LOG still wins when it is set; this only supplies the default, because a
+    // release build that logs nothing unless the user knew to set an env var would
+    // leave us exactly where this comment starts.
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+        .try_init();
+
     // Span tracing. FIRST, so boot itself lands inside the trace rather than
     // before it. Compiled out entirely without `--features tracing`, and inert
     // even then unless ALLR_TRACE=1 — see telemetry.rs for why it is two
