@@ -35,6 +35,25 @@ export const setCurrentFastMode = (value: boolean): void => $currentFastMode.set
 export const setModelPickerOpen = (value: boolean): void => $modelPickerOpen.set(value)
 export const setModelMenuDropdownOpen = (value: boolean): void => $modelMenuDropdownOpen.set(value)
 
+/**
+ * The sticky composer selection as `session.create` params — the per-SESSION
+ * override the comments below keep promising "the next session.create ships".
+ * Mirrors desktop's `desktopSessionCreateParams`: model/provider/effort only
+ * when set, `fast` always — presence is the contract (omitted = inherit the
+ * profile, `tui_gateway/methods_session.py`). Never the profile default.
+ */
+export function newSessionOverrides(): Record<string, unknown> {
+  const model = $currentModel.get().trim()
+  const provider = $currentProvider.get().trim()
+  const effort = $currentReasoningEffort.get().trim()
+
+  return {
+    ...(model ? { model, ...(provider ? { provider } : {}) } : {}),
+    ...(effort ? { reasoning_effort: effort } : {}),
+    fast: $currentFastMode.get()
+  }
+}
+
 export interface ModelSelection {
   model: string
   provider: string

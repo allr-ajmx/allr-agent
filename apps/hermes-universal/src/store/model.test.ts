@@ -20,7 +20,16 @@ import { $sessionStates } from '@/store/session-state-types'
 import { resetSessionStates, seedActiveSession, seedSession } from '@/test-sessions'
 import type { ModelOptionsResponse } from '@/types/hermes'
 
-import { $currentModel, $currentProvider, selectModel, setCurrentModel, setCurrentProvider } from './model'
+import {
+  $currentFastMode,
+  $currentModel,
+  $currentProvider,
+  $currentReasoningEffort,
+  newSessionOverrides,
+  selectModel,
+  setCurrentModel,
+  setCurrentProvider
+} from './model'
 
 const optionsKey = (sessionId: null | string) => modelOptionsQueryKey($activeGatewayProfile.get(), sessionId)
 
@@ -241,5 +250,36 @@ describe('selectModel round trip', () => {
 
     expect($currentModel.get()).toBe('primary-model')
     expect(cachedModel('runtime-1')).toBe('primary-model')
+  })
+})
+
+// What the next `session.create` ships as the per-session override.
+describe('newSessionOverrides', () => {
+  beforeEach(() => {
+    $currentModel.set('')
+    $currentProvider.set('')
+    $currentReasoningEffort.set('')
+    $currentFastMode.set(false)
+  })
+
+  it('ships the whole sticky selection', () => {
+    setCurrentModel(' glm-5 ')
+    setCurrentProvider('zai')
+    $currentReasoningEffort.set('high')
+    $currentFastMode.set(true)
+
+    expect(newSessionOverrides()).toEqual({ model: 'glm-5', provider: 'zai', reasoning_effort: 'high', fast: true })
+  })
+
+  // Omitted = inherit the profile default; `fast` is always present because
+  // `false` pins normal (presence is the gateway's contract).
+  it('omits what is unset and always states fast', () => {
+    expect(newSessionOverrides()).toEqual({ fast: false })
+  })
+
+  it('never sends a provider without a model', () => {
+    setCurrentProvider('zai')
+
+    expect(newSessionOverrides()).toEqual({ fast: false })
   })
 })
