@@ -307,30 +307,56 @@ export function removeBubble(target: null | string) {
   promote(neighbor.storedSessionId)
 }
 
-/** Mobile "new session": if on an EXISTING session, spawn a NEW draft bubble and
- *  keep the current one as its own bubble; if already on a draft, do nothing.
+/**
+ * Mobile "new session": if on an EXISTING session, show a fresh draft chat and
+ * keep the current one as its own bubble; if already on the draft, do nothing.
  *
- *  `side` is which END of the strip the bubble joins. The overdrag gesture opens
- *  a gap on one specific side and grows a ghost bubble in it — landing the real
- *  bubble on the other end would move the chat you just watched appear. Callers
- *  with no side (the ⌘N keybind, the sidebar row) keep the append default. */
-export function newChatBubble(side: 'end' | 'start' = 'end') {
+ * `side` is which END of the strip the draft occupies. The overdrag gesture
+ * opens a gap on one specific side and grows a ghost bubble in it, so the real
+ * bubble has to land there — landing it on the other end moves the chat you
+ * just watched appear. Callers with NO side (the ⌘N keybind, the sidebar row)
+ * are not looking at a particular gap: they append a new draft and leave an
+ * existing one exactly where it is.
+ *
+ * There is only ever ONE draft bubble — it is the bubble with no stored id, and
+ * `bubbleRuntimeKey(null)` resolves the single active `draft:` slice for it. So
+ * when one already exists, a side-bearing call MOVES it rather than adding a
+ * second. It used to leave it in place and call `newSession()` anyway, which
+ * switched you to a draft sitting at the far end of the strip: the row then
+ * re-homed on it and every other chat was stacked on one side of the one you
+ * had just asked to appear on the other.
+ *
+ * Returns whether a fresh chat is actually being shown, so the gesture that
+ * offers this can stop offering it (bubble-row) instead of arming, buzzing and
+ * then doing nothing.
+ */
+export function newChatBubble(side?: 'end' | 'start'): boolean {
   const active = $activeStoredSessionId.get()
 
   if (active === null) {
-    return
+    return false
   }
 
+  // May PREPEND, so every index below has to be read after it.
   ensureBubble(active)
 
-  if (!$chatBubbles.get().some(b => b.storedSessionId === null)) {
+  const list = $chatBubbles.get()
+  const draftIdx = list.findIndex(b => b.storedSessionId === null)
+
+  if (draftIdx === -1) {
     const draft: ChatBubble = { storedSessionId: null }
-    const list = $chatBubbles.get()
 
     setBubbles(side === 'start' ? [draft, ...list] : [...list, draft])
+  } else if (side) {
+    const draft = list[draftIdx]
+    const rest = list.filter((_, i) => i !== draftIdx)
+
+    setBubbles(side === 'start' ? [draft, ...rest] : [...rest, draft])
   }
 
   newSession()
+
+  return true
 }
 
 // ---------------------------------------------------------------------------

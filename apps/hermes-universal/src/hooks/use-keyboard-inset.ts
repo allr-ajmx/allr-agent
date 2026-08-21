@@ -6,8 +6,22 @@ import { useEffect, useState } from 'react'
 // when the on-screen keyboard opens — WKWebView overlays it on top of content,
 // and Android's behaviour flips between launches — so `position: fixed` bottom
 // bars end up UNDER the keyboard. `window.visualViewport` reports the actually-
-// visible region, so the height the keyboard occludes is
-// `innerHeight - visualViewport.height - visualViewport.offsetTop`.
+// visible region.
+//
+// Two different numbers come out of that, and conflating them was a bug:
+//   OCCLUSION — `innerHeight - visualViewport.height`. How much of the layout
+//     viewport is not on screen. This is what "is the keyboard up" means.
+//   LIFT — `occlusion - visualViewport.offsetTop`. How far a box anchored to the
+//     LAYOUT viewport still has to rise to clear the keyboard, after the webview
+//     has already scrolled the visible band down by `offsetTop`. This is what
+//     `--keyboard-inset` publishes.
+// WKWebView reveals a focused caret by scrolling the visual viewport, and the
+// composer sits at the very bottom of the layout viewport — so `offsetTop` grows
+// to nearly the whole keyboard and the LIFT collapses to ~0 while the keyboard
+// is plainly up. Deriving open/closed from the lift therefore reported CLOSED on
+// iOS every time the composer was focused, which left the home-indicator safe
+// area padded against a strip the keyboard was covering: the phantom gap between
+// the composer and the keyboard (`--composer-dock-inset-bottom`, styles.css).
 //
 // We publish that as `--keyboard-inset` on :root (so CSS can lift a docked bar
 // with `margin-bottom: var(--keyboard-inset)`) and set `data-keyboard-open` on
@@ -58,14 +72,19 @@ function measure(): KeyboardState {
   const innerHeight = window.innerHeight
   const viewportHeight = vv ? vv.height : innerHeight
   const offsetTop = vv ? vv.offsetTop : 0
-  const raw = Math.max(0, Math.round(innerHeight - viewportHeight - offsetTop))
-  const open = raw > OPEN_THRESHOLD_PX
+  // How much of the layout viewport is off screen — scroll-independent, so a
+  // webview that reveals the caret by scrolling the visual viewport cannot hide
+  // an open keyboard from us. See the header.
+  const occluded = Math.max(0, Math.round(innerHeight - viewportHeight))
+  const raw = Math.max(0, Math.round(occluded - offsetTop))
+  const open = occluded > OPEN_THRESHOLD_PX
 
   return {
-    // Publish 0 whenever the keyboard reads as closed. Sub-threshold residue is
-    // never a keyboard — it is URL-bar or safe-area jitter — and letting it
-    // through means a surface that lifted by `--keyboard-inset` comes back a few
-    // px short and stays there.
+    // The LIFT, not the occlusion — a layout-viewport-anchored box only has to
+    // make up what the webview's own scroll did not. Published as 0 whenever the
+    // keyboard reads as closed: sub-threshold residue is never a keyboard — it is
+    // URL-bar or safe-area jitter — and letting it through means a surface that
+    // lifted by `--keyboard-inset` comes back a few px short and stays there.
     inset: open ? raw : 0,
     innerHeight,
     offsetTop: Math.round(offsetTop),

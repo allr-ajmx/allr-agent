@@ -1524,6 +1524,17 @@
   --composer-dock-inset-bottom: 0px;
 }
 
+/* Belt and braces for a webview that shrinks the LAYOUT viewport along with the
+   visual one (then `innerHeight - visualViewport.height` is 0 and
+   use-keyboard-inset has no occlusion to read, so `data-keyboard-open` never
+   lands). A focused composer on a phone means a keyboard, and a keyboard means
+   the home indicator is not on screen. Costs an iPad with a hardware keyboard
+   the 34px while the composer holds the caret — the cheaper of the two wrong
+   answers, and mobile-only either way. */
+html.is-mobile:has([data-slot='composer-root']:focus-within) {
+  --composer-dock-inset-bottom: 0px;
+}
+
 [data-slot='composer-root'] {
   padding-bottom: calc(var(--composer-shell-pad-block-end) + var(--composer-dock-inset-bottom));
 }

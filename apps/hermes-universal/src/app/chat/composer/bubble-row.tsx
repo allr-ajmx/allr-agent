@@ -35,6 +35,12 @@ import { newSessionProgress, type NewSessionSide, resolveDrag, type TrackBounds 
 // rather than closes (same discriminator as the composer pop-out peel gesture).
 const UP_CLOSE_PX = 44
 
+// How far the pointer may wander and still count as a TAP. A tap is the one
+// thing the row could not do: the gesture acts on whatever is centred, so a
+// press on an off-centre bubble resolved to "switch to the chat you are already
+// in". Small, because every larger movement is already a meaningful drag.
+const TAP_SLOP_PX = 8
+
 interface GestureState {
   startX: number
   startY: number
@@ -42,12 +48,25 @@ interface GestureState {
   bubbles: ChatBubble[]
   peeked: number
   armed: boolean
+  /** The bubble the press LANDED on, if any — the tap target, which is not the
+   *  same thing as `peeked` (the bubble a drag has slid to the centre). Null for
+   *  a press that started on empty track. */
+  tapIndex: null | number
+  /** Furthest the pointer has travelled from where it went down. Anything past
+   *  `TAP_SLOP_PX` is a drag, and the tap target is forgotten. */
+  moved: number
   /** Past the new-session commit threshold — tracked so the haptic fires once
    *  on the crossing rather than every frame beyond it. */
   newArmed: boolean
   /** Which end the gap was pulled open on. Read on release: the ghost the user
    *  watched grow is on this side, so the real bubble has to land there. */
   newSide: NewSessionSide | null
+  /** Whether pulling past an end can produce anything, captured at press time.
+   *  It cannot when the chat you are on IS the unsaved draft — there is no
+   *  second draft to make — and arming a gesture that the store will refuse is
+   *  how the row came to promise a new chat and then just switch you somewhere
+   *  else. */
+  canNew: boolean
 }
 
 interface Preview {
@@ -66,11 +85,12 @@ interface Preview {
  * left/right.
  *
  * The whole row is the gesture surface — anywhere in it, dot or gap or the empty
- * track past the ends. Press to reveal the centred chat's title (a tooltip above
- * the row, shown only while the press is active); drag left/right to slide the
- * strip and release to switch (the new active animates back to center); drag up
- * to arm the centred bubble (red) and release to close it (non-destructive — see
- * store/chat-bubbles). Hidden until there are 2+ chats.
+ * track past the ends. TAP a bubble to switch straight to it; press to reveal the
+ * centred chat's title (a tooltip above the row, shown only while the press is
+ * active); drag left/right to slide the strip and release to switch (the new
+ * active animates back to center); drag up to arm the centred bubble (red) and
+ * release to close it (non-destructive — see store/chat-bubbles); drag out past
+ * either end to open a new chat on that side. Hidden until there are 2+ chats.
  */
 export function BubbleRow() {
   const { t } = useI18n()
@@ -102,7 +122,15 @@ export function BubbleRow() {
   const containerCenterRef = useRef(0)
   const activeIndexRef = useRef(activeIndex)
   const stateRef = useRef<GestureState | null>(null)
+  // How many bubbles are actually rendered. `buttonRefs` is an index-keyed array
+  // that only ever grows: closing a bubble leaves React's `null` cleanup at the
+  // tail, `recompute` measured it as a centre of 0, and that phantom centre
+  // INVERTED `trackBounds` — its `min` became the container centre, past `max` —
+  // which collapsed the drag range to a few px and let `peekedFor` pick an index
+  // no bubble owns. That is the row that stops sliding after a close.
+  const bubbleCountRef = useRef(bubbles.length)
   activeIndexRef.current = activeIndex
+  bubbleCountRef.current = bubbles.length
 
   // The strip IS this phone's tab bar, so it names a chat the way a tab does —
   // including the draft, which is named after what has been typed into it (the
@@ -174,7 +202,27 @@ export function BubbleRow() {
       }
     })
 
-    return best
+    // Never past the last bubble: `centers` is measured, and a frame where it is
+    // shorter than the list (or empty, before the first layout effect) must
+    // still answer an index the row can act on.
+    return Math.min(best, Math.max(0, centers.length - 1))
+  }, [])
+
+  // The bubble under a pointer, or null on empty track. Measured off the live
+  // rects rather than `centersRef`, so it is right under the centred bubble's
+  // `scale-110` and mirrors for free in RTL.
+  const indexAtPoint = useCallback((clientX: number) => {
+    const buttons = buttonRefs.current
+
+    for (let i = 0; i < bubbleCountRef.current; i++) {
+      const rect = buttons[i]?.getBoundingClientRect()
+
+      if (rect && clientX >= rect.left && clientX <= rect.right) {
+        return i
+      }
+    }
+
+    return null
   }, [])
 
   // Measure the (transform-neutral) layout center of every bubble; re-home the
@@ -187,6 +235,10 @@ export function BubbleRow() {
       return
     }
 
+    // Trim first: everything past the live count is a closed bubble's leftover
+    // slot, and measuring it writes a centre of 0 into the geometry every other
+    // calculation here reads.
+    buttonRefs.current.length = bubbleCountRef.current
     centersRef.current = buttonRefs.current.map(el => (el ? el.offsetLeft + el.offsetWidth / 2 : 0))
     containerCenterRef.current = container.clientWidth / 2
 
@@ -252,22 +304,28 @@ export function BubbleRow() {
         void triggerHaptic('selection')
       }
 
-      st.newSide = drag.newSessionSide
+      // Overdragging still rubber-bands — that is what says "nothing further
+      // along" — but with no ghost, no buzz and no arming when there is nothing
+      // to create.
+      const newSide = st.canNew ? drag.newSessionSide : null
+      const newArmed = st.canNew && drag.newSessionArmed
 
-      if (drag.newSessionArmed !== st.newArmed) {
-        st.newArmed = drag.newSessionArmed
+      st.newSide = newSide
+
+      if (newArmed !== st.newArmed) {
+        st.newArmed = newArmed
 
         // Same cue the close gesture uses: "you have armed something, let go".
-        if (drag.newSessionArmed) {
+        if (newArmed) {
           void triggerHaptic('warning')
         }
       }
 
       setPreview({
         closeArmed: false,
-        newArmed: drag.newSessionArmed,
-        newProgress: newSessionProgress(drag.overshoot),
-        newSide: drag.newSessionSide,
+        newArmed,
+        newProgress: newSide ? newSessionProgress(drag.overshoot) : 0,
+        newSide,
         peeked: st.peeked
       })
     },
@@ -278,11 +336,16 @@ export function BubbleRow() {
 
   const onMove = useCallback(
     (event: PointerEvent) => {
-      if (!stateRef.current) {
+      const st = stateRef.current
+
+      if (!st) {
         return
       }
 
       event.preventDefault()
+      // Measured HERE and not in the coalesced `applyMove`: whether this was a
+      // tap must not depend on how many frames the rAF queue happened to run.
+      st.moved = Math.max(st.moved, Math.hypot(event.clientX - st.startX, event.clientY - st.startY))
       mover.push({ x: event.clientX, y: event.clientY })
     },
     [mover]
@@ -327,23 +390,30 @@ export function BubbleRow() {
       // grew there and that is where the user is looking; appending to the far
       // end instead made the new chat appear behind them.
       newChatBubble(st.newSide ?? 'end')
-      // A no-op inside the store (already on a draft) would otherwise leave the
-      // strip parked at the overdrag; the layout effect corrects this when the
-      // bubble list does change.
+      // Un-does the overdrag. The layout effect re-homes on the draft once the
+      // list changes, but a call that only MOVES an existing draft bubble may
+      // leave the length alone — so put the strip back either way.
       setTranslate(centerTranslate(st.peeked))
 
       return
     }
 
-    if (target) {
+    // A TAP acts on the bubble under the thumb; a drag acts on whatever it slid
+    // to the centre. Both then animate that bubble home, so the two gestures end
+    // the same way and a tap is not a special case anyone has to learn.
+    const tap = st.moved <= TAP_SLOP_PX ? st.tapIndex : null
+    const index = tap ?? st.peeked
+    const landing = tap === null ? target : st.bubbles[tap]
+
+    if (landing) {
       // No-op inside the store when it's already the active bubble.
-      switchToBubble(target.storedSessionId)
+      switchToBubble(landing.storedSessionId)
     }
 
     // Animate the strip so the released bubble sits at center. When the switch
     // actually changes the active id this matches the layout effect's re-home;
     // when it was a no-op (released on the active) this un-does the drag offset.
-    setTranslate(centerTranslate(st.peeked))
+    setTranslate(centerTranslate(index))
   }, [centerTranslate, mover, onMove])
 
   // Bound to the ROW, not to each bubble. The bubbles are 32px dots with 10px
@@ -369,11 +439,18 @@ export function BubbleRow() {
         armed: false,
         base,
         bubbles: $chatBubbles.get(),
+        // Read from the store, not from the render's `activeId`: the press is
+        // the moment this is true or not.
+        canNew: $activeStoredSessionId.get() !== null,
+        moved: 0,
         newArmed: false,
         newSide: null,
         peeked: idx < 0 ? 0 : idx,
         startX: event.clientX,
-        startY: event.clientY
+        startY: event.clientY,
+        // `peeked` stays on the ACTIVE bubble — that is drag state, and seeding
+        // it from the tap target would make a drag that starts off-centre jump.
+        tapIndex: indexAtPoint(event.clientX)
       }
       setTranslate(base)
       setPreview({
@@ -389,7 +466,7 @@ export function BubbleRow() {
       window.addEventListener('pointerup', onEnd)
       window.addEventListener('pointercancel', onEnd)
     },
-    [centerTranslate, onEnd, onMove, recompute]
+    [centerTranslate, indexAtPoint, onEnd, onMove, recompute]
   )
 
   // Only meaningful once parallel chats exist. (Hooks above run unconditionally.)

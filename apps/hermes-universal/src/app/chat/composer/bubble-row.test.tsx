@@ -13,9 +13,20 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import type * as ChatBubblesModule from '@/store/chat-bubbles'
 import type { SessionInfo } from '@/types/hermes'
 
 vi.mock('@/lib/touch', () => ({ triggerHaptic: () => {} }))
+
+// Only the switch verb is stubbed. `switchToBubble` promotes through
+// `openSession`, which wants a gateway; everything else in the store (the row
+// atom, the close verb the drag-up test drives) stays real.
+const switchSpy = vi.fn()
+
+vi.mock('@/store/chat-bubbles', async importOriginal => ({
+  ...(await importOriginal<typeof ChatBubblesModule>()),
+  switchToBubble: switchSpy
+}))
 
 const { $projectTree } = await import('@/store/projects')
 const { $sessions, $activeStoredSessionId } = await import('@/store/session')
@@ -32,6 +43,7 @@ beforeEach(() => {
   $activeStoredSessionId.set(null)
   $chatBubbles.set([])
   stashSessionDraft($activeSessionKey.get(), '', [])
+  switchSpy.mockClear()
 })
 
 describe('BubbleRow session rows', () => {
@@ -147,6 +159,37 @@ describe('BubbleRow gesture surface', () => {
     await drag({ x: 10, y: 200 }, { x: 14, y: 120 })
 
     expect($chatBubbles.get().map(b => b.storedSessionId)).toEqual(['recent-1'])
+  })
+
+  // The gesture acts on whatever is CENTRED, so before this a press on an
+  // off-centre bubble resolved to "switch to the chat you are already in" — the
+  // one thing a tab strip has to be able to do, and the only one it could not.
+  // jsdom gives every element a zero rect, so x=0 is the only point inside a
+  // bubble and anything else is empty track.
+  it('switches to the bubble a tap lands on', () => {
+    $chatBubbles.set([{ storedSessionId: 'recent-1' }, { storedSessionId: 'older-2' }])
+    $sessions.set([row('recent-1', 'On the page'), row('older-2', 'Older chat')])
+    $activeStoredSessionId.set('older-2')
+
+    render(<BubbleRow />)
+    fireEvent.pointerDown(track(), { button: 0, clientX: 0, clientY: 0 })
+    fireEvent.pointerUp(window)
+
+    expect(switchSpy).toHaveBeenCalledWith('recent-1')
+  })
+
+  it('falls back to the centred bubble when the press was not on one', () => {
+    $chatBubbles.set([{ storedSessionId: 'recent-1' }, { storedSessionId: 'older-2' }])
+    $sessions.set([row('recent-1', 'On the page'), row('older-2', 'Older chat')])
+    $activeStoredSessionId.set('older-2')
+
+    render(<BubbleRow />)
+    // Empty track: no tap target, so the release lands where the drag left the
+    // strip — which, without a move, is the chat already on screen.
+    fireEvent.pointerDown(track(), { button: 0, clientX: 40, clientY: 0 })
+    fireEvent.pointerUp(window)
+
+    expect(switchSpy).toHaveBeenCalledWith('older-2')
   })
 
   it('leaves the row alone when the same drag goes sideways', async () => {
