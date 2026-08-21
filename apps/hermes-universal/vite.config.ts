@@ -363,7 +363,27 @@ export default defineConfig(({ command }) => ({
   },
   build: {
     // Android System WebView baseline — keep the transpile target conservative.
+    // This is a JS concern and must NOT reach the CSS, hence `cssTarget` below.
     target: 'es2021',
+    // CSS gets its OWN target, and needs one. Vite 8 changed `cssMinify` to
+    // default to Lightning CSS (it used to follow `build.minify`, which is
+    // esbuild here), and Lightning takes its targets from `cssTarget` — which
+    // otherwise inherits `target`. `es2021` expands to chrome85/safari14.1,
+    // below the Chrome 87 that logical properties need and the Chrome 88 that
+    // `:is()` needs, so Lightning rewrote EVERY logical utility (`-start-`,
+    // `ms-`, `ps-`, `text-start`, `border-s`…) into physical `left`/`right`
+    // guarded by `:lang()` lists, and every `:is()` into `:-webkit-any()`:
+    // 2584 `:lang()` selectors in a build whose source has none. That makes
+    // direction depend on the element's LANGUAGE rather than its `dir`, which
+    // is not what the authored CSS says — and it happens only in a build,
+    // because the dev server never runs the minify pass. That is the whole of
+    // the "works in dev, wrong in the signed release" difference.
+    //
+    // These floors are Tailwind v4's own (see @tailwindcss/node's Lightning
+    // targets: safari/ios 16.4, chrome 111, firefox 128), so this asks for
+    // nothing the framework's output does not already assume — downleveling
+    // Tailwind's CSS to chrome85 bought no real reach, it only changed meaning.
+    cssTarget: ['chrome111', 'safari16.4', 'firefox128'],
     minify: process.env.TAURI_DEBUG ? false : 'esbuild',
     sourcemap: !!process.env.TAURI_DEBUG
   },
