@@ -5,6 +5,7 @@ import { CodeCard, CodeCardBody } from '@/components/chat/code-card'
 import { ErrorBoundary } from '@/components/error-boundary'
 import { CopyButton } from '@/components/ui/copy-button'
 import { useI18n } from '@/i18n'
+import { chunkByLines, exceedsHighlightBudget } from '@/lib/code-budget'
 import { isLikelyProseCodeBlock, sanitizeLanguageTag } from '@/lib/markdown-code'
 import { IS_MOBILE } from '@/lib/platform'
 import { cn } from '@/lib/utils'
@@ -46,51 +47,8 @@ export { SHIKI_THEME } from '@/components/chat/shiki-theme'
 
 const ShikiBlock = lazy(() => import('@/components/chat/shiki-block'))
 
-const MAX_HIGHLIGHT_CHARS = 150_000
-const MAX_HIGHLIGHT_LINES = 3_000
 const CHUNK_LINES = 200
 const EST_LINE_PX = 16
-
-export function exceedsHighlightBudget(code: string): boolean {
-  if (code.length > MAX_HIGHLIGHT_CHARS) {
-    return true
-  }
-
-  let lines = 1
-  let idx = code.indexOf('\n')
-
-  while (idx !== -1) {
-    if ((lines += 1) > MAX_HIGHLIGHT_LINES) {
-      return true
-    }
-
-    idx = code.indexOf('\n', idx + 1)
-  }
-
-  return false
-}
-
-interface CodeChunk {
-  text: string
-  lines: number
-}
-
-export function chunkByLines(code: string, perChunk: number): CodeChunk[] {
-  const lines = code.split('\n')
-
-  if (lines.length <= perChunk) {
-    return [{ text: code, lines: lines.length }]
-  }
-
-  const chunks: CodeChunk[] = []
-
-  for (let i = 0; i < lines.length; i += perChunk) {
-    const slice = lines.slice(i, i + perChunk)
-    chunks.push({ text: slice.join('\n'), lines: slice.length })
-  }
-
-  return chunks
-}
 
 /**
  * Time-to-highlighted, per code block.

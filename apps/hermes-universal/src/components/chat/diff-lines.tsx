@@ -4,8 +4,8 @@ import * as React from 'react'
 import type { BundledLanguage, ShikiTransformer, ThemedToken } from 'shiki'
 
 import { chunkLines, type LineChunk, useFixedRowWindow } from '@/components/chat/fixed-row-window'
-import { exceedsHighlightBudget } from '@/components/chat/shiki-highlighter'
 import { SHIKI_THEME } from '@/components/chat/shiki-theme'
+import { exceedsHighlightBudget } from '@/lib/code-budget'
 import { shikiLanguageForFilename } from '@/lib/markdown-code'
 import { cn } from '@/lib/utils'
 
