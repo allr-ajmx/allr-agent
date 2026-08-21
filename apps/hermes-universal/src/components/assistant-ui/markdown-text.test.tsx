@@ -119,15 +119,16 @@ describe('MarkdownTextContent math rendering', () => {
     expect(container.querySelector('[data-slot="code-card"]')).not.toBeNull()
   })
 
-  // The fence above renders through the SUSPENSE FALLBACK: `ShikiBlock` is
-  // `lazy(() => import('./shiki-block'))`, so the first paint of every fence has
-  // no Shiki token spans and inherits its colour from `.prose :where(pre)` —
-  // @tailwindcss/typography's near-white `--tw-prose-pre-code`, sitting on our
-  // light code card. Same for the streaming `defer` window and over-budget
-  // blocks. jsdom loads no stylesheet, so the container class is what can be
-  // asserted; without it the fence is unreadable in light mode until the chunk
-  // lands (upstream desktop 3bd844edf1).
-  it('overrides typography’s pale pre foreground so an un-highlighted fence stays readable', async () => {
+  // @tailwindcss/typography styles `pre` as a DARK slab: light text
+  // (`--tw-prose-pre-code`, gray-200) on a dark background, which sat on our
+  // light code card and made an un-coloured fence unreadable in light mode.
+  //
+  // `CodeFence` now beats that with an INLINE `color: inherit` on the `<pre>`,
+  // which no selector, layer or build step can out-rank — that is the real
+  // guarantee and it is asserted first. The `prose-pre:text-foreground` utility
+  // stays as a second net for the other `<pre>`s in this container (the
+  // over-budget `HugeTextFallback` among them), and is asserted second.
+  it('overrides typography’s pale pre foreground so an un-coloured fence stays readable', async () => {
     const { container } = render(<MarkdownTextContent isRunning={false} text={'```python\nprint("hi")\n```\n'} />)
 
     await waitFor(() => expect(container.textContent).toContain('print("hi")'))
@@ -135,6 +136,8 @@ describe('MarkdownTextContent math rendering', () => {
     const pre = container.querySelector('pre')
 
     expect(pre).not.toBeNull()
+    expect(pre?.style.color).toBe('inherit')
+    expect(pre?.style.background).toBe('transparent')
 
     const host = pre?.closest('.aui-md')
 
