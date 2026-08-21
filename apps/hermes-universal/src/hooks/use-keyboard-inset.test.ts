@@ -90,6 +90,29 @@ describe('useKeyboardInset', () => {
     unmount()
   })
 
+  // The composer case, and the one the open/closed test was getting wrong. The
+  // composer is docked at the very BOTTOM of the layout viewport, so WKWebView
+  // scrolls the visible band down by nearly the whole keyboard to reveal the
+  // caret — and `occlusion - offsetTop` then reads ~0 while the keyboard is
+  // plainly up. Deriving open/closed from that residue reported CLOSED, which
+  // kept the home-indicator safe area padded under a composer sitting on the
+  // keyboard: the phantom gap.
+  it('still reports OPEN when the scroll has swallowed the whole lift', () => {
+    setViewport(800, { height: 460, offsetTop: 340 })
+
+    const { result, unmount } = renderHook(() => useKeyboardInset())
+
+    expect(root.hasAttribute('data-keyboard-open')).toBe(true)
+    expect(result.current.open).toBe(true)
+    // Nothing anchored to the layout viewport has to lift: the webview's own
+    // scroll already did all of it.
+    expect(readVar('--keyboard-inset')).toBe('0px')
+    expect(readVar('--visual-viewport-height')).toBe('460px')
+    expect(readVar('--visual-viewport-top')).toBe('340px')
+
+    unmount()
+  })
+
   it('publishes the same rectangle with no scroll (the Android case)', () => {
     setViewport(800, { height: 460, offsetTop: 0 })
 
