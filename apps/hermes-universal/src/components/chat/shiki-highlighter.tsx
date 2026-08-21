@@ -3,6 +3,7 @@ import { type FC, lazy, type ReactNode, Suspense, useEffect, useMemo, useRef } f
 
 import { CodeCard, CodeCardBody } from '@/components/chat/code-card'
 import { ExpandableBlock } from '@/components/chat/expandable-block'
+import { ErrorBoundary } from '@/components/error-boundary'
 import { CopyButton } from '@/components/ui/copy-button'
 import { useI18n } from '@/i18n'
 import { isLikelyProseCodeBlock, sanitizeLanguageTag } from '@/lib/markdown-code'
@@ -27,6 +28,8 @@ import { isRecording, recordSpan } from '@/observability'
  * lands. `PlainCode` is the Suspense fallback for exactly that reason: it is
  * already what an over-budget or still-streaming fence renders, so the
  * un-highlighted → highlighted transition is one the transcript already makes.
+ * It doubles as the error fallback: the same reasoning says a fence whose
+ * engine never arrives should lose its colours, not its content.
  */
 interface HermesSyntaxHighlighterProps extends SyntaxHighlighterProps {
   defer?: boolean
@@ -200,9 +203,19 @@ export const SyntaxHighlighter: FC<HermesSyntaxHighlighterProps> = ({
               <PlainCode code={trimmed} />
             ) : (
               <HighlightTimer language={cleanLanguage || 'text'}>
-                <Suspense fallback={<PlainCode code={trimmed} />}>
-                  <ShikiBlock language={language || 'text'}>{trimmed}</ShikiBlock>
-                </Suspense>
+                {/* A fence that cannot be HIGHLIGHTED must still be READABLE.
+                    The engine sits behind a lazy import, so a failed chunk
+                    fetch (or any throw inside react-shiki) rejects during
+                    render; with no boundary here that escapes to the
+                    turn-level MessageRenderBoundary and takes the whole
+                    reply's markdown with it. Falling back to the same
+                    PlainCode the Suspense fallback already uses degrades one
+                    fence to un-coloured code and leaves the message alone. */}
+                <ErrorBoundary fallback={() => <PlainCode code={trimmed} />} label="code-fence">
+                  <Suspense fallback={<PlainCode code={trimmed} />}>
+                    <ShikiBlock language={language || 'text'}>{trimmed}</ShikiBlock>
+                  </Suspense>
+                </ErrorBoundary>
               </HighlightTimer>
             )}
           </Pre>
