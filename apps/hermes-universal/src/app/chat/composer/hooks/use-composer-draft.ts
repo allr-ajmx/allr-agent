@@ -3,6 +3,7 @@ import { type RefObject, useCallback, useEffect, useRef, useState } from 'react'
 
 import { SLASH_COMMAND_RE } from '@/lib/chat-runtime'
 import { onComposerDraftSyncRequest } from '@/lib/composer-draft-bus'
+import { IS_MOBILE } from '@/lib/platform'
 import { type ComposerAttachment, stashSessionDraft, takeSessionDraft } from '@/store/composer'
 import { isBrowsingHistory } from '@/store/composer-input-history'
 
@@ -129,7 +130,22 @@ export function useComposerDraft({
         // therefore FINISHED, so it commits to a chip rather than staying an
         // editable trailing token the next keystroke would extend.
         renderComposerContents(editor, next, { trailingCommitted: true })
-        placeCaretEnd(editor)
+
+        // `placeCaretEnd` writes the DOCUMENT selection, and putting the
+        // selection inside a contenteditable IS a focus in WebKit — it focuses
+        // the editable root, which on a phone raises the soft keyboard. A draft
+        // RESTORE paints with `focus: false` precisely because it must not take
+        // the caret, so on mobile the keyboard came up on every bubble switch
+        // even with the autofocus effect gated off. Place it there only when
+        // this editor is the one holding the caret anyway: about to be focused,
+        // or already focused.
+        //
+        // Desktop keeps the unconditional call. There is no keyboard to raise,
+        // and the caret landing at the end of a restored draft is what its focus
+        // paths (⌘L, the focus bus) have always relied on.
+        if (!IS_MOBILE || focus || document.activeElement === editor) {
+          placeCaretEnd(editor)
+        }
       }
 
       if (focus) {
@@ -158,6 +174,17 @@ export function useComposerDraft({
   // Autofocus on mount and on a session swap.
   useEffect(() => {
     if (inputDisabled) {
+      return
+    }
+
+    // Not on a phone. On desktop the caret is free and following the focused
+    // tile with it is the whole point; on a phone it costs the soft keyboard,
+    // half the screen and a layout shift — for a SWITCH. The mobile bubble rail
+    // changes `focusKey` on every tap, so navigating the parallel chats meant
+    // the keyboard opening each time whether or not the user meant to type.
+    // An explicit request over the focus bus (below) still focuses on mobile:
+    // that is someone asking for the caret, not a composer announcing arrival.
+    if (IS_MOBILE) {
       return
     }
 
