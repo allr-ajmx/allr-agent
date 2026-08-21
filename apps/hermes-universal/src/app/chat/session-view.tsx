@@ -1,4 +1,4 @@
-import type { ReadableAtom } from 'nanostores'
+import { computed, type ReadableAtom } from 'nanostores'
 import { createContext, useContext } from 'react'
 
 import {
@@ -13,7 +13,12 @@ import {
 } from '@/store/chat'
 import { $currentFastMode, $currentModel, $currentProvider, $currentReasoningEffort } from '@/store/model'
 import { $activeStoredSessionId, type BranchSource } from '@/store/session'
-import { $activeSessionKey, $sessionStates } from '@/store/session-state-types'
+import {
+  $activeSessionKey,
+  $sessionStates,
+  type ClientSessionState,
+  isDraftKey
+} from '@/store/session-state-types'
 
 /**
  * The store-surface a `ChatScreen` renders from — every field is a
@@ -50,9 +55,23 @@ export interface SessionView {
  * composer scope, blocking-prompt bars, awaiting-input state — needs a handle
  * that a brand-new chat also has, and the key is that handle.
  *
- * Model/provider/fast/effort still come from the model store: those are app-wide
- * selections in universal, not per-session state.
+ * Model/provider/fast/effort come from the active session's OWN slice once it is
+ * live — that is where `session.info` lands (store/session-reducer) — and from
+ * the model store's sticky globals only while the chat is still a draft. Reading
+ * the globals for a live chat is how the pill named the last pick (or a
+ * localStorage leftover) instead of the model the session was running, and
+ * disagreed with the dropdown's gateway-authoritative checkmark. Desktop's
+ * `primaryField` draws the same line; universal gates on the draft KEY because a
+ * draft has a slice here, just an empty one.
  */
+const $primaryLive = computed([$activeSessionKey, $sessionStates], (key, states) =>
+  key && !isDraftKey(key) ? states[key] : undefined
+)
+
+function primaryField<T>(select: (state: ClientSessionState) => T, $draft: ReadableAtom<T>): ReadableAtom<T> {
+  return computed([$primaryLive, $draft], (live, draft) => (live ? select(live) : draft))
+}
+
 export const PRIMARY_SESSION_VIEW: SessionView = {
   kind: 'primary',
   $runtimeId: $activeSessionKey,
@@ -64,10 +83,10 @@ export const PRIMARY_SESSION_VIEW: SessionView = {
   $lastVisibleIsUser: $lastVisibleMessageIsUser,
   $statusLine,
   $cwd: $currentCwd,
-  $model: $currentModel,
-  $provider: $currentProvider,
-  $fast: $currentFastMode,
-  $reasoningEffort: $currentReasoningEffort
+  $model: primaryField(state => state.model, $currentModel),
+  $provider: primaryField(state => state.provider, $currentProvider),
+  $fast: primaryField(state => state.fast, $currentFastMode),
+  $reasoningEffort: primaryField(state => state.reasoningEffort, $currentReasoningEffort)
 }
 
 /**

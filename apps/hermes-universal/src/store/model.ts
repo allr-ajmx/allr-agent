@@ -161,10 +161,15 @@ export async function selectModel(selection: ModelSelection): Promise<boolean> {
 
   const paint = (model: string, provider: string): void => {
     if (touchesPrimary) {
+      // The draft default the next session.create ships.
       setCurrentModel(model)
       setCurrentProvider(provider)
-    } else if (targetKey) {
-      // Optimistic tile paint — the agent's own `session.info` confirms it.
+    }
+
+    if (targetKey) {
+      // Optimistic slice paint — the primary composer reads its live slice
+      // (app/chat/session-view `primaryField`), so the globals alone would leave
+      // the pill on the old name until `session.info` confirms the switch.
       updateSession(targetKey, state => ({ ...state, model, provider }))
     }
 

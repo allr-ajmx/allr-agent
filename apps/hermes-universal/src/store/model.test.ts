@@ -10,7 +10,6 @@ vi.mock('@/store/gateway', async () => {
   }
 })
 vi.mock('@/store/notifications', () => ({ clearNotifications: vi.fn(), notify: vi.fn(), notifyError: vi.fn() }))
-
 import { modelOptionsQueryKey } from '@/lib/model-options'
 import { queryClient } from '@/lib/query-client'
 import { requestGateway } from '@/store/gateway'
@@ -51,6 +50,9 @@ describe('selectModel targeting', () => {
     })
     expect($currentModel.get()).toBe('glm-5')
     expect($currentProvider.get()).toBe('zai')
+    // The primary composer reads its live slice, so the optimistic paint has to
+    // land there too — not only on the draft-default globals.
+    expect($sessionStates.get()['runtime-1']).toMatchObject({ model: 'glm-5', provider: 'zai' })
   })
 
   // The composer's globals belong to the primary chat. Writing them for a tile
