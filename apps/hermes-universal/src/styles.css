@@ -2312,6 +2312,42 @@ span[data-slot='aui_msg-reactions'] {
   }
 }
 
+/* ── Code fence token colours ──────────────────────────────────────
+   The palette `components/chat/code-fence.tsx` colours tokens with, seeded from
+   the Shiki themes the fence used to load (`github-light-default` /
+   `github-dark-dimmed`) so the transcript looks unchanged.
+
+   Custom properties rather than two tokenizer passes: a theme flip repaints
+   with no JS and no re-highlighting, which is what react-shiki's
+   `defaultColor="light-dark()"` cost us. It also drops a dependency on the CSS
+   `light-dark()` function (Safari 17.5+ / Chrome 123+) that sat far above the
+   Android WebView baseline everything else here assumes.
+
+   The fence reads each of these as `var(--code-*, currentColor)`, so losing one
+   costs a colour, never a character. */
+:root {
+  --code-kw: #cf222e;
+  --code-str: #0a3069;
+  /* `github-light-default` comments are #6e7781, borderline unreadable at our
+     code size; this is the darker remap the Shiki path already applied. */
+  --code-com: #57606a;
+  --code-num: #0550ae;
+  --code-fn: #8250df;
+  --code-type: #953800;
+  --code-tag: #116329;
+  --code-attr: #0550ae;
+}
+:root.dark {
+  --code-kw: #f47067;
+  --code-str: #96d0ff;
+  --code-com: #768390;
+  --code-num: #6cb6ff;
+  --code-fn: #dcbdfb;
+  --code-type: #f69d50;
+  --code-tag: #8ddb8c;
+  --code-attr: #6cb6ff;
+}
+
 /* ── Movable / pop-out composer (ported from apps/desktop) ────────────────────
    The floating composer's fixed sizing is on the [data-popped-out] Tailwind
    classes; here is the drag-region hatch affordance + the dock-glow intensity
