@@ -7,19 +7,21 @@ import { notify } from '@/store/notifications'
  * What happens to the LIVE CHAT when the app's profile changes — said out loud.
  *
  * Switching profile (`store/profiles` `setActiveProfile`) re-scopes every
- * profile-scoped REST call: config, skills, tools, model, the session list. It
- * does NOT re-scope the chat. `requestGateway` — `session.create`,
- * `prompt.submit` — rides one WebSocket that was opened as one profile, and
- * there is no per-request profile on it.
+ * profile-scoped REST call: config, skills, tools, model, the session list. NEW
+ * chats follow too — `session.create` / `session.resume` carry `profile` per
+ * request (store/chat `ensureSession`, store/session). What does NOT move is a
+ * chat that is already open: its session was built against the profile it
+ * started in, and the socket itself has no profile to switch.
  *
  * So the honest answer depends on who owns the backend:
  *
- *  * **local / ssh** — the backend is one we started, so it CAN be re-homed, by
- *    respawning it as the new profile. Offered, not done silently: a respawn
- *    drops the socket and every running turn with it.
- *  * **remote / cloud** — the gateway is somebody else's process running its own
- *    profile. Nothing the client does moves it, so say that instead of implying
- *    the chat followed.
+ *  * **local / ssh** — the backend is one we started, so it CAN be re-homed
+ *    wholesale (MCP discovery is still per launch profile), by respawning it as
+ *    the new profile. Offered, not done silently: a respawn drops the socket and
+ *    every running turn with it.
+ *  * **remote / cloud** — the gateway is somebody else's process. New chats land
+ *    on the profile; the open one stays put, so say that instead of implying it
+ *    followed.
  *
  * Extracted from `app/gateway/profile-selector.tsx`, which was the only place
  * that knew this (MJXHRM-389). The wake-phrase router needs the identical
@@ -61,6 +63,6 @@ export function announceProfileChatScope(target: null | string): void {
 
   notify({
     kind: 'info',
-    message: `Settings and skills now use ${name}. The live chat still runs the gateway's own profile.`
+    message: `Settings, skills and new chats now use ${name}. The open chat keeps the profile it was started in.`
   })
 }

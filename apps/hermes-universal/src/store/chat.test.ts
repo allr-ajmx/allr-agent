@@ -15,6 +15,7 @@ import { flushDeltas } from '@/lib/stream-batch'
 import { routeGatewayEvent as handleGatewayEvent } from '@/store/event-router'
 import { requestGateway } from '@/store/gateway'
 import { $petActivity } from '@/store/pet'
+import { $activeProfile } from '@/store/profiles'
 import { $activeSessionAwaitingInput, sessionApprovalRequest, sessionClarifyRequest } from '@/store/prompts'
 import { $sessionStates, newDraftKey, rekeySession, updateSession } from '@/store/session-state-types'
 import { $subagentsBySession } from '@/store/subagents'
@@ -629,6 +630,38 @@ describe('ensureSession cwd', () => {
     await ensureSession()
 
     expect(vi.mocked(requestGateway).mock.calls[0][1]).not.toHaveProperty('cwd')
+  })
+})
+
+// The gateway resolves an OMITTED `profile` to its launch profile, so a shared
+// remote/cloud gateway put every new chat on "default" whatever the rail showed.
+// Branch and resume already carried it; the new-chat path is the one that did
+// not.
+describe('ensureSession profile', () => {
+  const seedDraft = () => seedActiveSession(newDraftKey(), { runtimeSessionId: null, storedSessionId: null })
+
+  beforeEach(() => {
+    $activeProfile.set(null)
+  })
+
+  it('creates the chat on the active profile', async () => {
+    seedDraft()
+    $activeProfile.set('research')
+    vi.mocked(requestGateway).mockResolvedValue({ session_id: 'runtime-4' } as never)
+
+    await ensureSession()
+
+    expect(requestGateway).toHaveBeenCalledWith('session.create', { cols: 96, source: 'universal', profile: 'research' })
+  })
+
+  // Omitted = the gateway's own profile, exactly as before.
+  it('omits profile for the default profile', async () => {
+    seedDraft()
+    vi.mocked(requestGateway).mockResolvedValue({ session_id: 'runtime-5' } as never)
+
+    await ensureSession()
+
+    expect(vi.mocked(requestGateway).mock.calls[0][1]).toEqual({ cols: 96, source: 'universal' })
   })
 })
 

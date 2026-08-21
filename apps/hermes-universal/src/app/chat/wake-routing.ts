@@ -20,12 +20,12 @@ import type { WakeDetection } from '@/store/wake-word'
  * profile, start a chat — rather than a voice-only shortcut, so a wake-started
  * conversation and a hand-started one leave the app in identical states.
  *
- * WHAT UNIVERSAL CANNOT DO, AND SAYS SO. Desktop re-homes its gateway to the
- * profile's own backend process (`ensureGatewayProfile`, one pooled backend per
- * profile). Universal has ONE gateway socket, opened as one profile, and no
- * per-request profile on it — so re-scoping moves settings, skills, models and
- * the session list, and the live chat only follows when the backend is one we
- * started and can respawn. `announceProfileChatScope` is the app's single
+ * WHAT HAPPENS TO THE OPEN CHAT, SAID OUT LOUD. Desktop re-homes its gateway to
+ * the profile's own backend process (`ensureGatewayProfile`, one pooled backend
+ * per profile). Universal has ONE gateway socket; a NEW chat follows the profile
+ * because `session.create` carries it per request, but a chat already open keeps
+ * the profile it was started in, and only a backend we started can be respawned
+ * to move wholesale. `announceProfileChatScope` is the app's single
  * answer to that, shared with the profile picker; routing a wake phrase without
  * it would be the silent mis-route this whole feature exists to avoid.
  */

@@ -32,6 +32,7 @@ import { requestGateway } from '@/store/gateway'
 import { clearNotifications, notifyError } from '@/store/notifications'
 import { setPetActivity } from '@/store/pet'
 import { clearPreviewArtifacts } from '@/store/preview-status'
+import { $activeProfile } from '@/store/profiles'
 import { resolveNewSessionCwd } from '@/store/project-scope'
 import {
   $approval,
@@ -283,9 +284,17 @@ export async function ensureSession(): Promise<{ created: boolean; id: string; s
   const cwd = $currentCwd.get().trim() || resolveNewSessionCwd()
   const draftKey = $activeSessionKey.get()
 
+  // The gateway resolves an OMITTED profile to its launch profile, so on a
+  // shared remote/cloud gateway every new chat landed on "default" whatever the
+  // rail showed (desktop's #45057, never ported). Branch/resume already pass it;
+  // this is the one path that did not.
+  const profile = $activeProfile.get()
+
   const created = await requestGateway<SessionCreateResponse>('session.create', {
     cols: 96,
-    ...(cwd && { cwd })
+    source: 'universal',
+    ...(cwd && { cwd }),
+    ...(profile ? { profile } : {})
   })
 
   const id = created.session_id
