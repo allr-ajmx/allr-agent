@@ -102,7 +102,15 @@ export function BubbleRow() {
   const containerCenterRef = useRef(0)
   const activeIndexRef = useRef(activeIndex)
   const stateRef = useRef<GestureState | null>(null)
+  // How many bubbles are actually rendered. `buttonRefs` is an index-keyed array
+  // that only ever grows: closing a bubble leaves React's `null` cleanup at the
+  // tail, `recompute` measured it as a centre of 0, and that phantom centre
+  // INVERTED `trackBounds` — its `min` became the container centre, past `max` —
+  // which collapsed the drag range to a few px and let `peekedFor` pick an index
+  // no bubble owns. That is the row that stops sliding after a close.
+  const bubbleCountRef = useRef(bubbles.length)
   activeIndexRef.current = activeIndex
+  bubbleCountRef.current = bubbles.length
 
   // The strip IS this phone's tab bar, so it names a chat the way a tab does —
   // including the draft, which is named after what has been typed into it (the
@@ -174,7 +182,10 @@ export function BubbleRow() {
       }
     })
 
-    return best
+    // Never past the last bubble: `centers` is measured, and a frame where it is
+    // shorter than the list (or empty, before the first layout effect) must
+    // still answer an index the row can act on.
+    return Math.min(best, Math.max(0, centers.length - 1))
   }, [])
 
   // Measure the (transform-neutral) layout center of every bubble; re-home the
@@ -187,6 +198,10 @@ export function BubbleRow() {
       return
     }
 
+    // Trim first: everything past the live count is a closed bubble's leftover
+    // slot, and measuring it writes a centre of 0 into the geometry every other
+    // calculation here reads.
+    buttonRefs.current.length = bubbleCountRef.current
     centersRef.current = buttonRefs.current.map(el => (el ? el.offsetLeft + el.offsetWidth / 2 : 0))
     containerCenterRef.current = container.clientWidth / 2
 
