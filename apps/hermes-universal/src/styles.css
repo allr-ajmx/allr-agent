@@ -1904,7 +1904,13 @@ canvas {
   overflow-wrap: inherit;
   vertical-align: baseline;
   word-break: inherit;
-  white-space: inherit;
+  /* `pre`, not `inherit`. This rule exists to strip streamdown's inline-code
+     chrome off a FENCE's <code>, and inheriting white-space made the fence's
+     line breaks depend on an ancestor <pre> still being a <pre> — but the
+     highlighted path mounts react-shiki with `as="div"`, so the chain is
+     <pre> → div.shiki → <code> and one element swap upstream would collapse
+     every fence to a single line. Say what a code block means instead. */
+  white-space: pre;
 }
 
 /* Streamdown's adapter wraps code fences in a `data-streamdown="code-block"`

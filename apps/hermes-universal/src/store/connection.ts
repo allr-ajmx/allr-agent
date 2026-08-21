@@ -14,6 +14,7 @@ import { IS_NATIVE_MOBILE } from '@/lib/platform'
 import { reconnectBackoffDelayMs } from '@/lib/reconnect-backoff'
 import { clearSecrets, loadSecrets, loadSshSecrets, saveSecrets, type Secrets } from '@/lib/secure-store'
 import { persistSessionCookies } from '@/lib/session-persist'
+import { onBackground, onForeground } from '@/store/app-lifecycle'
 import { atom } from '@/store/atom'
 import { $gatewayState, closeGateway, connectGateway } from '@/store/gateway'
 import { chooseGatedAuth, type Connection } from '@/store/gateway-config'
@@ -626,8 +627,47 @@ export function endGatewaySwitch(): void {
  */
 const RECONNECT_ESCALATE_AFTER_MS = 45_000
 
+/**
+ * How many AUTH failures the supervisor will absorb before standing down.
+ *
+ * Auth and network failures get different policies on purpose, and collapsing
+ * them would be a regression in one direction or the other. A revoked credential
+ * does not become valid by being asked again, so an uncapped ladder on 401s is a
+ * spinner the user can never escape. A network failure is the opposite: refused,
+ * timed out, DNS, a gateway mid-restart — those genuinely do resolve on their
+ * own, and capping them would make a phone that spent 60s in a lift give up
+ * permanently. So only this counter is bounded; network failures keep the
+ * uncapped ladder and rely on RECONNECT_ESCALATE_AFTER_MS for their way out.
+ *
+ * Three rather than one because a rotation genuinely can race a dial — the
+ * bearer refreshed out from under an in-flight mint — and that deserves more
+ * than a single retry before the session is declared dead.
+ *
+ * Not a dead end: `wakeReconnect()` resets this, so returning to the app always
+ * buys a fresh budget (store/app-lifecycle.ts).
+ */
+const MAX_AUTH_ATTEMPTS = 3
+
 const reconnectDelay = (attempt: number): number => reconnectBackoffDelayMs(attempt)
-const wait = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms))
+// Cancels the backoff currently being slept off, if any. Set for the duration of
+// each sleep so a foreground wake can cut it short — the ladder's cap is 15s, and a
+// user who just reopened the app should not have to sit out the remainder of one.
+let cancelBackoffSleep: null | (() => void) = null
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => {
+    const timer = setTimeout(() => {
+      cancelBackoffSleep = null
+      resolve()
+    }, ms)
+
+    cancelBackoffSleep = () => {
+      clearTimeout(timer)
+      cancelBackoffSleep = null
+      resolve()
+    }
+  })
+}
 
 // DESKTOP ONLY — see the reauth branch in the loop for why mobile must never reach here.
 //
@@ -645,9 +685,56 @@ async function reauthForReconnect(conn: Connection): Promise<void> {
   }
 }
 
+// Set by `wakeReconnect`, consumed at the top of each loop iteration: it skips the
+// pending backoff and refunds the auth budget for the coming attempt. Only
+// `wakeReconnect` sets it and only the loop clears it, so a wake that arrives while
+// no loop is running is still honoured by the loop it starts.
+let wakeRequested = false
+
+/**
+ * Wake a backed-off reconnect loop and give it a fresh budget.
+ *
+ * Called when the user brings the app back to the front (store/app-lifecycle.ts).
+ * Two jobs, and both matter on a phone:
+ *
+ *  • The ladder's next attempt can be up to 15s away, and a user staring at a
+ *    spinner they just returned to should not wait it out.
+ *  • The auth budget is reset, so a session that stood down as expired gets one
+ *    clean round of attempts every time the user actually comes back rather than
+ *    staying dead until the app is relaunched. This is what keeps
+ *    MAX_AUTH_ATTEMPTS from being a trap: the cap ends a spinner, it does not end
+ *    the session permanently.
+ *
+ * Re-arming a loop that already stood down is safe — it re-enters through the
+ * same `$gatewayState` path any other drop takes.
+ */
+export function wakeReconnect(): void {
+  if (intentionalClose || switching || !$connection.get()) {
+    return
+  }
+
+  wakeRequested = true
+
+  // A loop already running is asleep on its backoff; cut that short so the flag is
+  // acted on now rather than up to 15s from now.
+  cancelBackoffSleep?.()
+
+  // A loop that already stood down (the auth budget, or a socket that closed while
+  // nothing was watching) has to be re-entered. It re-arms through the same path any
+  // other drop takes.
+  if (!reconnecting && $gatewayState.get() === 'closed') {
+    void runReconnectLoop()
+  }
+}
+
 async function runReconnectLoop(): Promise<void> {
   reconnecting = true
   let attempt = 0
+  // Consecutive AUTH failures this episode (401 / reauth-required), tracked apart
+  // from `attempt` because the two get different budgets — see MAX_AUTH_ATTEMPTS.
+  // Episode-scoped like `failingSince`: every success leaves the loop, so a later
+  // drop starts a fresh count. A foreground wake refunds it mid-episode.
+  let authAttempts = 0
   // Wall-clock start of this disconnect episode (the first FAILED reconnect),
   // null while we have not failed yet. Drives the escalation below. Episode-
   // scoped by construction: the loop is re-entered fresh per episode.
@@ -660,7 +747,17 @@ async function runReconnectLoop(): Promise<void> {
       break
     }
 
-    await wait(reconnectDelay(attempt))
+    // A foreground wake skips the pending backoff and refunds the auth budget:
+    // the user is back and looking at this, so make the attempt now and give a
+    // stood-down session a genuine second chance.
+    if (wakeRequested) {
+      wakeRequested = false
+      attempt = 0
+      authAttempts = 0
+      failingSince = null
+    } else {
+      await sleep(reconnectDelay(attempt))
+    }
 
     if (intentionalClose || switching || !$connection.get()) {
       break
@@ -695,6 +792,26 @@ async function runReconnectLoop(): Promise<void> {
 
       break
     } catch (err) {
+      // Auth failures spend their own budget. A credential the gateway refuses does
+      // not become valid by being asked again, so this is the counter that has to
+      // terminate — otherwise a genuinely expired session is an endless spinner. It
+      // is checked BEFORE the mode-specific handling below so every auth path
+      // (ticket, oauth, cloud, desktop re-auth) shares one stopping rule.
+      if (isGatewayReauthRequired(err)) {
+        authAttempts++
+
+        if (authAttempts >= MAX_AUTH_ATTEMPTS) {
+          // Stand down onto a screen with a working Sign in button — the correct
+          // terminal state for a session that really is dead. `$connectionError` is
+          // what reveals the embedded configurator on the connecting screen
+          // (gateway-connecting-screen.tsx). A later `wakeReconnect()` refunds the
+          // budget, so this ends the spinner without ending the session forever.
+          $connectionError.set(errorText(err))
+
+          break
+        }
+      }
+
       if (conn.authMode === 'oauth' && isGatewayReauthRequired(err)) {
         // On mobile an interactive sign-in is a ONE-WAY DOOR: it navigates the app's only
         // webview to the login page and never returns (see `beginOAuthLogin`). This loop
@@ -770,8 +887,61 @@ $gatewayState.subscribe(state => {
 // Latch "has connected this session" on every ready transition (initial connect,
 // local/cloud connect, and each successful auto-reconnect). One place covers them
 // all; `disconnect()` clears it.
+//
+// The same hook re-snapshots the cookie jar, because the persisted copy goes stale
+// the moment the gateway rotates anything. `persistSessionCookies` used to run only
+// at the end of connect()/connectCloud(), so the keyring kept whatever pair the
+// FIRST dial saw while the live Rust jar took every rotated `allr_session_at`/`_rt`
+// the server sent afterwards. A cold boot then imported credentials that had been
+// rotated away hours earlier — and against a provider with reuse detection (the
+// portal rotates its refresh token on every use) that is an actively revoked
+// session, not merely a stale one. Every transition to `ready` is the right trigger:
+// it covers the initial dial, each auto-reconnect, and each soft gateway switch.
 $connectionPhase.subscribe(phase => {
   if (phase === 'ready') {
     $hasConnected.set(true)
+    schedulePersistSessionCookies()
   }
 })
+
+// Debounced so a burst of ready transitions (a soft switch re-dialling, a flapping
+// socket) costs one keyring write rather than one per transition — the export walks
+// the jar and the write can go over IPC to another process on desktop.
+let persistCookiesTimer: null | ReturnType<typeof setTimeout> = null
+
+function schedulePersistSessionCookies(): void {
+  if (persistCookiesTimer !== null) {
+    clearTimeout(persistCookiesTimer)
+  }
+
+  persistCookiesTimer = setTimeout(() => {
+    persistCookiesTimer = null
+    void persistSessionCookies()
+  }, 1_000)
+}
+
+/** Snapshot the jar now, skipping the debounce. Called when the app is about to be
+ *  backgrounded (store/app-lifecycle.ts): the process may not survive to run a
+ *  pending timer, and the rotation it is holding is the one the next launch needs. */
+export function flushSessionCookies(): void {
+  if (persistCookiesTimer !== null) {
+    clearTimeout(persistCookiesTimer)
+    persistCookiesTimer = null
+  }
+
+  void persistSessionCookies()
+}
+
+// Wire the connection half of the app lifecycle. Called once from main.tsx, after
+// `initAppLifecycle()`.
+//
+//  • foreground — wake a backed-off reconnect and refund the auth budget, so a
+//    user who just came back is not watching out a 15s jittered sleep and a
+//    session that stood down as expired gets one clean re-try.
+//  • background — snapshot the cookie jar NOW rather than on the debounce, because
+//    the process may not live long enough to run a pending timer and the rotation
+//    it holds is exactly what the next cold launch needs.
+export function initConnectionLifecycle(): void {
+  onForeground(wakeReconnect)
+  onBackground(flushSessionCookies)
+}

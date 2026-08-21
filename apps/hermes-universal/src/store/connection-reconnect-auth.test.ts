@@ -156,4 +156,73 @@ describe('auto-reconnect — who may drive an interactive sign-in', () => {
     expect(auth.portalAgentSignIn).toHaveBeenCalled()
     expect(auth.oauthLogin).not.toHaveBeenCalled()
   })
+
+  // ── the retry budget ─────────────────────────────────────────────────────
+  //
+  // Auth and network failures get deliberately different policies, and the two
+  // tests below are the pair that pins that apart. Collapsing them would be a
+  // regression in one direction or the other: capping network retries makes a
+  // phone that spent a minute in a lift give up permanently, while NOT capping
+  // auth retries leaves a genuinely expired session spinning forever behind a
+  // screen with no way out.
+
+  /** Let the ladder run long enough for many jittered attempts (cap is 15s). */
+  const runLadder = async () => vi.advanceTimersByTimeAsync(300_000)
+
+  it('stops re-dialling once the auth budget is spent', async () => {
+    // Desktop: the mobile branch stands down on the FIRST auth failure for its own
+    // reasons, so the budget is only observable where the supervisor is allowed to
+    // keep trying.
+    const { conn, gateway } = await arrange(false, remote)
+
+    await dropSocket(gateway)
+    await runLadder()
+
+    const settled = vi.mocked(gateway.connectGateway).mock.calls.length
+
+    await runLadder()
+
+    // Not merely "few attempts" — no FURTHER attempts. That is the difference
+    // between a bounded ladder and a slow one.
+    expect(vi.mocked(gateway.connectGateway).mock.calls.length).toBe(settled)
+    expect(conn.$connectionError.get()).toContain('Session expired')
+  })
+
+  it('keeps re-dialling a network failure past the auth budget', async () => {
+    const { gateway } = await arrange(false, remote)
+
+    // A refused connection, not a refused credential. This one really does resolve
+    // on its own — a gateway mid-restart, wifi coming back — so the ladder must
+    // outlive three attempts.
+    vi.mocked(gateway.connectGateway).mockRejectedValue(new Error('Network request failed'))
+
+    await dropSocket(gateway)
+    await runLadder()
+
+    const settled = vi.mocked(gateway.connectGateway).mock.calls.length
+
+    expect(settled).toBeGreaterThan(3)
+
+    await runLadder()
+
+    expect(vi.mocked(gateway.connectGateway).mock.calls.length).toBeGreaterThan(settled)
+  })
+
+  // The cap ends a spinner; it must not end the session. Coming back to the app is
+  // fresh user intent and buys a fresh budget — otherwise a stood-down session
+  // would stay dead until the app was relaunched, which is the very failure this
+  // whole change exists to remove.
+  it('refunds the budget when the user brings the app back', async () => {
+    const { conn, gateway } = await arrange(false, remote)
+
+    await dropSocket(gateway)
+    await runLadder()
+
+    const settled = vi.mocked(gateway.connectGateway).mock.calls.length
+
+    conn.wakeReconnect()
+    await runLadder()
+
+    expect(vi.mocked(gateway.connectGateway).mock.calls.length).toBeGreaterThan(settled)
+  })
 })

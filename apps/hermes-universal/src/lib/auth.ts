@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { atom } from 'nanostores'
 
+import { GatewayReauthRequiredError } from '@/gateway'
 import { httpRequest } from '@/transport/http'
 
 // Gated-mode auth (auth_required=true). All requests run through the Rust
@@ -68,8 +69,16 @@ export async function mintWsTicket(base: string): Promise<string> {
     timeoutMs: 10_000
   })
 
+  // Typed, not a bare Error. A 401 here is the one failure a caller can DO
+  // something about, and every caller has to agree on how to spot it: the
+  // connect retry (store/connection.ts), the reconnect supervisor's auth budget,
+  // and the mobile stand-down all branch on `isGatewayReauthRequired`. The
+  // `ticket` arm of `resolveWsUrl` mints directly rather than through
+  // `resolveGatewayWsUrl`, so it used to raise a plain Error that none of them
+  // recognised — a password gateway's expiry was therefore retried forever on the
+  // network ladder instead of being reported as a dead credential.
   if (res.status === 401) {
-    throw new Error('Session expired — sign in again')
+    throw new GatewayReauthRequiredError('Session expired — sign in again')
   }
 
   if (res.status < 200 || res.status >= 300) {

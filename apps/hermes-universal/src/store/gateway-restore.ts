@@ -1,5 +1,7 @@
+import { isGatewayReauthRequired } from '@/gateway'
 import { oauthStatus } from '@/lib/auth'
 import { loadString, removeKey, saveString } from '@/lib/persist'
+import { reconnectBackoffDelayMs } from '@/lib/reconnect-backoff'
 import { atom } from '@/store/atom'
 import {
   connect,
@@ -26,6 +28,17 @@ import { broadcastGatewaySwitch } from '@/store/gateway-switch-broadcast'
 // gateway" behaviour across all three modes.
 
 const TARGET_KEY = 'hermes.connection.last'
+
+/**
+ * How many times the boot restore re-dials before giving up on the connect screen.
+ *
+ * Bounded for the same reason the supervisor's auth budget is (store/connection.ts):
+ * a restore that can never succeed must end somewhere the user can act, not in a
+ * permanent spinner. Three attempts with full-jitter backoff covers the launch-time
+ * transients — radio not up, DNS unsettled, gateway mid-restart — without making a
+ * genuinely unreachable gateway take noticeably longer to report.
+ */
+const MAX_RESTORE_ATTEMPTS = 3
 
 /** The last successful connection, enough to re-dial it. Non-secret only —
  *  token/password live in the OS keyring, the session cookie jar in Rust. */
@@ -290,12 +303,42 @@ export async function autoRestoreConnection(): Promise<void> {
 
   // Reopen into the saved mode so a failed restore lands on the right connect
   // surface — dialSavedTarget commits it.
-  try {
-    await dialSavedTarget(target)
-  } catch {
-    // connect*/connectLocal/connectCloud already set $connectionError + phase; the
-    // connect screen takes over once $restoring clears below.
-  } finally {
-    $restoring.set(false)
+  //
+  // Bounded ladder rather than a single shot. One transient failure at launch used
+  // to be terminal: the dial's catch nulls `$connection`, so the reconnect
+  // supervisor (which requires a live connection) never armed, and with
+  // `$hasConnected` false on a fresh process MobileController fell through to the
+  // CONNECT screen — indistinguishable from being signed out, even though tapping
+  // Connect immediately afterwards worked. A phone has plenty of ways to fail the
+  // first dial and none of them mean the session is gone: the radio may not be up
+  // microseconds after launch, DNS may not have settled, the gateway may be mid
+  // restart.
+  //
+  // `$restoring` is held true across the whole ladder so the user watches the
+  // connecting screen — which reveals the inline configurator once
+  // `$connectionError` is published — instead of the connect picker.
+  for (let attempt = 0; attempt < MAX_RESTORE_ATTEMPTS; attempt++) {
+    if (attempt > 0) {
+      await new Promise(resolve => setTimeout(resolve, reconnectBackoffDelayMs(attempt - 1)))
+    }
+
+    try {
+      await dialSavedTarget(target)
+      $restoring.set(false)
+
+      return
+    } catch (err) {
+      // A refused CREDENTIAL is not transient — asking again cannot change the
+      // answer — so it spends the ladder immediately rather than sitting behind
+      // three backoffs the user has to watch. Everything else (refused, timeout,
+      // DNS, a gateway still coming up) is exactly what the retries are for.
+      if (isGatewayReauthRequired(err)) {
+        break
+      }
+      // connect*/connectLocal/connectCloud already set $connectionError + phase; the
+      // connect screen takes over once $restoring clears below.
+    }
   }
+
+  $restoring.set(false)
 }

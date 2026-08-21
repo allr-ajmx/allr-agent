@@ -188,4 +188,50 @@ describe('ssh restore', () => {
     expect(connectCloud).not.toHaveBeenCalled()
     expect($restoring.get()).toBe(false)
   })
+
+  // ── the retry ladder ─────────────────────────────────────────────────────
+
+  // A phone has plenty of ways to fail the first dial after launch — the radio
+  // may not be up yet, DNS may not have settled, the gateway may be mid-restart —
+  // and none of them mean the session is gone. This used to be a single shot, so
+  // one of those dropped the user on the CONNECT screen looking signed out, even
+  // though tapping Connect a second later worked.
+  it('re-dials a transient failure instead of giving up on the first one', async () => {
+    vi.mocked(connect).mockRejectedValueOnce(new Error('Network request failed'))
+    saveGatewayTarget({ mode: 'remote', url: 'https://gw.example.com' })
+
+    await autoRestoreConnection()
+
+    expect(connect).toHaveBeenCalledTimes(2)
+    expect($restoring.get()).toBe(false)
+  })
+
+  // Bounded, so a gateway that is never coming back ends somewhere the user can
+  // act rather than in a permanent spinner.
+  it('gives up after the attempt budget and hands over to the connect screen', async () => {
+    vi.mocked(connect).mockRejectedValue(new Error('Network request failed'))
+    saveGatewayTarget({ mode: 'remote', url: 'https://gw.example.com' })
+
+    await autoRestoreConnection()
+
+    expect(connect).toHaveBeenCalledTimes(3)
+    expect($restoring.get()).toBe(false)
+  })
+
+  // A refused CREDENTIAL is not transient — asking again cannot change the answer
+  // — so it must not sit behind three backoffs the user has to watch before the
+  // sign-in affordance appears.
+  it('spends the ladder immediately when the credential is refused', async () => {
+    const expired = Object.assign(new Error('Session expired — sign in again'), {
+      needsOauthLogin: true
+    })
+
+    vi.mocked(connect).mockRejectedValue(expired)
+    saveGatewayTarget({ mode: 'remote', url: 'https://gw.example.com' })
+
+    await autoRestoreConnection()
+
+    expect(connect).toHaveBeenCalledTimes(1)
+    expect($restoring.get()).toBe(false)
+  })
 })
