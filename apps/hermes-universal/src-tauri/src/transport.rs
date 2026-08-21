@@ -1150,8 +1150,9 @@ pub fn cookies_export(state: State<'_, TransportState>) -> Result<String, String
 ///   2. A parse failure is LOGGED rather than swallowed — a session that stopped
 ///      surviving restarts is otherwise invisible, and a keyring blob that stops
 ///      decrypting is exactly the shape that failure takes.
-///   3. A payload that parses to zero live cookies never replaces a jar that
-///      already holds some.
+///   3. A jar that already holds a live session is never replaced at all — not
+///      even by a payload that parses cleanly. See the check itself for why the
+///      live jar is the more trustworthy of the two.
 ///
 /// The JS layer (lib/session-persist) guards (1) too; this is the boundary, and
 /// the command is callable regardless of what that layer does.
@@ -1173,8 +1174,19 @@ pub fn cookies_import(state: State<'_, TransportState>, json: String) -> Result<
         .lock()
         .map_err(|_| "cookie jar poisoned".to_string())?;
 
-    if loaded.iter_unexpired().next().is_none() && store.iter_unexpired().next().is_some() {
-        log::warn!("[transport] stored cookie jar held no live cookies; keeping the live jar");
+    // A live jar always wins, whatever the stored one holds.
+    //
+    // This used to refuse only when the STORED blob was empty, which left the
+    // worse case open: a stale-but-unexpired snapshot clobbering a jar that had
+    // since been rotated forward. The import is a boot-time rehydrate and the jar
+    // is empty then, so in the normal path nothing changes — but a webview that
+    // reloads while the Rust process survives (an Android activity recreation, a
+    // dev reload) runs this against a jar that is AHEAD of the keyring, and
+    // replacing it there hands the gateway credentials it has already rotated
+    // away. Against a provider with refresh-token reuse detection that reads as an
+    // attack and revokes the session outright.
+    if store.iter_unexpired().next().is_some() {
+        log::info!("[transport] the live cookie jar already holds a session; keeping it");
         return Ok(());
     }
 
