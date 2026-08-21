@@ -239,10 +239,44 @@ describe('chat-bubbles store', () => {
     expect(ids()).toEqual([null, 'a', 'b'])
   })
 
+  // There is only ever ONE draft bubble, so a side-bearing call cannot add a
+  // second — it has to MOVE the one there is. It used to leave it in place and
+  // call newSession() anyway, which switched you to a draft parked at the far
+  // end: the row re-homed on it and every other chat stacked up on one side of
+  // the chat you had just asked to appear on the other.
+  it('newChatBubble moves an existing draft to the side it was pulled open from', () => {
+    $activeStoredSessionId.set('a')
+    addBubble('b') // ['a','b']
+    newChatBubble('end') // ['a','b', null], active = the draft
+
+    // Back to a real chat, then pull the OTHER end open.
+    switchToBubble('a')
+    newChatBubble('start')
+
+    expect(ids()).toEqual([null, 'a', 'b'])
+    expect($activeStoredSessionId.get()).toBeNull()
+  })
+
+  // The ⌘N keybind and the sidebar row are not looking at a particular gap, so
+  // they must not reorder the row behind the user.
+  it('newChatBubble with no side leaves an existing draft where it is', () => {
+    $activeStoredSessionId.set('a')
+    addBubble('b') // ['a','b']
+    newChatBubble('start') // [null,'a','b']
+
+    switchToBubble('b')
+    newChatBubble()
+
+    expect(ids()).toEqual([null, 'a', 'b'])
+    expect($activeStoredSessionId.get()).toBeNull()
+  })
+
   it('newChatBubble on a draft is a no-op', () => {
     $activeStoredSessionId.set(null) // already a draft
 
-    newChatBubble()
+    // False is what the bubble row reads to stop offering the gesture at all,
+    // instead of arming, buzzing and then doing nothing.
+    expect(newChatBubble()).toBe(false)
     expect(ids()).toEqual([])
   })
 

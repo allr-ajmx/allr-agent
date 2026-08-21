@@ -61,6 +61,12 @@ interface GestureState {
   /** Which end the gap was pulled open on. Read on release: the ghost the user
    *  watched grow is on this side, so the real bubble has to land there. */
   newSide: NewSessionSide | null
+  /** Whether pulling past an end can produce anything, captured at press time.
+   *  It cannot when the chat you are on IS the unsaved draft — there is no
+   *  second draft to make — and arming a gesture that the store will refuse is
+   *  how the row came to promise a new chat and then just switch you somewhere
+   *  else. */
+  canNew: boolean
 }
 
 interface Preview {
@@ -79,12 +85,12 @@ interface Preview {
  * left/right.
  *
  * The whole row is the gesture surface — anywhere in it, dot or gap or the empty
- * track past the ends. TAP a bubble to switch straight to it; press to reveal
- * the centred chat's title (a tooltip above
- * the row, shown only while the press is active); drag left/right to slide the
- * strip and release to switch (the new active animates back to center); drag up
- * to arm the centred bubble (red) and release to close it (non-destructive — see
- * store/chat-bubbles). Hidden until there are 2+ chats.
+ * track past the ends. TAP a bubble to switch straight to it; press to reveal the
+ * centred chat's title (a tooltip above the row, shown only while the press is
+ * active); drag left/right to slide the strip and release to switch (the new
+ * active animates back to center); drag up to arm the centred bubble (red) and
+ * release to close it (non-destructive — see store/chat-bubbles); drag out past
+ * either end to open a new chat on that side. Hidden until there are 2+ chats.
  */
 export function BubbleRow() {
   const { t } = useI18n()
@@ -298,22 +304,28 @@ export function BubbleRow() {
         void triggerHaptic('selection')
       }
 
-      st.newSide = drag.newSessionSide
+      // Overdragging still rubber-bands — that is what says "nothing further
+      // along" — but with no ghost, no buzz and no arming when there is nothing
+      // to create.
+      const newSide = st.canNew ? drag.newSessionSide : null
+      const newArmed = st.canNew && drag.newSessionArmed
 
-      if (drag.newSessionArmed !== st.newArmed) {
-        st.newArmed = drag.newSessionArmed
+      st.newSide = newSide
+
+      if (newArmed !== st.newArmed) {
+        st.newArmed = newArmed
 
         // Same cue the close gesture uses: "you have armed something, let go".
-        if (drag.newSessionArmed) {
+        if (newArmed) {
           void triggerHaptic('warning')
         }
       }
 
       setPreview({
         closeArmed: false,
-        newArmed: drag.newSessionArmed,
-        newProgress: newSessionProgress(drag.overshoot),
-        newSide: drag.newSessionSide,
+        newArmed,
+        newProgress: newSide ? newSessionProgress(drag.overshoot) : 0,
+        newSide,
         peeked: st.peeked
       })
     },
@@ -378,9 +390,9 @@ export function BubbleRow() {
       // grew there and that is where the user is looking; appending to the far
       // end instead made the new chat appear behind them.
       newChatBubble(st.newSide ?? 'end')
-      // A no-op inside the store (already on a draft) would otherwise leave the
-      // strip parked at the overdrag; the layout effect corrects this when the
-      // bubble list does change.
+      // Un-does the overdrag. The layout effect re-homes on the draft once the
+      // list changes, but a call that only MOVES an existing draft bubble may
+      // leave the length alone — so put the strip back either way.
       setTranslate(centerTranslate(st.peeked))
 
       return
@@ -427,6 +439,9 @@ export function BubbleRow() {
         armed: false,
         base,
         bubbles: $chatBubbles.get(),
+        // Read from the store, not from the render's `activeId`: the press is
+        // the moment this is true or not.
+        canNew: $activeStoredSessionId.get() !== null,
         moved: 0,
         newArmed: false,
         newSide: null,
