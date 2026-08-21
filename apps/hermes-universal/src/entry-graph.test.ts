@@ -19,6 +19,10 @@ import { describe, expect, it } from 'vitest'
  * So the property worth asserting is reachability, not size — and it has to
  * cover node_modules, because that is where the defeat came from.
  *
+ * Three of those four seams remain. The fourth was the chat code fence, which
+ * ALLR-30 rebuilt to compute its own colours; it has no seam because it has no
+ * shiki, and the assertion at the bottom of this file holds it to that.
+ *
  * How it works: parse every module reachable from `src/main.tsx` following
  * static edges only (import declarations, side-effect imports, `export … from`
  * re-exports, `import x = require()`, and CommonJS `require()`), and stop at
@@ -421,7 +425,6 @@ describe('entry import graph', () => {
     // The complement of the assertions above: the seams must still EXIST, or
     // "not statically reachable" would be satisfied by deleting highlighting.
     const seams = [
-      ['components/chat/shiki-highlighter.tsx', "lazy(() => import('@/components/chat/shiki-block'))"],
       ['components/chat/diff-lines.tsx', "React.lazy(() => import('@/components/chat/diff-lines-shiki'))"],
       ['components/chat/diff-lines.tsx', "import('shiki')"],
       ['app/right-pane/preview/preview-file.tsx', "lazy(() => import('@/app/right-pane/preview/preview-shiki-block'))"]
@@ -430,5 +433,15 @@ describe('entry import graph', () => {
     for (const [file, seam] of seams) {
       expect(fs.readFileSync(path.join(SRC, file), 'utf8')).toContain(seam)
     }
+  })
+
+  it('keeps shiki out of the code fence entirely', () => {
+    // Stronger than the seam list, and the point of ALLR-30: the transcript's
+    // fence must reach shiki by NO route — not statically, not behind a lazy
+    // boundary, not at all. Its colours are computed by `lib/code-tokens`,
+    // which is itself required to have no imports whatsoever, so no chunk can
+    // fail to arrive and no engine can be refused by a CSP.
+    expect(fs.readFileSync(path.join(SRC, 'components/chat/code-fence.tsx'), 'utf8')).not.toMatch(/from '.*shiki/)
+    expect(fs.readFileSync(path.join(SRC, 'lib/code-tokens.ts'), 'utf8')).not.toMatch(/^import /m)
   })
 })

@@ -1,8 +1,7 @@
-import type { SyntaxHighlighterProps } from '@assistant-ui/react-streamdown'
 import DOMPurify from 'dompurify'
 import { useEffect, useMemo, useState } from 'react'
 
-import { SyntaxHighlighter } from '@/components/chat/shiki-highlighter'
+import { CodeFence } from '@/components/chat/code-fence'
 import { CopyButton } from '@/components/ui/copy-button'
 import { Tip } from '@/components/ui/tooltip'
 import { useI18n } from '@/i18n'
@@ -24,7 +23,7 @@ import { artifactIdFromTab, type PreviewTarget } from '@/store/preview'
 
 const MIME_BY_KIND = { code: 'text/plain', html: 'text/html', svg: 'image/svg+xml' } as const
 
-// Shiki has no `svg` grammar; code artifacts keep their detected fence language.
+// There is no `svg` grammar; code artifacts keep their detected fence language.
 const SOURCE_LANGUAGE_BY_KIND: Record<ArtifactKind, string | undefined> = {
   code: undefined,
   html: 'html',
@@ -32,21 +31,6 @@ const SOURCE_LANGUAGE_BY_KIND: Record<ArtifactKind, string | undefined> = {
 }
 
 type ArtifactViewMode = 'rendered' | 'source'
-
-// The highlighter takes its wrapper from streamdown's adapter; outside a
-// markdown tree there is no adapter, so hand it the plain element it expects.
-const SOURCE_COMPONENTS: SyntaxHighlighterProps['components'] = {
-  Code: ({ node, ...props }) => {
-    void node
-
-    return <code {...props} />
-  },
-  Pre: ({ node, ...props }) => {
-    void node
-
-    return <pre {...props} />
-  }
-}
 
 const HEADER_BUTTON_CLASS =
   'flex items-center gap-1 rounded px-1.5 py-0.5 text-(--ui-text-tertiary) transition-colors hover:bg-(--chrome-action-hover) hover:text-foreground disabled:pointer-events-none disabled:opacity-40'
@@ -333,10 +317,13 @@ export function ArtifactPreview({ target }: { target: PreviewTarget }) {
         {mode === 'rendered' && renderable ? (
           <ArtifactLiveView content={version.content} kind={record.kind} title={record.title} />
         ) : (
-          <SyntaxHighlighter
+          <CodeFence
             code={version.content}
-            components={SOURCE_COMPONENTS}
+            // The pane header already carries a copy control, and the reader
+            // opened this to see a FILE — prose-shaped source is still source.
+            copy={false}
             language={SOURCE_LANGUAGE_BY_KIND[record.kind] ?? record.language}
+            proseEscape={false}
           />
         )}
       </div>

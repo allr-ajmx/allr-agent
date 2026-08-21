@@ -1892,45 +1892,22 @@ canvas {
   max-width: 100%;
 }
 
-[data-slot='aui_assistant-message-content'] .aui-md [data-streamdown='code-block'] code {
-  max-width: none;
-  font-family: inherit;
-  font-size: inherit;
-  padding: 0;
-  border-radius: 0;
-  background: transparent;
-  color: inherit;
-  overflow-x: visible;
-  overflow-wrap: inherit;
-  vertical-align: baseline;
-  word-break: inherit;
-  /* `pre`, not `inherit`. This rule exists to strip streamdown's inline-code
-     chrome off a FENCE's <code>, and inheriting white-space made the fence's
-     line breaks depend on an ancestor <pre> still being a <pre> — but the
-     highlighted path mounts react-shiki with `as="div"`, so the chain is
-     <pre> → div.shiki → <code> and one element swap upstream would collapse
-     every fence to a single line. Say what a code block means instead. */
-  white-space: pre;
-}
+/* NOTHING here targets `[data-streamdown='code-block']` any more, and that is
+   the finding, not a tidy-up. Three rules used to: an inline-code-chrome strip
+   (the one carrying the `white-space: pre` shipped as the fix for a fence
+   collapsing to a single line on iOS), a card-chrome reset, and a prose-fence
+   margin rule. None of them ever matched, in dev or in production —
+   `@assistant-ui/react-streamdown` installs a code adapter that REPLACES the
+   only streamdown component emitting that attribute, so the selector was dead
+   the day it was written and the fix it carried never ran (ALLR-30).
 
-/* Streamdown's adapter wraps code fences in a `data-streamdown="code-block"`
-   container with its own card chrome. We render our own <CodeCard>, so this
-   strips the upstream chrome down to a layout-only passthrough. */
-[data-slot='aui_assistant-message-content'] .aui-md [data-streamdown='code-block'] {
-  contain: none;
-  overflow: visible;
-  margin-block: var(--paragraph-gap) 0 !important;
-  padding: 0 !important;
-  gap: 0 !important;
-  border: 0 !important;
-  border-radius: 0 !important;
-  background: transparent !important;
-  color: inherit;
-}
-
-[data-slot='aui_assistant-message-content'] .aui-md [data-streamdown='code-block']:has(.aui-prose-fence) {
-  margin-block: 0 !important;
-}
+   The lesson, kept because it is still true: white-space on a fence must be
+   SAID, not inherited, and it must be said somewhere a stale selector cannot
+   reach. `components/chat/code-fence.tsx` sets it inline on both the <pre> and
+   the <code> that holds the text, and owns its own margins and card chrome, so
+   there is nothing upstream left to neutralise. `markdown-text.test.tsx`
+   asserts the attribute is absent from a rendered fence, so this cannot quietly
+   come back. */
 
 [data-slot='aui_assistant-message-content'] .aui-md [data-slot='code-card'] {
   margin-block: var(--paragraph-gap) 0;
@@ -1965,10 +1942,6 @@ canvas {
 [data-slot='aui_assistant-message-content'] .aui-md :not(pre) > code {
   background: var(--ui-inline-code-background, color-mix(in srgb, currentColor 8%, transparent));
   color: var(--ui-inline-code-foreground, inherit);
-}
-
-[data-slot='aui_assistant-message-content'] .aui-md :where(.aui-shiki, .aui-shiki > pre) {
-  margin: 0 !important;
 }
 
 [data-slot='aui_assistant-message-content'] .aui-md .aui-md-table {
@@ -2310,6 +2283,42 @@ span[data-slot='aui_msg-reactions'] {
     opacity: 1;
     transform: translateX(-50%) translateY(0) scale(1);
   }
+}
+
+/* ── Code fence token colours ──────────────────────────────────────
+   The palette `components/chat/code-fence.tsx` colours tokens with, seeded from
+   the Shiki themes the fence used to load (`github-light-default` /
+   `github-dark-dimmed`) so the transcript looks unchanged.
+
+   Custom properties rather than two tokenizer passes: a theme flip repaints
+   with no JS and no re-highlighting, which is what react-shiki's
+   `defaultColor="light-dark()"` cost us. It also drops a dependency on the CSS
+   `light-dark()` function (Safari 17.5+ / Chrome 123+) that sat far above the
+   Android WebView baseline everything else here assumes.
+
+   The fence reads each of these as `var(--code-*, currentColor)`, so losing one
+   costs a colour, never a character. */
+:root {
+  --code-kw: #cf222e;
+  --code-str: #0a3069;
+  /* `github-light-default` comments are #6e7781, borderline unreadable at our
+     code size; this is the darker remap the Shiki path already applied. */
+  --code-com: #57606a;
+  --code-num: #0550ae;
+  --code-fn: #8250df;
+  --code-type: #953800;
+  --code-tag: #116329;
+  --code-attr: #0550ae;
+}
+:root.dark {
+  --code-kw: #f47067;
+  --code-str: #96d0ff;
+  --code-com: #768390;
+  --code-num: #6cb6ff;
+  --code-fn: #dcbdfb;
+  --code-type: #f69d50;
+  --code-tag: #8ddb8c;
+  --code-attr: #6cb6ff;
 }
 
 /* ── Movable / pop-out composer (ported from apps/desktop) ────────────────────

@@ -31,10 +31,10 @@ const invoke = vi.fn(async () => undefined)
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args: unknown[]) => invoke(...(args as [])) }))
 
-// Shiki compiles a grammar per language; the source pane's highlighting is not
-// what this suite is about, and the plain <pre> keeps the content assertable.
-vi.mock('@/components/chat/shiki-highlighter', () => ({
-  SyntaxHighlighter: ({ code }: { code: string }) => <pre data-slot="artifact-source">{code}</pre>
+// The source pane's highlighting is not what this suite is about, and a bare
+// <pre> keeps the content assertable without the card chrome in the way.
+vi.mock('@/components/chat/code-fence', () => ({
+  CodeFence: ({ code }: { code: string }) => <pre data-slot="artifact-source">{code}</pre>
 }))
 
 const { $artifactRegistry, $artifactVersionSelection, upsertArtifact } = await import('@/store/artifacts')

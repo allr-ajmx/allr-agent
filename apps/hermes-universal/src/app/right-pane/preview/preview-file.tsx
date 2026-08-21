@@ -1,11 +1,11 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { Streamdown } from 'streamdown'
 
-import { exceedsHighlightBudget } from '@/components/chat/shiki-highlighter'
 import { CodeEditor, type CodeEditorApi } from '@/components/ui/code-editor'
 import { Codicon } from '@/components/ui/codicon'
 import { getFileDiff, getGitRoot, readFileDataUrl, readFileText, writeFileText } from '@/hermes'
 import { useI18n } from '@/i18n'
+import { exceedsHighlightBudget } from '@/lib/code-budget'
 import { IS_MOBILE } from '@/lib/platform'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
