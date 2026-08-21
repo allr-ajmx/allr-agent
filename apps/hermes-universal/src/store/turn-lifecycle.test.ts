@@ -30,7 +30,7 @@ import {
   setTurnCompacting,
   STALE_TURN_MS
 } from '@/store/turn-lifecycle'
-import type { SessionResumeResponse } from '@/types/hermes'
+import type { SessionInfo, SessionResumeResponse } from '@/types/hermes'
 
 const event = (type: string): GatewayEvent => ({ type }) as GatewayEvent
 
@@ -381,6 +381,40 @@ describe('reconcileSessionTurn', () => {
     })
     // Gateway says idle → the turn we thought was live is settled, not stranded.
     expect(lifecycle.isTurnLive('runtime-1')).toBe(false)
+
+    vi.doUnmock('@/store/gateway')
+    vi.resetModules()
+  })
+
+  // Every other resume scopes itself to the session's owning profile; this one
+  // did not, so a multi-profile gateway looked the id up in its launch
+  // profile's state.db. The owner comes off the loaded row when it is known.
+  it("scopes the resume to the session's owning profile", async () => {
+    const requestGateway = vi.fn(async () => ({ message_count: 0, messages: [], running: false, session_id: 'runtime-10' }))
+
+    vi.doMock('@/store/gateway', () => ({
+      $gatewayState: { get: () => 'open', subscribe: () => () => {} },
+      addGatewayEventListener: () => () => {},
+      requestGateway
+    }))
+
+    vi.resetModules()
+    const states = await import('@/store/session-state-types')
+    const session = await import('@/store/session')
+    const lifecycle = await import('@/store/turn-lifecycle')
+
+    session.$sessions.set([{ id: 'stored-10', profile: 'research' } as unknown as SessionInfo])
+    states.publishSessionState('runtime-10', { ...emptySessionState('stored-10'), runtimeSessionId: 'runtime-10' })
+    lifecycle.beginTurn('runtime-10', { prompt: 'a' })
+
+    await lifecycle.reconcileSessionTurn('runtime-10')
+
+    expect(requestGateway).toHaveBeenCalledWith('session.resume', {
+      session_id: 'stored-10',
+      omit_messages: true,
+      source: 'universal',
+      profile: 'research'
+    })
 
     vi.doUnmock('@/store/gateway')
     vi.resetModules()

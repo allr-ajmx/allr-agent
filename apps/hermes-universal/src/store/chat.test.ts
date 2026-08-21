@@ -14,7 +14,9 @@ vi.mock('@/store/gateway', async () => {
 import { flushDeltas } from '@/lib/stream-batch'
 import { routeGatewayEvent as handleGatewayEvent } from '@/store/event-router'
 import { requestGateway } from '@/store/gateway'
+import { $currentFastMode, $currentModel, $currentProvider, $currentReasoningEffort } from '@/store/model'
 import { $petActivity } from '@/store/pet'
+import { $activeProfile } from '@/store/profiles'
 import { $activeSessionAwaitingInput, sessionApprovalRequest, sessionClarifyRequest } from '@/store/prompts'
 import { $sessionStates, newDraftKey, rekeySession, updateSession } from '@/store/session-state-types'
 import { $subagentsBySession } from '@/store/subagents'
@@ -629,6 +631,70 @@ describe('ensureSession cwd', () => {
     await ensureSession()
 
     expect(vi.mocked(requestGateway).mock.calls[0][1]).not.toHaveProperty('cwd')
+  })
+})
+
+// The gateway resolves an OMITTED `profile` to its launch profile, so a shared
+// remote/cloud gateway put every new chat on "default" whatever the rail showed.
+// Branch and resume already carried it; the new-chat path is the one that did
+// not. The sticky composer pick rides along as a per-session override — the
+// thing `store/model`'s comments promised "the next session.create ships".
+describe('ensureSession profile + selection', () => {
+  const seedDraft = () => seedActiveSession(newDraftKey(), { runtimeSessionId: null, storedSessionId: null })
+
+  beforeEach(() => {
+    $activeProfile.set(null)
+    $currentModel.set('')
+    $currentProvider.set('')
+    $currentReasoningEffort.set('')
+    $currentFastMode.set(false)
+  })
+
+  it('creates the chat on the active profile with the composer selection as overrides', async () => {
+    seedDraft()
+    $activeProfile.set('research')
+    $currentModel.set('glm-5')
+    $currentProvider.set('zai')
+    $currentReasoningEffort.set('high')
+    $currentFastMode.set(true)
+    vi.mocked(requestGateway).mockResolvedValue({ session_id: 'runtime-4' } as never)
+
+    await ensureSession()
+
+    expect(requestGateway).toHaveBeenCalledWith('session.create', {
+      cols: 96,
+      source: 'universal',
+      profile: 'research',
+      model: 'glm-5',
+      provider: 'zai',
+      reasoning_effort: 'high',
+      fast: true
+    })
+  })
+
+  // Presence is the contract: an omitted profile/model means "inherit", and
+  // `fast: false` is a real state (pins normal), so it is always sent.
+  it('omits profile and model for the default profile with no pick', async () => {
+    seedDraft()
+    vi.mocked(requestGateway).mockResolvedValue({ session_id: 'runtime-5' } as never)
+
+    await ensureSession()
+
+    expect(vi.mocked(requestGateway).mock.calls[0][1]).toEqual({ cols: 96, source: 'universal', fast: false })
+  })
+
+  // The composer reads the live slice, so the echo in the create reply is what
+  // paints the pill before the deferred agent build's `session.info` lands.
+  it('adopts the model the gateway echoes onto the new slice', async () => {
+    seedDraft()
+    vi.mocked(requestGateway).mockResolvedValue({
+      session_id: 'runtime-6',
+      info: { model: 'glm-5', provider: 'zai' }
+    } as never)
+
+    await ensureSession()
+
+    expect($sessionStates.get()['runtime-6']).toMatchObject({ model: 'glm-5', provider: 'zai' })
   })
 })
 

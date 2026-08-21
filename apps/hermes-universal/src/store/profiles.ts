@@ -14,9 +14,10 @@ export const $profilesError = atom<string | null>(null)
 // (primary) profile, so single-profile users are unaffected. Switching re-scopes
 // all profileScoped() REST calls (config/skills/model/sessions…) via the
 // hermes.ts _apiProfile, then invalidates cached queries so views refetch under
-// the new scope — mirroring the dashboard's ?profile= re-scope. The live chat WS
-// is NOT re-profiled on a shared remote/cloud gateway (backend limit); local mode
-// applies it fully by respawning the backend (see the refresh prompt).
+// the new scope — mirroring the dashboard's ?profile= re-scope. Chat follows per
+// REQUEST: `session.create`/`session.resume` carry `profile` (store/chat,
+// store/session), so a new chat lands on this profile even on a shared
+// remote/cloud gateway; an OPEN chat keeps the profile it was started in.
 export const $activeProfile = persistentAtom<null | string>('hermes.activeProfile', null, Codecs.nullableText)
 
 // Sync the REST scope to the persisted selection on load.

@@ -769,10 +769,22 @@ export async function reconcileSessionTurn(key: string): Promise<TurnReconciliat
   reconciling.add(key)
 
   try {
+    // Scope the resume to the session's OWNING profile, as every other resume
+    // does — without it a multi-profile gateway looks the id up in its launch
+    // profile's state.db. `store/session` imports this module, hence lazy; and
+    // an enrichment that cannot be resolved must not abort the reconciliation,
+    // so a failure falls back to "let the gateway decide" as before.
+    const profile = await import('@/store/session')
+      .then(m =>
+        m.knownSessionProfile(storedId) ?? (m.sessionProfileIsAmbiguous() ? m.resolveSessionProfile(storedId) : undefined)
+      )
+      .catch(() => undefined)
+
     const resumed = await requestGateway<SessionResumeResponse>('session.resume', {
       session_id: storedId,
       omit_messages: true,
-      source: 'universal'
+      source: 'universal',
+      ...(profile ? { profile } : {})
     })
 
     // A gateway that RESTARTED (a supervised local backend, a redeployed remote)

@@ -10,18 +10,33 @@ vi.mock('@/store/gateway', async () => {
   }
 })
 vi.mock('@/store/notifications', () => ({ clearNotifications: vi.fn(), notify: vi.fn(), notifyError: vi.fn() }))
+vi.mock('@/hermes', async importOriginal => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  getGlobalModelInfo: vi.fn(async () => ({ model: 'profile-default', provider: 'default-provider' }))
+}))
 
+import { getGlobalModelInfo } from '@/hermes'
 import { modelOptionsQueryKey } from '@/lib/model-options'
 import { queryClient } from '@/lib/query-client'
 import { requestGateway } from '@/store/gateway'
 import type { NotificationInput } from '@/store/notifications'
 import { notify } from '@/store/notifications'
 import { $activeGatewayProfile } from '@/store/profile'
+import { $activeProfile } from '@/store/profiles'
 import { $sessionStates } from '@/store/session-state-types'
 import { resetSessionStates, seedActiveSession, seedSession } from '@/test-sessions'
 import type { ModelOptionsResponse } from '@/types/hermes'
 
-import { $currentModel, $currentProvider, selectModel, setCurrentModel, setCurrentProvider } from './model'
+import {
+  $currentFastMode,
+  $currentModel,
+  $currentProvider,
+  $currentReasoningEffort,
+  newSessionOverrides,
+  selectModel,
+  setCurrentModel,
+  setCurrentProvider
+} from './model'
 
 const optionsKey = (sessionId: null | string) => modelOptionsQueryKey($activeGatewayProfile.get(), sessionId)
 
@@ -51,6 +66,9 @@ describe('selectModel targeting', () => {
     })
     expect($currentModel.get()).toBe('glm-5')
     expect($currentProvider.get()).toBe('zai')
+    // The primary composer reads its live slice, so the optimistic paint has to
+    // land there too — not only on the draft-default globals.
+    expect($sessionStates.get()['runtime-1']).toMatchObject({ model: 'glm-5', provider: 'zai' })
   })
 
   // The composer's globals belong to the primary chat. Writing them for a tile
@@ -239,5 +257,52 @@ describe('selectModel round trip', () => {
 
     expect($currentModel.get()).toBe('primary-model')
     expect(cachedModel('runtime-1')).toBe('primary-model')
+  })
+})
+
+// What the next `session.create` ships as the per-session override.
+describe('newSessionOverrides', () => {
+  beforeEach(() => {
+    $currentModel.set('')
+    $currentProvider.set('')
+    $currentReasoningEffort.set('')
+    $currentFastMode.set(false)
+  })
+
+  it('ships the whole sticky selection', () => {
+    setCurrentModel(' glm-5 ')
+    setCurrentProvider('zai')
+    $currentReasoningEffort.set('high')
+    $currentFastMode.set(true)
+
+    expect(newSessionOverrides()).toEqual({ model: 'glm-5', provider: 'zai', reasoning_effort: 'high', fast: true })
+  })
+
+  // Omitted = inherit the profile default; `fast` is always present because
+  // `false` pins normal (presence is the gateway's contract).
+  it('omits what is unset and always states fast', () => {
+    expect(newSessionOverrides()).toEqual({ fast: false })
+  })
+
+  it('never sends a provider without a model', () => {
+    setCurrentProvider('zai')
+
+    expect(newSessionOverrides()).toEqual({ fast: false })
+  })
+})
+
+// A profile swap changes which default the draft should show: the forced
+// refresh overwrites a sticky pick made under the previous profile.
+describe('profile swap', () => {
+  it('re-seeds the draft default from the new profile', async () => {
+    setCurrentModel('old-pick')
+    vi.mocked(getGlobalModelInfo).mockClear()
+
+    $activeProfile.set('research')
+    await vi.waitFor(() => expect($currentModel.get()).toBe('profile-default'))
+
+    expect(getGlobalModelInfo).toHaveBeenCalledTimes(1)
+    expect($currentProvider.get()).toBe('default-provider')
+    $activeProfile.set(null)
   })
 })
