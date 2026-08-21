@@ -22,6 +22,7 @@
     "ios:build:adhoc": "npm run ios:icons && CARGO_TARGET_DIR=\"$PWD/src-tauri/target-ios\" tauri ios build --export-method release-testing",
     "ios:install": "node scripts/ios-install.mjs",
     "ios:build:install": "npm run ios:build:debug && npm run ios:install",
+    "ios:build:adhoc:install": "npm run ios:build:adhoc && npm run ios:install",
     "android:init": "tauri android init",
     "android:prune": "node scripts/prune-android-generated.mjs",
     "android:dev": "npm run android:prune && npm run adb:reverse && CARGO_TARGET_DIR=\"$PWD/src-tauri/target-android\" tauri android dev --host ${ALLR_DEV_HOST:-127.0.0.1}",
