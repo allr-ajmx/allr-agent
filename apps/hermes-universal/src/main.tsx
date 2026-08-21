@@ -56,6 +56,7 @@ import { RouterNavBridge } from './lib/router-nav-bridge'
 import { initSafeAreaInsets } from './lib/safe-area'
 import { restoreSessionCookies } from './lib/session-persist'
 import { installObservability } from './observability/install'
+import { initAppLifecycle } from './store/app-lifecycle'
 import { initBackgroundMode } from './store/background-mode'
 import { resumePortalSignIn } from './store/cloud'
 import { autoRestoreConnection } from './store/gateway-restore'
@@ -67,6 +68,13 @@ import { ThemeProvider } from './themes'
 // than before it. Recording is off by default, so this is a no-op until someone
 // asks for it — see src/observability/index.ts.
 installObservability()
+
+// App foreground/background, installed BEFORE the restore so the first edge after
+// launch is already being listened for. On a phone the socket always dies while the
+// app is away and the process is eventually killed outright (neither platform grants
+// this app any background execution), so the return trip is where the session is
+// actually saved or lost — and until now nothing turned it into an event at all.
+initAppLifecycle()
 
 // Rehydrate a persisted gateway/cloud session into the Rust cookie jar (R2b), THEN
 // auto-reconnect to the last-used gateway (D8). Cookies first so a cookie-backed
