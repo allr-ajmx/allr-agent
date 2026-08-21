@@ -59,6 +59,7 @@ import { installObservability } from './observability/install'
 import { initAppLifecycle } from './store/app-lifecycle'
 import { initBackgroundMode } from './store/background-mode'
 import { resumePortalSignIn } from './store/cloud'
+import { initConnectionLifecycle } from './store/connection'
 import { autoRestoreConnection } from './store/gateway-restore'
 import { initKeepAwake } from './store/keep-awake'
 import { initTray } from './store/tray'
@@ -73,8 +74,11 @@ installObservability()
 // launch is already being listened for. On a phone the socket always dies while the
 // app is away and the process is eventually killed outright (neither platform grants
 // this app any background execution), so the return trip is where the session is
-// actually saved or lost — and until now nothing turned it into an event at all.
+// actually saved or lost: coming back wakes a backed-off reconnect and refunds the
+// auth retry budget, and going away snapshots the cookie jar while there is still a
+// process to do it.
 initAppLifecycle()
+initConnectionLifecycle()
 
 // Rehydrate a persisted gateway/cloud session into the Rust cookie jar (R2b), THEN
 // auto-reconnect to the last-used gateway (D8). Cookies first so a cookie-backed

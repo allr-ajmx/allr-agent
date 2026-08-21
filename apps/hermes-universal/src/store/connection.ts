@@ -14,6 +14,7 @@ import { IS_NATIVE_MOBILE } from '@/lib/platform'
 import { reconnectBackoffDelayMs } from '@/lib/reconnect-backoff'
 import { clearSecrets, loadSecrets, loadSshSecrets, saveSecrets, type Secrets } from '@/lib/secure-store'
 import { persistSessionCookies } from '@/lib/session-persist'
+import { onBackground, onForeground } from '@/store/app-lifecycle'
 import { atom } from '@/store/atom'
 import { $gatewayState, closeGateway, connectGateway } from '@/store/gateway'
 import { chooseGatedAuth, type Connection } from '@/store/gateway-config'
@@ -886,8 +887,61 @@ $gatewayState.subscribe(state => {
 // Latch "has connected this session" on every ready transition (initial connect,
 // local/cloud connect, and each successful auto-reconnect). One place covers them
 // all; `disconnect()` clears it.
+//
+// The same hook re-snapshots the cookie jar, because the persisted copy goes stale
+// the moment the gateway rotates anything. `persistSessionCookies` used to run only
+// at the end of connect()/connectCloud(), so the keyring kept whatever pair the
+// FIRST dial saw while the live Rust jar took every rotated `allr_session_at`/`_rt`
+// the server sent afterwards. A cold boot then imported credentials that had been
+// rotated away hours earlier — and against a provider with reuse detection (the
+// portal rotates its refresh token on every use) that is an actively revoked
+// session, not merely a stale one. Every transition to `ready` is the right trigger:
+// it covers the initial dial, each auto-reconnect, and each soft gateway switch.
 $connectionPhase.subscribe(phase => {
   if (phase === 'ready') {
     $hasConnected.set(true)
+    schedulePersistSessionCookies()
   }
 })
+
+// Debounced so a burst of ready transitions (a soft switch re-dialling, a flapping
+// socket) costs one keyring write rather than one per transition — the export walks
+// the jar and the write can go over IPC to another process on desktop.
+let persistCookiesTimer: null | ReturnType<typeof setTimeout> = null
+
+function schedulePersistSessionCookies(): void {
+  if (persistCookiesTimer !== null) {
+    clearTimeout(persistCookiesTimer)
+  }
+
+  persistCookiesTimer = setTimeout(() => {
+    persistCookiesTimer = null
+    void persistSessionCookies()
+  }, 1_000)
+}
+
+/** Snapshot the jar now, skipping the debounce. Called when the app is about to be
+ *  backgrounded (store/app-lifecycle.ts): the process may not survive to run a
+ *  pending timer, and the rotation it is holding is the one the next launch needs. */
+export function flushSessionCookies(): void {
+  if (persistCookiesTimer !== null) {
+    clearTimeout(persistCookiesTimer)
+    persistCookiesTimer = null
+  }
+
+  void persistSessionCookies()
+}
+
+// Wire the connection half of the app lifecycle. Called once from main.tsx, after
+// `initAppLifecycle()`.
+//
+//  • foreground — wake a backed-off reconnect and refund the auth budget, so a
+//    user who just came back is not watching out a 15s jittered sleep and a
+//    session that stood down as expired gets one clean re-try.
+//  • background — snapshot the cookie jar NOW rather than on the debounce, because
+//    the process may not live long enough to run a pending timer and the rotation
+//    it holds is exactly what the next cold launch needs.
+export function initConnectionLifecycle(): void {
+  onForeground(wakeReconnect)
+  onBackground(flushSessionCookies)
+}
