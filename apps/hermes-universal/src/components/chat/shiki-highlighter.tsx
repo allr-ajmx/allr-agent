@@ -2,7 +2,6 @@ import type { SyntaxHighlighterProps } from '@assistant-ui/react-streamdown'
 import { type FC, lazy, type ReactNode, Suspense, useEffect, useMemo, useRef } from 'react'
 
 import { CodeCard, CodeCardBody } from '@/components/chat/code-card'
-import { ExpandableBlock } from '@/components/chat/expandable-block'
 import { ErrorBoundary } from '@/components/error-boundary'
 import { CopyButton } from '@/components/ui/copy-button'
 import { useI18n } from '@/i18n'
@@ -30,6 +29,12 @@ import { isRecording, recordSpan } from '@/observability'
  * un-highlighted → highlighted transition is one the transcript already makes.
  * It doubles as the error fallback: the same reasoning says a fence whose
  * engine never arrives should lose its colours, not its content.
+ *
+ * The card does NOT clamp its height. A fence renders at its natural size and
+ * the transcript viewport is the only vertical scroller, matching the file-diff
+ * panel — one gesture scrolls a reply rather than trapping it in a 7.5rem box
+ * behind a chevron. Fences long enough to drown a reply never get here: they are
+ * promoted to an artifact card upstream (`lib/artifact-detect.ts`).
  */
 interface HermesSyntaxHighlighterProps extends SyntaxHighlighterProps {
   defer?: boolean
@@ -135,8 +140,10 @@ const HighlightTimer: FC<{ children: ReactNode; language: string }> = ({ childre
  * where `contain-intrinsic-size: auto <length>` is honoured: without the
  * remembered size the skipped chunk collapses to 0x0, and a card whose every
  * chunk is 0 tall paints as a slab of bare padding — a code block that looks
- * EMPTY. Same lesson the transcript's own virtualization already carries
- * (`thread/list.tsx`): containment needs a gate to stay correct, not just fast.
+ * EMPTY. Both mobile webviews were reported doing exactly that, so the phone
+ * takes the slower, unconditionally-rendered path. Same lesson the transcript's
+ * own virtualization already carries (`thread/list.tsx`): containment needs a
+ * gate to stay correct, not just fast.
  */
 const CHUNK_CONTAINMENT_CLASS = IS_MOBILE ? '' : '[content-visibility:auto]'
 
@@ -197,29 +204,32 @@ export const SyntaxHighlighter: FC<HermesSyntaxHighlighterProps> = ({
         text={trimmed}
       />
       <CodeCardBody className="[&_pre]:px-3 [&_pre]:py-2.5">
-        <ExpandableBlock>
-          <Pre className="aui-shiki m-0 overflow-hidden bg-transparent p-0">
-            {plain ? (
-              <PlainCode code={trimmed} />
-            ) : (
-              <HighlightTimer language={cleanLanguage || 'text'}>
-                {/* A fence that cannot be HIGHLIGHTED must still be READABLE.
-                    The engine sits behind a lazy import, so a failed chunk
-                    fetch (or any throw inside react-shiki) rejects during
-                    render; with no boundary here that escapes to the
-                    turn-level MessageRenderBoundary and takes the whole
-                    reply's markdown with it. Falling back to the same
-                    PlainCode the Suspense fallback already uses degrades one
-                    fence to un-coloured code and leaves the message alone. */}
-                <ErrorBoundary fallback={() => <PlainCode code={trimmed} />} label="code-fence">
-                  <Suspense fallback={<PlainCode code={trimmed} />}>
-                    <ShikiBlock language={language || 'text'}>{trimmed}</ShikiBlock>
-                  </Suspense>
-                </ErrorBoundary>
-              </HighlightTimer>
-            )}
-          </Pre>
-        </ExpandableBlock>
+        {/* `overflow-y-hidden` pairs with the `overflow-x-auto` CodeCardBody puts on
+            every `pre`: with y left visible the spec promotes it to `auto` next to a
+            scrolling x-axis, handing the fence a second vertical scroller. The
+            transcript viewport owns that axis. `overscroll-x-contain` keeps a
+            sideways overscroll on a long line from firing browser back/forward. */}
+        <Pre className="aui-shiki m-0 overflow-y-hidden overscroll-x-contain bg-transparent p-0">
+          {plain ? (
+            <PlainCode code={trimmed} />
+          ) : (
+            <HighlightTimer language={cleanLanguage || 'text'}>
+              {/* A fence that cannot be HIGHLIGHTED must still be READABLE. The
+                  engine sits behind a lazy import, so a failed chunk fetch (or
+                  any throw inside react-shiki) rejects during render; with no
+                  boundary here that escapes to the turn-level
+                  MessageRenderBoundary and takes the whole reply's markdown
+                  with it. Falling back to the same PlainCode the Suspense
+                  fallback already uses degrades one fence to un-coloured code
+                  and leaves the rest of the message alone. */}
+              <ErrorBoundary fallback={() => <PlainCode code={trimmed} />} label="code-fence">
+                <Suspense fallback={<PlainCode code={trimmed} />}>
+                  <ShikiBlock language={language || 'text'}>{trimmed}</ShikiBlock>
+                </Suspense>
+              </ErrorBoundary>
+            </HighlightTimer>
+          )}
+        </Pre>
       </CodeCardBody>
     </CodeCard>
   )
