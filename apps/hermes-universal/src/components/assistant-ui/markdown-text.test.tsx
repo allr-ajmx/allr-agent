@@ -119,6 +119,20 @@ describe('MarkdownTextContent math rendering', () => {
     expect(container.querySelector('[data-slot="code-card"]')).not.toBeNull()
   })
 
+  // styles.css used to carry three rules selecting `[data-streamdown='code-block']`
+  // — including the `white-space: pre` shipped as the fix for a fence collapsing
+  // to one line on iOS. None of them ever matched: the adapter REPLACES the only
+  // streamdown component that emits the attribute, so the fix never ran (ALLR-30).
+  // The rules are gone; this is the check that says deleting them was safe, and
+  // that keeps anyone from writing another one.
+  it('never emits the streamdown code-block attribute those dead CSS rules selected', async () => {
+    const { container } = render(<MarkdownTextContent isRunning={false} text={'```python\nprint("hi")\n```\n'} />)
+
+    await waitFor(() => expect(container.textContent).toContain('print("hi")'))
+
+    expect(container.querySelector('[data-streamdown]')).toBeNull()
+  })
+
   // @tailwindcss/typography styles `pre` as a DARK slab: light text
   // (`--tw-prose-pre-code`, gray-200) on a dark background, which sat on our
   // light code card and made an un-coloured fence unreadable in light mode.
