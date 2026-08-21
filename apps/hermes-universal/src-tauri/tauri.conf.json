@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Allr",
-  "version": "0.0.3",
+  "version": "0.0.5",
   "identifier": "work.allr.app",
   "build": {
     "beforeDevCommand": "npm run dev",
