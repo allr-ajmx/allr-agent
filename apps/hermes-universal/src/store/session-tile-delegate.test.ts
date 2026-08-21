@@ -26,8 +26,13 @@ vi.mock('@/store/gateway', async () => {
   }
 })
 
+// `setApiRequestProfile` is called at MODULE SCOPE by store/profiles, which
+// store/chat now reaches (a new chat carries the active profile on
+// `session.create`). A mock missing it fails the whole file at import, before a
+// single test runs.
 vi.mock('@/hermes', () => ({
-  getSessionMessages: (...args: unknown[]) => getSessionMessages(...args)
+  getSessionMessages: (...args: unknown[]) => getSessionMessages(...args),
+  setApiRequestProfile: vi.fn()
 }))
 
 vi.mock('@/store/notifications', () => ({
