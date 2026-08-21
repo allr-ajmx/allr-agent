@@ -9,6 +9,7 @@ import { $sessionId } from '@/store/chat'
 import { requestGateway } from '@/store/gateway'
 import { notify, notifyError } from '@/store/notifications'
 import { $activeGatewayProfile } from '@/store/profile'
+import { $activeProfile } from '@/store/profiles'
 import { $sessionStates, updateSession } from '@/store/session-state-types'
 import type { ModelOptionsResponse } from '@/types/hermes'
 
@@ -136,6 +137,11 @@ export async function refreshCurrentModel(force = false): Promise<void> {
     // A later session.info event still updates this once the agent is ready.
   }
 }
+
+// A profile swap changes which default the draft should show; `force` exists
+// for exactly this and had no caller. Live sessions are unaffected — their
+// composer reads the slice, not these globals.
+$activeProfile.listen(() => void refreshCurrentModel(true))
 
 /**
  * Switch the model for ONE session. Optimistic update, then `config.set` with

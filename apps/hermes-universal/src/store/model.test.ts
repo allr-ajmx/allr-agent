@@ -10,12 +10,19 @@ vi.mock('@/store/gateway', async () => {
   }
 })
 vi.mock('@/store/notifications', () => ({ clearNotifications: vi.fn(), notify: vi.fn(), notifyError: vi.fn() }))
+vi.mock('@/hermes', async importOriginal => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  getGlobalModelInfo: vi.fn(async () => ({ model: 'profile-default', provider: 'default-provider' }))
+}))
+
+import { getGlobalModelInfo } from '@/hermes'
 import { modelOptionsQueryKey } from '@/lib/model-options'
 import { queryClient } from '@/lib/query-client'
 import { requestGateway } from '@/store/gateway'
 import type { NotificationInput } from '@/store/notifications'
 import { notify } from '@/store/notifications'
 import { $activeGatewayProfile } from '@/store/profile'
+import { $activeProfile } from '@/store/profiles'
 import { $sessionStates } from '@/store/session-state-types'
 import { resetSessionStates, seedActiveSession, seedSession } from '@/test-sessions'
 import type { ModelOptionsResponse } from '@/types/hermes'
@@ -281,5 +288,21 @@ describe('newSessionOverrides', () => {
     setCurrentProvider('zai')
 
     expect(newSessionOverrides()).toEqual({ fast: false })
+  })
+})
+
+// A profile swap changes which default the draft should show: the forced
+// refresh overwrites a sticky pick made under the previous profile.
+describe('profile swap', () => {
+  it('re-seeds the draft default from the new profile', async () => {
+    setCurrentModel('old-pick')
+    vi.mocked(getGlobalModelInfo).mockClear()
+
+    $activeProfile.set('research')
+    await vi.waitFor(() => expect($currentModel.get()).toBe('profile-default'))
+
+    expect(getGlobalModelInfo).toHaveBeenCalledTimes(1)
+    expect($currentProvider.get()).toBe('default-provider')
+    $activeProfile.set(null)
   })
 })

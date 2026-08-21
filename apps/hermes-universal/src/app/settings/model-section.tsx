@@ -21,8 +21,10 @@ import {
 } from '@/hermes'
 import { useI18n } from '@/i18n'
 import { AlertTriangle, Cpu, Loader2 } from '@/lib/icons'
+import { queryClient } from '@/lib/query-client'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
+import { setCurrentModel, setCurrentProvider } from '@/store/model'
 import { notifyError } from '@/store/notifications'
 import { beginProviderConnect, openOnboarding, resolveProviderSetup } from '@/store/onboarding'
 import { $activeGatewayProfile } from '@/store/profile'
@@ -1294,5 +1296,22 @@ export function ModelSection() {
   // The 3-section ModelSettings renders above the schema fields (context length,
   // fallback providers) inside the section's single scroll container — exactly
   // like desktop config-settings.
-  return <ConfigSection headerSlot={<ModelSettings />} sectionId="model" />
+  //
+  // A new default has to reach the composer: `refreshCurrentModel` only fills an
+  // EMPTY selection, so without this the draft pill kept the old name for good
+  // (desktop wires the same callback in contrib/wiring.tsx).
+  return (
+    <ConfigSection
+      headerSlot={
+        <ModelSettings
+          onMainModelChanged={(provider, model) => {
+            setCurrentProvider(provider)
+            setCurrentModel(model)
+            void queryClient.invalidateQueries({ queryKey: ['model-options'] })
+          }}
+        />
+      }
+      sectionId="model"
+    />
+  )
 }
