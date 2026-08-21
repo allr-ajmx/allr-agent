@@ -9,6 +9,7 @@ import { $sessionId } from '@/store/chat'
 import { requestGateway } from '@/store/gateway'
 import { notify, notifyError } from '@/store/notifications'
 import { $activeGatewayProfile } from '@/store/profile'
+import { $activeProfile } from '@/store/profiles'
 import { $sessionStates, updateSession } from '@/store/session-state-types'
 import type { ModelOptionsResponse } from '@/types/hermes'
 
@@ -34,6 +35,25 @@ export const setCurrentReasoningEffort = (value: string): void => $currentReason
 export const setCurrentFastMode = (value: boolean): void => $currentFastMode.set(value)
 export const setModelPickerOpen = (value: boolean): void => $modelPickerOpen.set(value)
 export const setModelMenuDropdownOpen = (value: boolean): void => $modelMenuDropdownOpen.set(value)
+
+/**
+ * The sticky composer selection as `session.create` params — the per-SESSION
+ * override the comments below keep promising "the next session.create ships".
+ * Mirrors desktop's `desktopSessionCreateParams`: model/provider/effort only
+ * when set, `fast` always — presence is the contract (omitted = inherit the
+ * profile, `tui_gateway/methods_session.py`). Never the profile default.
+ */
+export function newSessionOverrides(): Record<string, unknown> {
+  const model = $currentModel.get().trim()
+  const provider = $currentProvider.get().trim()
+  const effort = $currentReasoningEffort.get().trim()
+
+  return {
+    ...(model ? { model, ...(provider ? { provider } : {}) } : {}),
+    ...(effort ? { reasoning_effort: effort } : {}),
+    fast: $currentFastMode.get()
+  }
+}
 
 export interface ModelSelection {
   model: string
@@ -118,6 +138,11 @@ export async function refreshCurrentModel(force = false): Promise<void> {
   }
 }
 
+// A profile swap changes which default the draft should show; `force` exists
+// for exactly this and had no caller. Live sessions are unaffected — their
+// composer reads the slice, not these globals.
+$activeProfile.listen(() => void refreshCurrentModel(true))
+
 /**
  * Switch the model for ONE session. Optimistic update, then `config.set` with
  * `--session` so only that session's model changes. With no live session it's
@@ -161,10 +186,15 @@ export async function selectModel(selection: ModelSelection): Promise<boolean> {
 
   const paint = (model: string, provider: string): void => {
     if (touchesPrimary) {
+      // The draft default the next session.create ships.
       setCurrentModel(model)
       setCurrentProvider(provider)
-    } else if (targetKey) {
-      // Optimistic tile paint — the agent's own `session.info` confirms it.
+    }
+
+    if (targetKey) {
+      // Optimistic slice paint — the primary composer reads its live slice
+      // (app/chat/session-view `primaryField`), so the globals alone would leave
+      // the pill on the old name until `session.info` confirms the switch.
       updateSession(targetKey, state => ({ ...state, model, provider }))
     }
 

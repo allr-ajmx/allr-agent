@@ -26,6 +26,10 @@ vi.mock('@/lib/query-client', () => ({
   invalidateProfileScopedQueries: vi.fn(),
   queryClient: { invalidateQueries: vi.fn() }
 }))
+// Switching starts a fresh draft (loaded lazily — the real module would pull
+// the whole session graph in, and it is the call that matters here).
+vi.mock('@/store/new-session', () => ({ startNewSession: vi.fn() }))
+import { startNewSession } from '@/store/new-session'
 
 import {
   $profileColors,
@@ -134,6 +138,30 @@ describe('selectProfile', () => {
   it('activates a named profile', () => {
     selectProfile('research')
     expect($activeProfile.get()).toBe('research')
+  })
+
+  // Like desktop: a real switch lands you on a fresh chat in that profile (the
+  // open chat keeps the profile it was started in); re-tapping the profile you
+  // are already in leaves your chat alone.
+  it('starts a fresh draft on a switch but not on a re-tap', async () => {
+    vi.mocked(startNewSession).mockClear()
+
+    selectProfile('research')
+    await vi.waitFor(() => expect(startNewSession).toHaveBeenCalledTimes(1))
+
+    selectProfile('research')
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(startNewSession).toHaveBeenCalledTimes(1)
+  })
+
+  it('starts a fresh draft when leaving the all-profiles browse view', async () => {
+    vi.mocked(startNewSession).mockClear()
+    $activeProfile.set('research')
+    setShowAllProfiles(true)
+
+    selectProfile('research')
+
+    await vi.waitFor(() => expect(startNewSession).toHaveBeenCalledTimes(1))
   })
 })
 

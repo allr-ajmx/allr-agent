@@ -122,8 +122,20 @@ export async function refreshProfiles(): Promise<ProfileInfo[]> {
  *  onto the one universal switch. Leaves the all-profiles browse view, like
  *  desktop — see `$showAllProfiles`. */
 export function selectProfile(name: string): void {
+  const target = normalizeProfileKey(name)
+  // Switching profiles (or coming back from the all-profiles browse view) starts
+  // fresh, like desktop; re-tapping the profile you're already in leaves your
+  // chat be. The open chat stays on the profile it was started in — the fresh
+  // draft is what makes the tap visibly take.
+  const switching = $showAllProfiles.get() || target !== normalizeProfileKey($activeProfile.get())
+
   $showAllProfiles.set(false)
-  setUniversalActiveProfile(normalizeProfileKey(name) === 'default' ? null : name)
+  setUniversalActiveProfile(target === 'default' ? null : name)
+
+  if (switching) {
+    // Lazy: `store/new-session` → `store/session` → this module.
+    void import('@/store/new-session').then(m => m.startNewSession())
+  }
 }
 
 export const setActiveProfile = selectProfile
