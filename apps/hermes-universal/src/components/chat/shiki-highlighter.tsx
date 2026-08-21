@@ -6,6 +6,8 @@ import { ExpandableBlock } from '@/components/chat/expandable-block'
 import { CopyButton } from '@/components/ui/copy-button'
 import { useI18n } from '@/i18n'
 import { isLikelyProseCodeBlock, sanitizeLanguageTag } from '@/lib/markdown-code'
+import { IS_MOBILE } from '@/lib/platform'
+import { cn } from '@/lib/utils'
 import { isRecording, recordSpan } from '@/observability'
 
 /**
@@ -122,6 +124,19 @@ const HighlightTimer: FC<{ children: ReactNode; language: string }> = ({ childre
   )
 }
 
+/**
+ * `content-visibility:auto` is a DESKTOP-ONLY optimization here.
+ *
+ * It buys off-screen chunks of a long fence out of style/layout/paint, which is
+ * worth real milliseconds on a transcript full of them. But it is only correct
+ * where `contain-intrinsic-size: auto <length>` is honoured: without the
+ * remembered size the skipped chunk collapses to 0x0, and a card whose every
+ * chunk is 0 tall paints as a slab of bare padding — a code block that looks
+ * EMPTY. Same lesson the transcript's own virtualization already carries
+ * (`thread/list.tsx`): containment needs a gate to stay correct, not just fast.
+ */
+const CHUNK_CONTAINMENT_CLASS = IS_MOBILE ? '' : '[content-visibility:auto]'
+
 const PlainCode: FC<{ code: string }> = ({ code }) => {
   const chunks = useMemo(() => chunkByLines(code, CHUNK_LINES), [code])
 
@@ -133,9 +148,9 @@ const PlainCode: FC<{ code: string }> = ({ code }) => {
     <>
       {chunks.map((chunk, index) => (
         <code
-          className="block whitespace-pre [content-visibility:auto]"
+          className={cn('block whitespace-pre', CHUNK_CONTAINMENT_CLASS)}
           key={index}
-          style={{ containIntrinsicSize: `auto ${chunk.lines * EST_LINE_PX}px` }}
+          style={IS_MOBILE ? undefined : { containIntrinsicSize: `auto ${chunk.lines * EST_LINE_PX}px` }}
         >
           {chunk.text}
         </code>
