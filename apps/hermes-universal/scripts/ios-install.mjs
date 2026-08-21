@@ -36,7 +36,7 @@
  */
 
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -91,7 +91,7 @@ function findIpa(explicit) {
   }
 
   if (!existsSync(BUILD_DIR)) {
-    throw new Failure('nothing has been built yet — run `npm run ios:build:debug` first')
+    throw new Failure('nothing has been built yet — run `npm run ios:build:adhoc` first')
   }
 
   const found = readdirSync(BUILD_DIR, { withFileTypes: true })
@@ -107,7 +107,7 @@ function findIpa(explicit) {
     .sort((a, b) => b.mtime - a.mtime)
 
   if (found.length === 0) {
-    throw new Failure('no .ipa under gen/apple/build — run `npm run ios:build:debug` first')
+    throw new Failure('no .ipa under gen/apple/build — run `npm run ios:build:adhoc` first')
   }
 
   return found[0].path
@@ -178,6 +178,103 @@ function pickDevice(wanted) {
   return candidates[0]
 }
 
+/**
+ * The provisioning profile baked into an .ipa, or null if it cannot be read.
+ *
+ * Worth the extra work because devicectl's own diagnosis is unusable: a bundle
+ * exported for the App Store fails with "Attempted to install a Beta profile
+ * without the proper entitlement", which is true and gives no hint that the fix
+ * is a different *build* command. The profile says exactly which bundle this is.
+ */
+function readProfile(ipa) {
+  const dir = mkdtempSync(join(tmpdir(), 'hermes-ios-'))
+  const path = join(dir, 'embedded.mobileprovision')
+
+  try {
+    // unzip expands the glob itself, so the .app's name never has to be known.
+    const raw = execFileSync('unzip', ['-p', ipa, 'Payload/*.app/embedded.mobileprovision'], {
+      maxBuffer: 16 * 1024 * 1024,
+      stdio: ['ignore', 'pipe', 'ignore']
+    })
+
+    if (raw.length === 0) {
+      return null
+    }
+
+    writeFileSync(path, raw)
+
+    // A .mobileprovision is a CMS-signed plist; `security cms -D` unwraps it.
+    const plist = execFileSync('security', ['cms', '-D', '-i', path], {
+      maxBuffer: 16 * 1024 * 1024,
+      stdio: ['ignore', 'pipe', 'ignore']
+    })
+
+    // Key at a time rather than one JSON conversion: the profile embeds the
+    // signing certificates as <data>, which has no JSON form, so converting the
+    // whole plist fails outright.
+    const extract = (key, format) => {
+      try {
+        return execFileSync('plutil', ['-extract', key, format, '-o', '-', '-'], {
+          input: plist,
+          stdio: ['pipe', 'pipe', 'ignore']
+        })
+          .toString()
+          .trim()
+      } catch {
+        return null
+      }
+    }
+
+    const devices = extract('ProvisionedDevices', 'json')
+
+    return {
+      name: extract('Name', 'raw') ?? '(unnamed profile)',
+      devices: devices ? JSON.parse(devices) : [],
+      allDevices: extract('ProvisionsAllDevices', 'raw') === 'true'
+    }
+  } catch {
+    // A diagnostic is not worth failing over — let devicectl have its say.
+    return null
+  } finally {
+    rmSync(dir, { force: true, recursive: true })
+  }
+}
+
+/**
+ * Refuse bundles this device could never run, before the install is attempted.
+ *
+ * A profile with no device list is a store profile: it authorises TestFlight and
+ * the App Store and nothing else. One with a list authorises only the phones on
+ * it. Either way the install is already lost, and saying so here costs a second
+ * instead of a full round trip to the device.
+ */
+function checkInstallable(ipa, device) {
+  const profile = readProfile(ipa)
+
+  if (!profile || profile.allDevices) {
+    return
+  }
+
+  if (profile.devices.length === 0) {
+    throw new Failure(
+      `${ipa}\nis signed for the App Store (${JSON.stringify(profile.name)}), and an App Store build only reaches a ` +
+        'phone through TestFlight — it cannot be installed directly.\n' +
+        'For on-device testing build an ad-hoc bundle instead — same release optimizations, signed for this device:\n' +
+        '  npm run ios:build:adhoc:install'
+    )
+  }
+
+  const udid = device.udid ?? ''
+
+  if (!profile.devices.some(registered => registered.toLowerCase() === udid.toLowerCase())) {
+    throw new Failure(
+      `${device.name} (${udid}) is not registered in ${JSON.stringify(profile.name)}, so the bundle is not signed ` +
+        'for it.\nAdd the device at developer.apple.com/account/resources/devices, then rebuild so the refreshed ' +
+        'profile is embedded.'
+    )
+  }
+}
+
 const USAGE = `Install the built iOS app on a connected device.
 
   node scripts/ios-install.mjs                     newest build -> the one connected device
@@ -186,7 +283,8 @@ const USAGE = `Install the built iOS app on a connected device.
 
   ALLR_IOS_DEVICE=<name|udid>                    same as --device
 
-Build first with: npm run ios:build:debug`
+Build first with: npm run ios:build:debug (or ios:build:adhoc for a release-shaped one).
+An ios:build:release bundle is App Store signed and cannot be installed this way.`
 
 function main() {
   const args = parseArgs(process.argv.slice(2))
@@ -199,6 +297,8 @@ function main() {
 
   const ipa = findIpa(args.ipa)
   const device = pickDevice(args.device ?? process.env.ALLR_IOS_DEVICE)
+
+  checkInstallable(ipa, device)
 
   if (!device.connected) {
     console.warn(`ios-install: ${device.name} is paired but not connected; this may take a moment`)
