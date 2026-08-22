@@ -146,9 +146,15 @@ fn install() -> Result<(), SecretsError> {
     // needs the process to carry a keychain access group. That comes from a
     // `keychain-access-groups`/`application-identifier` entitlement, i.e. from a
     // provisioning profile. iOS always has one; a macOS bundle only has one if it is
-    // signed with a profile, and this one is not (no `bundle.macOS` in
-    // tauri.conf.json, and `tauri dev` runs a bare binary). Using it there returned
+    // signed with a profile, and this one is not — `entitlements.plist` grants only
+    // `com.apple.security.device.audio-input`, Developer ID signing embeds no
+    // profile, and `tauri dev` runs a bare binary. Using it there returned
     // `errSecMissingEntitlement (-34018)` on every single write.
+    //
+    // This paragraph used to argue the point from "no `bundle.macOS` in
+    // tauri.conf.json". That section exists now, so the evidence was stale even
+    // though the conclusion was not — and it is the kind of comment someone
+    // re-checks before switching stores, so it has to be checkable.
     //
     // That failure was invisible from here: `protected::Store::new()` is infallible,
     // so `ensure` succeeded and `secrets_status` advertised a working store while
