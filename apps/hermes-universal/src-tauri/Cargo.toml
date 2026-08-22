@@ -125,6 +125,19 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "proce
 # "dedupe" them — 0.4 changed its API and 0.2 is what this crate's code targets.
 getrandom = "0.2"
 
+# The sealed credential vault (secrets/vault.rs). Both are already in the tree —
+# russh's `ssh-cipher` pulls aes-gcm and zeroize — so naming them directly costs
+# no extra compilation unit.
+#
+# 0.11 is the post-`hybrid-array` API line: `Nonce<Aes256Gcm>` is an `Array`,
+# `KeyInit::new_from_slice` takes a byte slice, and `Aead::encrypt` wants a
+# `Payload` when there is AAD. default-features would add the crate's own
+# `getrandom` (the 0.3 major); randomness here comes from the `getrandom = "0.2"`
+# above, which is what the rest of this crate already targets.
+aes-gcm = { version = "0.11", default-features = false, features = ["aes", "alloc"] }
+# Wipes the vault key and every decrypted body on drop.
+zeroize = { version = "1", features = ["alloc"] }
+
 # --- SSH gateway transport (MJX-55) -------------------------------------------
 # A pure-Rust SSH client, NOT a shell-out to the system `ssh` binary the way the
 # Electron desktop app does it. That is deliberate: it makes SSH gateway mode work
@@ -223,6 +236,10 @@ flacenc = "0.4"
 # the ~1 MB base64 clip never crosses IPC (Tauri serializes `Vec<u8>` as a JSON number
 # array, ~4x bloat).
 base64 = "0.22"
+
+[dev-dependencies]
+# Scratch directories for the vault's file-format tests. Already transitive.
+tempfile = "3"
 
 # Local shell PTY for the right-pane terminal (pty.rs, desktop-only). Cross-platform
 # PTY: Unix openpty / Windows ConPTY. Gated OFF the mobile targets — a phone has no

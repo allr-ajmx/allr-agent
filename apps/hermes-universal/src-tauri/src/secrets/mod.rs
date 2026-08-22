@@ -18,6 +18,7 @@ pub mod code_identity;
 pub mod error;
 pub mod gate;
 pub mod store;
+pub mod vault;
 
 use serde::{Deserialize, Serialize};
 
