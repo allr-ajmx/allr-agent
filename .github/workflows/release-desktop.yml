@@ -314,6 +314,70 @@ jobs:
           uploadUpdaterJson: ${{ matrix.updater }}
           retryAttempts: 2
 
+      # Every macOS release so far shipped ad-hoc signed, and nothing said so.
+      # The signing steps above are optional-by-presence, which is right for a
+      # fork with no certificate -- but it also meant a repo that MEANT to sign
+      # and had a broken secret produced a silently unsigned build that looked
+      # like a success.
+      #
+      # This is not why users complain about Gatekeeper. It is why they complain
+      # that the app asks for their keychain password four or five times on every
+      # launch: macOS binds a keychain item's ACL to the requesting code's
+      # designated requirement, and an ad-hoc bundle has none, so every credential
+      # read and write re-prompts and "Always Allow" cannot stick.
+      #
+      # `always()` so this still reports on a leg whose upload was retried, and
+      # `continue-on-error` is deliberately NOT set: shipping an unsigned bundle
+      # under a signed release is the failure.
+      - name: Verify the macOS bundle is actually signed
+        if: always() && runner.os == 'macOS'
+        shell: bash
+        run: |
+          bundle_dir="apps/${{ matrix.app }}/src-tauri/target/${{ matrix.target }}/release/bundle/macos"
+          bundle="$(find "$bundle_dir" -maxdepth 1 -name '*.app' -print -quit 2>/dev/null || true)"
+
+          if [ -z "$bundle" ]; then
+            echo "::error::no .app under $bundle_dir - the build did not produce a bundle"
+            exit 1
+          fi
+
+          info="$(codesign -dv --verbose=4 "$bundle" 2>&1)"
+          echo "$info"
+
+          if [ "$HAS_APPLE_CERT" != 'true' ]; then
+            # Keep the optional-by-presence contract, but stop it being silent.
+            echo "::warning::$bundle is UNSIGNED (no APPLE_CERTIFICATE secret). macOS will ask for the keychain password on every credential access, and Gatekeeper will refuse it on download."
+            exit 0
+          fi
+
+          fail=0
+          case "$info" in
+            *"Signature=adhoc"*)
+              echo "::error::$bundle is ad-hoc signed despite APPLE_CERTIFICATE being set - the identity was not applied"
+              fail=1 ;;
+          esac
+          case "$info" in
+            *"TeamIdentifier=not set"*)
+              echo "::error::$bundle carries no TeamIdentifier - this is not a Developer ID signature"
+              fail=1 ;;
+          esac
+          # entitlements.plist only takes effect under the hardened runtime.
+          # Without it the microphone returns silence with no error, no prompt
+          # and no log line, and only in the signed artifact.
+          case "$info" in
+            *"flags="*"runtime"*) ;;
+            *)
+              echo "::error::$bundle is missing the hardened-runtime flag - entitlements.plist will not apply"
+              fail=1 ;;
+          esac
+
+          if ! spctl -a -vvv -t exec "$bundle" 2>&1; then
+            echo "::error::Gatekeeper rejected $bundle"
+            fail=1
+          fi
+
+          exit "$fail"
+
   # ---------------------------------------------------------------------------
   # Publish. Order matters: the updater pointer must only be moved once every
   # asset URL it will name actually exists.
