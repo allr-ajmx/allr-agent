@@ -1,0 +1,269 @@
+# Prove the macOS signing setup works, WITHOUT cutting a release.
+#
+# release-desktop.yml already verifies signing, but it only fires on a
+# `desktop-v*` tag push -- so until now the only way to find out whether the
+# Apple secrets were right was to publish a real release and look. The last tag
+# is desktop-v0.0.3; the app is well past it. That gap is what let every macOS
+# build so far ship ad-hoc signed without anyone noticing.
+#
+# This builds ONE architecture of the product app, runs the same shared
+# verifier release-desktop.yml runs, and stops. No draft release, no tag, no
+# publish, no updater manifest.
+#
+# Why the keychain prompts, in one paragraph, since that is what this exists to
+# rule out: macOS binds a keychain item's ACL to the requesting code's
+# designated requirement. An ad-hoc bundle has none, so nothing can be bound and
+# "Always Allow" has nothing to stick to. The app keeps ONE keychain item and
+# seals the rest into a file (apps/hermes-universal/src-tauri/src/secrets/), so
+# an unsigned build costs one password dialog per launch rather than one per
+# credential -- but a signed build costs none, and that is the target.
+name: macOS signing check
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/macos-signing-check.yml'
+      - '.github/workflows/release-desktop.yml'
+      - 'scripts/verify-macos-signing.sh'
+      - 'scripts/build-signed-macos.sh'
+      - 'apps/hermes-universal/src-tauri/entitlements.plist'
+      - 'apps/hermes-universal/src-tauri/tauri.conf.json'
+      - 'apps/hermes-universal/src-tauri/src/secrets/**'
+
+# A signing check that raced itself would fight over nothing useful; the newest
+# push is the only one whose answer anyone wants.
+concurrency:
+  group: macos-signing-check-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Ten seconds that answer "did the secrets land", so nobody waits out a
+  # 30-minute build to discover a typo in a secret NAME. Runs on Linux and
+  # touches no certificate.
+  # ---------------------------------------------------------------------------
+  preflight:
+    name: Which Apple secrets are set
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      signing: ${{ steps.check.outputs.signing }}
+    env:
+      # Booleans, never the values. An absent secret still DEFINES its variable
+      # as the empty string, so `!= ''` is the only honest test -- and comparing
+      # here rather than in the step keeps the certificate itself out of every
+      # later expression.
+      HAS_CERT: ${{ secrets.APPLE_CERTIFICATE != '' }}
+      HAS_CERT_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD != '' }}
+      HAS_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY != '' }}
+      HAS_KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD != '' }}
+      HAS_API_KEY: ${{ secrets.APPLE_API_KEY != '' }}
+      HAS_API_ISSUER: ${{ secrets.APPLE_API_ISSUER != '' }}
+      HAS_API_P8: ${{ secrets.APPLE_API_KEY_P8_BASE64 != '' }}
+    steps:
+      - id: check
+        shell: bash
+        run: |
+          mark() { [ "$1" = 'true' ] && echo '- [x]' || echo '- [ ]'; }
+
+          signing=false
+          if [ "$HAS_CERT" = 'true' ] && [ "$HAS_CERT_PASSWORD" = 'true' ] \
+             && [ "$HAS_IDENTITY" = 'true' ] && [ "$HAS_KEYCHAIN_PASSWORD" = 'true' ]; then
+            signing=true
+          fi
+          echo "signing=$signing" >> "$GITHUB_OUTPUT"
+
+          # One grouped redirect rather than a dozen appends -- the summary is
+          # one document, and writing it as one keeps the pieces in step.
+          {
+            echo '## Apple secrets on this repository'
+            echo
+            echo '### Signing - stops the keychain password prompts'
+            echo "$(mark "$HAS_CERT") APPLE_CERTIFICATE"
+            echo "$(mark "$HAS_CERT_PASSWORD") APPLE_CERTIFICATE_PASSWORD"
+            echo "$(mark "$HAS_IDENTITY") APPLE_SIGNING_IDENTITY"
+            echo "$(mark "$HAS_KEYCHAIN_PASSWORD") KEYCHAIN_PASSWORD"
+            echo
+            echo '### Notarization - stops Gatekeeper refusing a DOWNLOADED build'
+            echo "$(mark "$HAS_API_KEY") APPLE_API_KEY"
+            echo "$(mark "$HAS_API_ISSUER") APPLE_API_ISSUER"
+            echo "$(mark "$HAS_API_P8") APPLE_API_KEY_P8_BASE64"
+            echo
+
+            if [ "$signing" = 'true' ]; then
+              echo 'All four signing secrets are present, so the build below must produce a Developer ID signed bundle or fail.'
+            elif [ "$HAS_CERT" = 'true' ]; then
+              echo '> **Partial set.** APPLE_CERTIFICATE is present without all of its companions. Signing turns on by the presence of the certificate, so this FAILS the build rather than skipping signing. Set all four or none.'
+            else
+              echo 'No signing secrets. The build below will be UNSIGNED, and reports that rather than failing.'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # Also as an annotation, because a summary is only read by someone who
+          # already went looking. This is the half-state that fails a release.
+          if [ "$signing" != 'true' ] && [ "$HAS_CERT" = 'true' ]; then
+            echo '::warning::APPLE_CERTIFICATE is set but at least one companion secret is not. Signing turns on by the presence of the certificate, so a partial set FAILS the build rather than skipping signing. Set all four or none.'
+          fi
+
+  # ---------------------------------------------------------------------------
+  # One architecture of the product app. aarch64 only, and not `universal`,
+  # because this answers a question about the SIGNATURE -- which is identical on
+  # both halves -- and halving the build is what makes this usable as a check
+  # rather than another thing nobody runs.
+  # ---------------------------------------------------------------------------
+  build:
+    name: Build and verify the signature
+    needs: preflight
+    runs-on: macos-14
+    timeout-minutes: 60
+    env:
+      APPLE_API_KEY_P8_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
+      APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+      # See release-desktop.yml: a BOOLEAN, never the certificate. Naming the
+      # real variable at job level would hand every step an empty certificate
+      # and turn the unsigned build into a failing one.
+      HAS_APPLE_CERT: ${{ secrets.APPLE_CERTIFICATE != '' }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # Not sparse: hermes-universal pins `[patch.crates-io] tao` at a path
+          # inside src-tauri/vendor/, which has to be present to build at all.
+          fetch-depth: 1
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 26
+          cache: npm
+
+      - name: grab npm 12
+        run: npm i -g npm@12
+
+      - uses: ./.github/actions/retry
+        with:
+          command: npm ci
+
+      - name: Rust toolchain
+        shell: bash
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+          rustup target add aarch64-apple-darwin
+
+      - uses: Swatinem/rust-cache@bc2d2e71bd35c5549942babaa51a89c586b981d1 # v2.8.1
+        with:
+          workspaces: apps/hermes-universal/src-tauri
+          key: aarch64-apple-darwin
+
+      # The credential store is the reason this workflow exists, so its tests
+      # run here too -- they are seconds against a 30-minute build, and a
+      # migration bug would otherwise only surface as a user signed out.
+      - name: Credential store tests
+        run: |
+          cargo test --manifest-path apps/hermes-universal/src-tauri/Cargo.toml \
+            --all-features secrets::
+
+      - name: Materialize App Store Connect API key
+        if: env.APPLE_API_KEY_P8_BASE64 != ''
+        run: |
+          mkdir -p "$RUNNER_TEMP/asc"
+          key_path="$RUNNER_TEMP/asc/AuthKey_${APPLE_API_KEY}.p8"
+          echo "$APPLE_API_KEY_P8_BASE64" | base64 --decode > "$key_path"
+          echo "APPLE_API_KEY_PATH=$key_path" >> "$GITHUB_ENV"
+
+      # Written to $GITHUB_ENV rather than a step `env:` block for the reason
+      # spelled out at length in release-desktop.yml: a YAML mapping cannot omit
+      # a key, an absent secret still defines an empty variable, and the Tauri
+      # CLI turns signing on when APPLE_CERTIFICATE merely EXISTS. $GITHUB_ENV
+      # defines only what is written to it, so with no certificate these names
+      # never exist and Tauri skips signing instead of failing.
+      - name: Apple signing environment (optional)
+        if: env.HAS_APPLE_CERT == 'true'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD \
+                      APPLE_SIGNING_IDENTITY KEYCHAIN_PASSWORD APPLE_API_ISSUER; do
+            value="${!name}"
+            [ -n "$value" ] || continue
+            {
+              echo "${name}<<__ALLR_EOF__"
+              echo "$value"
+              echo "__ALLR_EOF__"
+            } >> "$GITHUB_ENV"
+          done
+
+          if [ -n "${APPLE_API_KEY_PATH:-}" ]; then
+            echo "APPLE_API_KEY=$APPLE_API_KEY" >> "$GITHUB_ENV"
+          fi
+
+      # No releaseId and no tagName, which is what keeps this a build rather
+      # than a release. The updater keys are still passed: the bundler signs the
+      # updater tarball whenever tauri.conf.json carries an updater public key,
+      # and without the private key it fails AFTER the whole build -- which is
+      # exactly how the first local signed build died.
+      - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # action-v1.0.0
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: apps/hermes-universal
+          args: --target aarch64-apple-darwin --verbose
+
+      # The whole point. Same script release-desktop.yml calls, so this cannot
+      # pass while a release fails.
+      - name: Verify the signature
+        shell: bash
+        run: |
+          bundle_dir=apps/hermes-universal/src-tauri/target/aarch64-apple-darwin/release/bundle/macos
+          bundle="$(find "$bundle_dir" -maxdepth 1 -name '*.app' -print -quit 2>/dev/null || true)"
+
+          if [ -z "$bundle" ]; then
+            echo "::error::no .app under $bundle_dir - the build produced no bundle"
+            exit 1
+          fi
+
+          if [ "${{ needs.preflight.outputs.signing }}" = 'true' ]; then
+            mode=--require-signed
+          else
+            mode=--warn-if-unsigned
+          fi
+
+          # Only demand Gatekeeper's approval when notarization was configured.
+          # A signed-but-unnotarized bundle is ALWAYS rejected by spctl, and
+          # treating that as a signing failure is the bug this shared script was
+          # extracted to remove.
+          notarized=""
+          if [ -n "${APPLE_API_KEY_PATH:-}" ]; then
+            notarized=--expect-notarized
+          fi
+
+          ./scripts/verify-macos-signing.sh $mode $notarized "$bundle" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # Tarred, not uploaded raw: actions/upload-artifact walks the tree and
+      # drops symlinks and the executable bit, which invalidates the signature —
+      # so a downloaded .app would fail the very check it was kept to allow.
+      - name: Package the bundle
+        if: always()
+        shell: bash
+        run: |
+          bundle_dir=apps/hermes-universal/src-tauri/target/aarch64-apple-darwin/release/bundle/macos
+          bundle="$(find "$bundle_dir" -maxdepth 1 -name '*.app' -print -quit 2>/dev/null || true)"
+          [ -n "$bundle" ] || exit 0
+          tar -C "$bundle_dir" -czf "$RUNNER_TEMP/Allr-aarch64-signed.tar.gz" "$(basename "$bundle")"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: Allr-aarch64-signed
+          path: ${{ runner.temp }}/Allr-aarch64-signed.tar.gz
+          if-no-files-found: warn
+          retention-days: 7
