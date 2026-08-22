@@ -405,6 +405,26 @@ mod tests {
         }
     }
 
+    /// Nothing nameable may collide with the vault's own master key.
+    ///
+    /// On macOS that account is the ONE keychain item left, and it is not a
+    /// credential: routing a `SecretKey` or an `OwnedKey` onto it would hand a
+    /// webview the key that seals every other secret, and a sign-out would delete
+    /// it and orphan the whole vault.
+    #[test]
+    fn nothing_nameable_collides_with_the_vault_key() {
+        let vault_key = store::MASTER_KEY_ACCOUNT;
+
+        for key in SecretKey::all() {
+            assert_ne!(key.account(), vault_key);
+        }
+
+        assert_ne!(
+            OwnedKey::NativeAuth.account("https://gw.example.com"),
+            vault_key
+        );
+    }
+
     #[test]
     fn a_round_trip_reads_back_what_was_written() {
         // Reads are gated, and whether this machine has a passcode is not

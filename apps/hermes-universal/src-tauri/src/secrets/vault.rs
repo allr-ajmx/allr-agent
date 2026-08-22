@@ -137,7 +137,7 @@ impl MasterKey {
     pub fn to_base64(&self) -> Zeroizing<String> {
         use base64::Engine as _;
 
-        Zeroizing::new(base64::engine::general_purpose::STANDARD.encode(&*self.0))
+        Zeroizing::new(base64::engine::general_purpose::STANDARD.encode(*self.0))
     }
 
     fn cipher(&self) -> Result<Aes256Gcm, SecretsError> {

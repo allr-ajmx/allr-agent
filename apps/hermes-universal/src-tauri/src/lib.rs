@@ -263,6 +263,27 @@ pub fn run() {
         // registration for the same wry/Linux reason as above.
         .register_asynchronous_uri_scheme_protocol(ARTIFACT_SCHEME, artifact::handle)
         .setup(|app| {
+            // Where the sealed credential vault lives, before anything can ask
+            // for a credential. First, deliberately: every `secrets_*` command
+            // and every `gateway_bearer` call arrives after `setup` returns, and
+            // on macOS a read that beat this would be refused rather than
+            // answered from the wrong place.
+            //
+            // Not fatal. A machine that will not name a data directory cannot
+            // persist credentials, which is the same "we store nothing, and say
+            // so" outcome `store::ensure` already reports for a Linux box with no
+            // Secret Service — not a reason to refuse to start.
+            {
+                use tauri::Manager;
+
+                match app.path().app_data_dir() {
+                    Ok(dir) => secrets::store::configure(dir),
+                    Err(e) => log::error!(
+                        "[secrets] no app data directory, so credentials cannot be stored: {e}"
+                    ),
+                }
+            }
+
             // WebKitGTK (Linux desktop) auto-denies `getUserMedia` unless the
             // embedder answers the WebView's `permission-request` signal — wry
             // does not, so voice/dictation fails instantly with a permission
