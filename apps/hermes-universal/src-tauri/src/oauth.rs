@@ -833,24 +833,32 @@ fn now_secs() -> i64 {
 
 /// Persist a token set, reporting whether it actually landed.
 ///
-/// The `Result` matters on EVERY platform, and a caller that discards it is claiming a
-/// session it does not have. There is no in-memory fallback anywhere in this module:
-/// `register_bearer_base` records a base URL string in a `BTreeSet` (`transport.rs`) and
-/// holds no token, so every later read goes `gateway_bearer` → `ensure_native_tokens` →
-/// `load_native_tokens` → the keyring. If this write fails, the session is already dead.
+/// The `Result` still matters on EVERY platform, and a caller that discards it is
+/// claiming a session it does not have. `cache_bearer_tokens` keeps the set alive
+/// for THIS run only — it is a read-through cache, not storage. A write that fails
+/// leaves a session that dies at the next launch, which is exactly the failure the
+/// `Result` exists to report, so it is still wrong to swallow.
 ///
-/// This doc used to say the opposite — that desktop "keeps the token set alive in process
-/// memory via `register_bearer_base`" — and that sentence is what kept a swallowed write
-/// looking defensible. Both `run_native_login` arms now propagate the failure.
+/// This doc used to say there was "no in-memory fallback anywhere in this module",
+/// and that every later read went `gateway_bearer` → `ensure_native_tokens` →
+/// `load_native_tokens` → the keyring. That was true and it was the bug: on macOS a
+/// keyring read is an ACL check, so a build whose code signature the ACL cannot
+/// match (an ad-hoc signed one) raised a password dialog PER REQUEST. The cache
+/// below is keyed on the token's own `expires_at` via `native::needs_refresh`, so it
+/// cannot serve a set the gateway would reject for age, and `force_refresh` skips it
+/// entirely. Note this is a different thing from the storage fallback that
+/// `secrets/store.rs` still correctly forbids: that one would have DIVERTED
+/// credentials away from the OS store; this one only remembers what the OS store
+/// already told us.
 fn store_native_tokens(
     _app: &AppHandle,
     state: &TransportState,
     base: &str,
     tokens: &native::NativeTokenSet,
 ) -> Result<(), String> {
-    // Registered even when the keyring write below fails: the token set is live
-    // for this run either way, and the transport has to know to attach it.
-    state.register_bearer_base(base);
+    // Cached even when the keyring write below fails: the token set is live for
+    // this run either way, and the transport has to know to attach it.
+    state.cache_bearer_tokens(base, tokens.clone());
 
     let json = serde_json::to_string(tokens)
         .map_err(|e| format!("could not serialize the token set: {e}"))?;
@@ -1534,15 +1542,33 @@ async fn ensure_native_tokens(
     base: &str,
     force_refresh: bool,
 ) -> Option<native::NativeTokenSet> {
-    let Some(tokens) = load_native_tokens(app, base) else {
-        // Stops `bearer_base_for_url`'s origin fallback re-reading the keyring
-        // on every single request to a gateway that has no native session.
-        state.note_no_bearer_base(base);
-
-        return None;
+    // The cached set first, so a live token costs no keyring round trip at all.
+    // `force_refresh` MUST skip the cache: that path exists because the gateway
+    // just answered 401 to this very token, and serving it again from memory
+    // would turn one rejected request into an infinite loop of them.
+    let cached = if force_refresh {
+        None
+    } else {
+        state.cached_bearer_tokens(base)
     };
 
-    state.register_bearer_base(base);
+    let tokens = match cached {
+        Some(tokens) => tokens,
+        None => {
+            let Some(tokens) = load_native_tokens(app, base) else {
+                // Stops `bearer_base_for_url`'s origin fallback re-reading the
+                // keyring on every single request to a gateway that has no
+                // native session.
+                state.note_no_bearer_base(base);
+
+                return None;
+            };
+
+            tokens
+        }
+    };
+
+    state.cache_bearer_tokens(base, tokens.clone());
 
     if !force_refresh && !native::needs_refresh(&tokens, now_secs()) {
         return Some(tokens);

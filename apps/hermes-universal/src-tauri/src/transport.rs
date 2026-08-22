@@ -21,7 +21,7 @@
 //! as `InvokeResponseBody::Raw`, which reaches JS as an `ArrayBuffer` — no
 //! encode, no parse, no per-element copy.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -292,8 +292,10 @@ pub fn redact_secret(message: String, secret: &str) -> String {
     message.replace(secret, "***")
 }
 
-/// Which gateway bases may have their RFC 8252 bearer attached to a request, and
-/// which origins have already been checked and found to have none.
+/// Which gateway bases may have their RFC 8252 bearer attached to a request,
+/// which origins have already been checked and found to have none, and the
+/// token set for each — held in memory so the OS keyring is not read again for
+/// every single request.
 ///
 /// This registry is the whole guard against leaking the credential to a third
 /// party: a request is authenticated only when its URL sits *under* a base we
@@ -301,9 +303,14 @@ pub fn redact_secret(message: String, secret: &str) -> String {
 /// The `checked` half only keeps the origin fallback in
 /// [`TransportState::bearer_base_for_url`] from hitting the OS keyring once per
 /// request to some unrelated host.
+///
+/// The cached set lives INSIDE `known` rather than in a map beside it so the two
+/// cannot drift: a base that is authenticated and a base whose token we hold are
+/// the same fact, and a cache that outlived its registration would attach a
+/// bearer the guard above had already withdrawn.
 #[derive(Default)]
 struct BearerBases {
-    known: BTreeSet<String>,
+    known: BTreeMap<String, crate::oauth::native::NativeTokenSet>,
     checked: BTreeSet<String>,
 }
 
@@ -422,14 +429,33 @@ impl TransportState {
         &self.cookies
     }
 
-    /// Record that `base` holds a native (bearer) session, so requests under it
-    /// are authenticated with it. Called by oauth.rs whenever a token set is
-    /// written to, or found in, the keyring.
-    pub fn register_bearer_base(&self, base: &str) {
+    /// Record that `base` holds a native (bearer) session — so requests under it
+    /// are authenticated with it — and keep its token set in memory.
+    ///
+    /// Called by oauth.rs whenever a token set is written to, or read out of,
+    /// the keyring. Holding the set here is what stops a keyring read happening
+    /// on every outbound request. The keyring stays the system of record: this
+    /// is a read-through cache of what it last told us, never a substitute for
+    /// it, and both `note_no_bearer_base` and `forget_bearer_base` drop it.
+    ///
+    /// There is deliberately no way to register a base WITHOUT its tokens. The
+    /// two are one fact — "this gateway is authenticated, and here is what with"
+    /// — and splitting them is how a cache drifts out of step with the guard
+    /// that decides who may receive the credential.
+    pub fn cache_bearer_tokens(&self, base: &str, tokens: crate::oauth::native::NativeTokenSet) {
         if let Ok(mut bases) = self.bearer_bases.lock() {
             bases.checked.remove(base);
-            bases.known.insert(base.to_string());
+            bases.known.insert(base.to_string(), tokens);
         }
+    }
+
+    /// The cached token set for `base`, if one is in memory.
+    ///
+    /// `None` covers both "not authenticated" and "authenticated but not cached
+    /// yet"; the caller answers either by going to the keyring, so they do not
+    /// need telling apart here.
+    pub fn cached_bearer_tokens(&self, base: &str) -> Option<crate::oauth::native::NativeTokenSet> {
+        self.bearer_bases.lock().ok()?.known.get(base).cloned()
     }
 
     /// Record that `base` has no native session, so the origin fallback below
@@ -459,7 +485,7 @@ impl TransportState {
     /// Otherwise the URL's ORIGIN is offered once, so a session left in the
     /// keyring by a previous run is found on the first request of a new one
     /// rather than only after the webview happens to call `oauth_status`. The
-    /// caller answers that offer by calling `register_bearer_base` or
+    /// caller answers that offer by calling `cache_bearer_tokens` or
     /// `note_no_bearer_base`, and the origin is never offered again.
     ///
     /// That one-shot offer is confined to the gateway's own path namespaces —
@@ -475,7 +501,7 @@ impl TransportState {
         // `https://host/hermes` wins over a bare `https://host`.
         if let Some(base) = bases
             .known
-            .iter()
+            .keys()
             .rev()
             .find(|base| url_is_under(url, base))
         {
@@ -1488,7 +1514,7 @@ mod tests {
     #[test]
     fn the_bearer_is_offered_only_to_urls_under_a_known_gateway_base() {
         let state = TransportState::new();
-        state.register_bearer_base("https://gw.example.com");
+        state.cache_bearer_tokens("https://gw.example.com", some_tokens());
 
         assert_eq!(
             state.bearer_base_for_url("https://gw.example.com/api/auth/ws-ticket"),
@@ -1506,13 +1532,26 @@ mod tests {
         );
     }
 
+    /// A throwaway token set. These tests are about which base a URL routes to,
+    /// not about the credential, so the contents never matter — only that
+    /// registering a base now requires one.
+    fn some_tokens() -> crate::oauth::native::NativeTokenSet {
+        crate::oauth::native::NativeTokenSet {
+            access_token: "at".to_string(),
+            refresh_token: "rt".to_string(),
+            expires_at: i64::MAX,
+            provider: String::new(),
+            user_id: String::new(),
+        }
+    }
+
     #[test]
     fn a_path_prefixed_base_beats_the_bare_origin() {
         // `https://host/hermes` is a legal gateway base and no amount of URL
         // parsing recovers it — only the registry knows.
         let state = TransportState::new();
-        state.register_bearer_base("https://host");
-        state.register_bearer_base("https://host/hermes");
+        state.cache_bearer_tokens("https://host", some_tokens());
+        state.cache_bearer_tokens("https://host/hermes", some_tokens());
 
         assert_eq!(
             state.bearer_base_for_url("https://host/hermes/api/status"),
@@ -1544,6 +1583,79 @@ mod tests {
         );
     }
 
+    /// The whole point of the cache: a second request for the same base answers
+    /// from memory. On macOS every keyring read is an ACL check, so before this
+    /// each request was a candidate for a password dialog.
+    #[test]
+    fn a_cached_token_set_is_served_without_the_keyring() {
+        let state = TransportState::new();
+
+        assert_eq!(state.cached_bearer_tokens("https://gw.example.com"), None);
+
+        state.cache_bearer_tokens("https://gw.example.com", some_tokens());
+
+        assert_eq!(
+            state.cached_bearer_tokens("https://gw.example.com"),
+            Some(some_tokens())
+        );
+    }
+
+    /// A cached set must never outlive the registration that authorized it.
+    /// Signing out drops both, or the next request would attach a bearer to a
+    /// gateway the user just signed out of.
+    #[test]
+    fn signing_out_drops_the_cached_token_set() {
+        let state = TransportState::new();
+        state.cache_bearer_tokens("https://gw.example.com", some_tokens());
+
+        state.forget_bearer_base("https://gw.example.com");
+
+        assert_eq!(state.cached_bearer_tokens("https://gw.example.com"), None);
+    }
+
+    /// The other eviction path. `note_no_bearer_base` is "the keyring has nothing
+    /// for this base", which cannot coexist with a cached set for it.
+    #[test]
+    fn noting_no_session_drops_the_cached_token_set() {
+        let state = TransportState::new();
+        state.cache_bearer_tokens("https://gw.example.com", some_tokens());
+
+        state.note_no_bearer_base("https://gw.example.com");
+
+        assert_eq!(state.cached_bearer_tokens("https://gw.example.com"), None);
+    }
+
+    /// A rotation replaces the set rather than being ignored, so the 401 path
+    /// cannot be served the token the gateway just refused.
+    #[test]
+    fn caching_again_replaces_the_previous_set() {
+        let state = TransportState::new();
+        state.cache_bearer_tokens("https://gw.example.com", some_tokens());
+
+        let rotated = crate::oauth::native::NativeTokenSet {
+            access_token: "at-rotated".to_string(),
+            ..some_tokens()
+        };
+        state.cache_bearer_tokens("https://gw.example.com", rotated.clone());
+
+        assert_eq!(
+            state.cached_bearer_tokens("https://gw.example.com"),
+            Some(rotated)
+        );
+    }
+
+    /// One gateway's credential must never be served for another.
+    #[test]
+    fn a_cached_set_is_scoped_to_its_own_base() {
+        let state = TransportState::new();
+        state.cache_bearer_tokens("https://gw.example.com", some_tokens());
+
+        assert_eq!(
+            state.cached_bearer_tokens("https://other.example.com"),
+            None
+        );
+    }
+
     #[test]
     fn a_url_outside_the_gateway_namespaces_never_reaches_the_keyring() {
         // Not a trust boundary — the registry is. This only keeps a third-party
@@ -1562,7 +1674,7 @@ mod tests {
         // A user who signs straight back in must not be stuck bearer-less until
         // something happens to probe the gateway again.
         let state = TransportState::new();
-        state.register_bearer_base("https://gw.example.com");
+        state.cache_bearer_tokens("https://gw.example.com", some_tokens());
         state.forget_bearer_base("https://gw.example.com");
 
         assert_eq!(
@@ -1576,7 +1688,7 @@ mod tests {
         // alone never records a check, so a sign-out that only dropped the
         // KNOWN half would look fine here and strand that user bearer-less.
         state.note_no_bearer_base("https://gw.example.com");
-        state.register_bearer_base("https://gw.example.com");
+        state.cache_bearer_tokens("https://gw.example.com", some_tokens());
         state.forget_bearer_base("https://gw.example.com");
 
         assert_eq!(
