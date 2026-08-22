@@ -23,6 +23,7 @@
 //! and it exists because the rename shipped without it and orphaned exactly what this
 //! paragraph warns about.
 
+use std::collections::HashSet;
 use std::sync::Mutex;
 
 use keyring_core::Entry;
@@ -50,6 +51,55 @@ const LEGACY_SERVICE: &str = "hermes"; // rebrand:keep
 /// populated from the Java side, and caching that one early failure forever
 /// would disable credential storage for the whole run.
 static READY: Mutex<bool> = Mutex::new(false);
+
+/// Accounts already looked for under [`LEGACY_SERVICE`] and not found there.
+///
+/// The fallback in [`read`] is a migration path, and a migration ends. For an
+/// account that exists under NEITHER service it never does: the canonical read
+/// misses, the legacy read misses, nothing is written, and the next read repeats
+/// both. That is a permanently doubled round trip for every credential the user
+/// has not set — on this codebase's own key list, most of them.
+///
+/// Doubling matters more than it sounds. On Linux each read is a D-Bus call to
+/// another process; on macOS it is an ACL check that, on an ad-hoc signed build,
+/// the OS answers with a password dialog.
+///
+/// Process-local and never persisted. A pre-rename credential cannot appear in a
+/// service we have already read while this process runs — nothing else writes
+/// there, this module having been the only writer of `hermes` before the rename
+/// and no longer writing it at all — and a fresh launch checks again regardless.
+static LEGACY_CHECKED: Mutex<Option<HashSet<String>>> = Mutex::new(None);
+
+/// Has `account` already been looked for under the legacy service and missed?
+fn legacy_known_absent(account: &str) -> bool {
+    LEGACY_CHECKED
+        .lock()
+        .ok()
+        .and_then(|memo| memo.as_ref().map(|seen| seen.contains(account)))
+        .unwrap_or(false)
+}
+
+/// Record that the legacy service holds nothing for `account`.
+fn note_legacy_absent(account: &str) {
+    if let Ok(mut memo) = LEGACY_CHECKED.lock() {
+        memo.get_or_insert_with(HashSet::new)
+            .insert(account.to_string());
+    }
+}
+
+/// Forget that memo for `account`.
+///
+/// Called from `write` and `remove` because both make the legacy question fresh
+/// again: `remove` clears BOTH services, and a later `write` then `remove` must
+/// still leave `read` able to prove the legacy entry is gone rather than assuming
+/// it from a memo taken before either ran.
+fn clear_legacy_memo(account: &str) {
+    if let Ok(mut memo) = LEGACY_CHECKED.lock() {
+        if let Some(seen) = memo.as_mut() {
+            seen.remove(account);
+        }
+    }
+}
 
 /// Install the platform store, once.
 pub fn ensure() -> Result<(), SecretsError> {
@@ -224,7 +274,18 @@ pub fn read(account: &str) -> Result<Option<String>, SecretsError> {
     // on read rather than as a startup sweep means we never have to enumerate the
     // store (no backend here can) and a credential moves exactly once, the first time
     // anything actually wants it.
+    //
+    // ...and only if we have not already established there is nothing there. See
+    // LEGACY_CHECKED: without this, an account absent from both services pays two
+    // round trips on every read, forever, because a miss migrates nothing and so
+    // never settles the question.
+    if legacy_known_absent(account) {
+        return Ok(None);
+    }
+
     let Some(value) = read_in(LEGACY_SERVICE, account)? else {
+        note_legacy_absent(account);
+
         return Ok(None);
     };
 
@@ -245,6 +306,8 @@ pub fn read(account: &str) -> Result<Option<String>, SecretsError> {
 }
 
 pub fn write(account: &str, value: &str) -> Result<(), SecretsError> {
+    clear_legacy_memo(account);
+
     entry(account)?
         .set_password(value)
         .map_err(|e| SecretsError::store_failed(format!("the keyring refused the write: {e}")))
@@ -256,6 +319,8 @@ pub fn write(account: &str, value: &str) -> Result<(), SecretsError> {
 /// indistinguishable from one that worked, which is the worst possible answer
 /// for the one operation whose entire job is that the credential is gone.
 pub fn remove(account: &str) -> Result<(), SecretsError> {
+    clear_legacy_memo(account);
+
     remove_in(SERVICE, account)?;
 
     // The legacy entry too, and not as an afterthought: this is what "sign out
@@ -343,6 +408,71 @@ mod tests {
 
         assert_eq!(read("store-test-wipe").unwrap(), None);
         assert_eq!(read_in(LEGACY_SERVICE, "store-test-wipe").unwrap(), None);
+    }
+
+    /// The memo, proved by its observable consequence: once an account has been
+    /// found absent under the legacy service, a value appearing there later is
+    /// NOT picked up, because we no longer look. Nothing writes `hermes` at
+    /// runtime, so in production that branch is unreachable — planting the entry
+    /// by hand is the only way to show the second read skipped the round trip.
+    #[test]
+    fn the_legacy_service_is_only_searched_once_per_account() {
+        assert_eq!(read("store-test-memo").unwrap(), None);
+
+        entry_in(LEGACY_SERVICE, "store-test-memo")
+            .unwrap()
+            .set_password("planted-after-the-miss")
+            .unwrap();
+
+        assert_eq!(read("store-test-memo").unwrap(), None);
+    }
+
+    /// Writing makes the question fresh again, so the memo cannot outlive the
+    /// state it described.
+    #[test]
+    fn writing_clears_the_legacy_memo() {
+        assert_eq!(read("store-test-memo-write").unwrap(), None);
+
+        write("store-test-memo-write", "current").unwrap();
+        entry_in(LEGACY_SERVICE, "store-test-memo-write")
+            .unwrap()
+            .set_password("legacy")
+            .unwrap();
+
+        // The canonical entry still wins, but the point is that `remove` below
+        // can now still see and clear the legacy one.
+        assert_eq!(
+            read("store-test-memo-write").unwrap().as_deref(),
+            Some("current")
+        );
+
+        remove("store-test-memo-write").unwrap();
+
+        assert_eq!(read("store-test-memo-write").unwrap(), None);
+        assert_eq!(
+            read_in(LEGACY_SERVICE, "store-test-memo-write").unwrap(),
+            None
+        );
+    }
+
+    /// The invariant the memo could most easily have broken: "sign out
+    /// everywhere" must still reach the legacy entry, even for an account whose
+    /// legacy miss was memoized before it was ever written.
+    #[test]
+    fn a_memoized_miss_does_not_survive_a_sign_out() {
+        assert_eq!(read("store-test-memo-wipe").unwrap(), None);
+
+        remove("store-test-memo-wipe").unwrap();
+
+        entry_in(LEGACY_SERVICE, "store-test-memo-wipe")
+            .unwrap()
+            .set_password("legacy")
+            .unwrap();
+
+        assert_eq!(
+            read("store-test-memo-wipe").unwrap().as_deref(),
+            Some("legacy")
+        );
     }
 
     #[test]
