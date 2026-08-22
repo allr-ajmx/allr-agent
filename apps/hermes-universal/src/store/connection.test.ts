@@ -25,7 +25,10 @@ vi.mock('@/lib/secure-store', () => ({
   loadSecrets: vi.fn().mockResolvedValue({ token: 'T', password: 'P' }),
   clearSecrets: vi.fn().mockResolvedValue(undefined)
 }))
-vi.mock('@/lib/session-persist', () => ({ persistSessionCookies: vi.fn().mockResolvedValue(undefined) }))
+vi.mock('@/lib/session-persist', () => ({
+  forgetPersistedSessionCookies: vi.fn(),
+  persistSessionCookies: vi.fn().mockResolvedValue(undefined)
+}))
 vi.mock('@/store/local-backend', () => ({
   spawnLocalBackend: vi.fn(),
   stopLocalBackend: vi.fn().mockResolvedValue(undefined)

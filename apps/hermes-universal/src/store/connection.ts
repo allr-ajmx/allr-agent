@@ -13,7 +13,7 @@ import { loadString, saveString } from '@/lib/persist'
 import { IS_NATIVE_MOBILE } from '@/lib/platform'
 import { reconnectBackoffDelayMs } from '@/lib/reconnect-backoff'
 import { clearSecrets, loadSecrets, loadSshSecrets, saveSecrets, type Secrets } from '@/lib/secure-store'
-import { persistSessionCookies } from '@/lib/session-persist'
+import { forgetPersistedSessionCookies, persistSessionCookies } from '@/lib/session-persist'
 import { onBackground, onForeground } from '@/store/app-lifecycle'
 import { atom } from '@/store/atom'
 import { $gatewayState, closeGateway, connectGateway } from '@/store/gateway'
@@ -112,6 +112,10 @@ export function loadSavedLogin(): Promise<Secrets | null> {
  *  it refused. Callers that tell the user they are signed out everywhere should
  *  check: a failed wipe used to be indistinguishable from a clean one. */
 export function forgetSavedLogin(): Promise<boolean> {
+  // Before the wipe, not after: the memo must not outlive the keyring entry it
+  // describes, or a reconnect would skip re-persisting an identical jar.
+  forgetPersistedSessionCookies()
+
   return clearSecrets()
 }
 
