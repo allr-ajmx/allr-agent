@@ -17,9 +17,12 @@ import { loadSessionCookies, saveSessionCookies } from '@/lib/secure-store'
  *
  * `persistSessionCookies` runs on every transition to `ready` — every reconnect,
  * every gateway switch, every resume — and the jar is usually byte-identical to
- * the one already stored. Writing it anyway is not free: a keyring write is its
- * own ACL check, separate from the read's, so on macOS an unchanged jar could
- * cost a password dialog on a build whose signature the ACL cannot match.
+ * the one already stored. Writing it anyway is not free: on every platform but
+ * macOS a keyring write is its own ACL check, separate from the read's. (On macOS
+ * the write now lands in the sealed vault instead — see
+ * src-tauri/src/secrets/vault.rs — so it no longer costs a dialog. Everywhere
+ * else, and for the plain I/O either way, skipping an unchanged write is still
+ * the right thing to do.)
  *
  * Compared here rather than in Rust deliberately. The serialized jar is already
  * in hand at this point, whereas a Rust-side comparison would have to READ the

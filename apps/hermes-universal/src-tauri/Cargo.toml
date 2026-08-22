@@ -361,13 +361,26 @@ webkit2gtk = { version = "2.0", features = ["v2_8"] }
 # The Protected Data keychain writes with `kSecUseDataProtectionKeychain`, which
 # on macOS requires the process to carry a keychain access group — granted by a
 # `keychain-access-groups`/`application-identifier` entitlement, which only a
-# provisioning profile supplies. This bundle has neither (there is no
-# `bundle.macOS` section in tauri.conf.json, and `tauri dev` runs a bare binary),
-# so every write returned `errSecMissingEntitlement (-34018)`. Nothing surfaced
-# it: `protected::Store::new()` is infallible, so the store reported itself
-# available and only the writes failed. The visible symptom was an RFC 8252
-# sign-in that completed in the browser and left the app signed out, because the
-# token set could not reach the keyring (`oauth.rs::store_native_tokens`).
+# provisioning profile supplies. iOS always has one; a macOS bundle only does if
+# it is signed with a profile, and this one is not (`entitlements.plist` grants
+# only `com.apple.security.device.audio-input`, Developer ID signing embeds no
+# profile, and `tauri dev` runs a bare binary), so every write returned
+# `errSecMissingEntitlement (-34018)`. Nothing surfaced it:
+# `protected::Store::new()` is infallible, so the store reported itself available
+# and only the writes failed. The visible symptom was an RFC 8252 sign-in that
+# completed in the browser and left the app signed out, because the token set
+# could not reach the keyring (`oauth.rs::store_native_tokens`).
+#
+# NOTE the argument above used to rest on "there is no `bundle.macOS` section in
+# tauri.conf.json". That section exists now, so the evidence was stale even though
+# the conclusion was not — and this is exactly the comment someone re-reads before
+# switching stores, so it has to be checkable. Same fix as commit f807c6e02f made
+# in src/secrets/store.rs.
+#
+# What this store now HOLDS on macOS is one item: `allr/vaultKey/password`, the
+# key that seals `secrets.vault` in the app data dir. Every credential lives in
+# that file — see src/secrets/vault.rs for why (per-item, per-direction ACL
+# checks, each one a password dialog on an unsigned build).
 apple-native-keyring-store = { version = "1.0", features = ["keychain"] }
 core-graphics = "0.25"
 core-foundation = "0.10"

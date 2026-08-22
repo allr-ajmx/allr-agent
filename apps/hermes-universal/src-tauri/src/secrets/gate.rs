@@ -14,14 +14,24 @@
 //! Two tiers of enforcement, and the difference is worth stating plainly rather
 //! than implying uniformity:
 //!
-//! * **OS-enforced** — Apple and Android can bind the stored item itself to
+//! * **OS-enforced** — iOS and Android can bind the stored item itself to
 //!   authentication (`kSecAccessControl`, a Keystore key with
 //!   `setUserAuthenticationRequired`). There, bypassing this module does not get
 //!   you the plaintext.
-//! * **App-enforced** — Windows Credential Manager and the Linux Secret Service
-//!   have no per-item auth binding. The store is already user-bound (DPAPI, the
-//!   login keyring), and the consent check happens here, at the boundary. That is
-//!   a weaker claim and should be documented as one.
+//! * **App-enforced** — Windows Credential Manager, the Linux Secret Service and
+//!   the macOS *login* keychain have no per-item auth binding we can use. (macOS
+//!   is in this list rather than the one above because the login keychain has
+//!   never carried `kSecAccessControl` here — that needs the Data Protection
+//!   keychain, which needs an entitlement this bundle cannot have; see
+//!   `store::install`. Since `store` now seals its secrets under a key it holds
+//!   for the process lifetime, the point is doubly true.) The store is already
+//!   user-bound, and the consent check happens here, at the boundary. That is a
+//!   weaker claim and should be documented as one.
+//!
+//! Locking deliberately does NOT evict that macOS vault key. The lease governs
+//! whether a credential may be READ; re-fetching the key on every lease expiry
+//! would put a keychain password dialog behind the five-minute timer on exactly
+//! the builds this whole design exists to spare.
 
 use std::sync::Mutex;
 use std::time::{Duration, Instant};

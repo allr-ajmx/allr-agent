@@ -2,7 +2,7 @@
 //!
 //! This module exists because of one user-visible failure that is otherwise
 //! impossible to diagnose from inside the app: the login keychain asking for a
-//! password over and over, several times per launch.
+//! password on a build the user did not know was unsigned.
 //!
 //! macOS binds each keychain item's ACL to the *designated requirement* of the
 //! code requesting it. A Developer ID signed bundle has a stable one, so "Always
@@ -10,6 +10,12 @@
 //! no internal requirements at all, so there is nothing for the ACL to trust —
 //! every read AND every write re-prompts, and reads and writes are separate ACL
 //! operations, so allowing one does not cover the other.
+//!
+//! What that costs is now bounded. Since [`super::store`] keeps a single keychain
+//! item on macOS and seals everything else into a file, an ad-hoc build asks once
+//! per launch — for the vault key — rather than once per credential per
+//! direction. The prompt is still worth explaining, because it is still one more
+//! than a signed build shows, and it is still nothing the app can fix at runtime.
 //!
 //! The app cannot fix that at runtime. What it can do is stop the user guessing:
 //! the answer is "this build was not signed", and it belongs in a log line and in
@@ -32,11 +38,11 @@
 /// What the OS can make of this build's identity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CodeIdentity {
-    /// A sealed signature is present. Keychain ACLs can bind to it, so the user
-    /// is prompted at most once per item.
+    /// A sealed signature is present. Keychain ACLs can bind to it, so "Always
+    /// Allow" sticks and the user is not asked again.
     Sealed,
-    /// No sealed signature: ad-hoc, linker-signed, or unsigned. Expect a keychain
-    /// password dialog on every credential access.
+    /// No sealed signature: ad-hoc, linker-signed, or unsigned. Expect one
+    /// keychain password dialog per launch, for the vault key.
     AdHoc,
     /// Not running from an app bundle at all — `tauri dev`, a test binary, or a
     /// platform where the question does not arise. Says nothing either way.
@@ -44,12 +50,12 @@ pub enum CodeIdentity {
 }
 
 impl CodeIdentity {
-    /// Whether this identity is the one that causes repeated keychain prompts.
+    /// Whether this identity is the one that makes macOS ask for a password.
     ///
     /// `Unbundled` is not: a dev build stores credentials under whatever identity
     /// the binary happens to have, and telling a developer their build is
     /// "unsigned" during `tauri dev` is noise, not a diagnosis.
-    pub fn prompts_on_every_keychain_access(self) -> bool {
+    pub fn prompts_for_keychain_access(self) -> bool {
         matches!(self, Self::AdHoc)
     }
 }
@@ -103,10 +109,10 @@ mod tests {
     /// the ad-hoc problem, or every dev build would carry a warning about a
     /// release-only failure.
     #[test]
-    fn only_an_ad_hoc_bundle_is_blamed_for_the_prompts() {
-        assert!(CodeIdentity::AdHoc.prompts_on_every_keychain_access());
-        assert!(!CodeIdentity::Sealed.prompts_on_every_keychain_access());
-        assert!(!CodeIdentity::Unbundled.prompts_on_every_keychain_access());
+    fn only_an_ad_hoc_bundle_is_blamed_for_the_prompt() {
+        assert!(CodeIdentity::AdHoc.prompts_for_keychain_access());
+        assert!(!CodeIdentity::Sealed.prompts_for_keychain_access());
+        assert!(!CodeIdentity::Unbundled.prompts_for_keychain_access());
     }
 
     /// The test binary is not an app bundle, so this must answer `Unbundled`

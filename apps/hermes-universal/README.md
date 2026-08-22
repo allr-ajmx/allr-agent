@@ -230,6 +230,25 @@ lipo -archs /Applications/Allr.app/Contents/MacOS/Allr  # x86_64 arm64
 
 These are the counterpart of `jarsigner -verify` for the Android AAB above.
 
+**Counting keychain dialogs.** A signed build shows one Touch ID prompt — the
+app's own credential gate — and no keychain password dialogs at all. An ad-hoc
+build shows that Touch ID prompt plus exactly one keychain dialog per launch, for
+the key that seals the credential vault; it never shows one per credential, which
+is what it used to do. So:
+
+```
+ls -l ~/Library/Application\ Support/work.allr.app/secrets.vault  # -rw------- , the sealed secrets
+security find-generic-password -s allr -a allr/vaultKey/password   # the one keychain item
+security dump-keychain | grep 'allr/'                              # should be that one line
+```
+
+Credentials from an older build migrate into the vault on first read, so the
+first launch after upgrading may still raise a dialog per surviving item — once.
+
+A `vaultKey` item created by an ad-hoc build prompts once more under the first
+signed build, because the ACL is being bound to a code identity for the first
+time; "Always Allow" sticks from then on.
+
 **Test voice capture on a notarized build, not a dev build.** Hardened runtime
 is what `entitlements.plist` exists for, and a missing entitlement makes the
 microphone return silence with no error, no prompt and no log line — only in the

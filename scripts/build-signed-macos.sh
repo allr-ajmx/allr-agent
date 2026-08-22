@@ -132,4 +132,11 @@ To answer the original question, install it and count the dialogs:
 Expect ONE Touch ID prompt -- that is the app's own credential gate and is meant
 to be there -- and ZERO macOS keychain password dialogs. Quit and relaunch to
 confirm it holds, which is the part an ad-hoc build fails.
+
+An ad-hoc build shows exactly one keychain dialog per launch, for the vault key,
+and never one per credential. More than one means an old per-item entry has not
+migrated yet -- check with:
+
+  security find-generic-password -s allr -a allr/vaultKey/password   # should exist
+  security dump-keychain | grep 'allr/'                              # should be that one line
 MSG

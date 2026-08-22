@@ -174,12 +174,14 @@ pub struct SecretsStatus {
     pub gate_enforced: bool,
     /// Whether a lease is open right now.
     pub unlocked: bool,
-    /// Whether THIS build is the reason macOS keeps asking for a password.
+    /// Whether THIS build is the reason macOS asks for a password at all.
     ///
     /// True only for an ad-hoc signed macOS bundle, whose code signature no
-    /// keychain ACL can bind to — see [`code_identity`]. Nothing the app does at
-    /// runtime changes it; it is here so the UI can explain the prompts instead
-    /// of leaving the user to conclude the app is broken.
+    /// keychain ACL can bind to — see [`code_identity`]. Such a build raises one
+    /// keychain dialog per launch, to unlock the credential vault; a signed one
+    /// raises none. Nothing the app does at runtime changes it, so it is here for
+    /// the UI to explain the prompt rather than leave the user concluding the app
+    /// is broken.
     pub ad_hoc_signed: bool,
 }
 
@@ -289,7 +291,7 @@ pub async fn secrets_status() -> SecretsStatus {
         gate_available: gate::available(),
         gate_enforced: ENFORCE_UNLOCK,
         unlocked: gate::is_unlocked(),
-        ad_hoc_signed: code_identity::current().prompts_on_every_keychain_access(),
+        ad_hoc_signed: code_identity::current().prompts_for_keychain_access(),
     }
 }
 

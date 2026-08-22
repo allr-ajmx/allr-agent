@@ -337,15 +337,16 @@ pub fn run() {
 
             // Logged unconditionally at boot, because the symptom it explains
             // shows up long before anyone thinks to look at `secrets_status`:
-            // macOS asking for the login-keychain password several times per
-            // launch. An ad-hoc signed bundle has no code identity a keychain
-            // ACL can bind to, so every credential access re-prompts and no
-            // amount of "Always Allow" makes it stop.
-            if secrets::code_identity::current().prompts_on_every_keychain_access() {
+            // macOS asking for the login-keychain password. An ad-hoc signed
+            // bundle has no code identity a keychain ACL can bind to, so "Always
+            // Allow" has nothing to stick to. It is one prompt per launch now
+            // rather than one per credential — see `secrets::store` — but one is
+            // still one more than a signed build shows.
+            if secrets::code_identity::current().prompts_for_keychain_access() {
                 log::warn!(
-                    "[secrets] this build is ad-hoc signed, so macOS cannot bind keychain ACLs \
-                     to it and will ask for your password on every credential access. Only a \
-                     Developer ID signed build fixes that."
+                    "[secrets] this build is ad-hoc signed, so macOS cannot bind a keychain ACL \
+                     to it and will ask for your password once per launch to unlock the \
+                     credential vault. Only a Developer ID signed build stops that."
                 );
             }
 
