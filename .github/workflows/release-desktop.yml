@@ -341,42 +341,27 @@ jobs:
             exit 1
           fi
 
-          info="$(codesign -dv --verbose=4 "$bundle" 2>&1)"
-          echo "$info"
-
-          if [ "$HAS_APPLE_CERT" != 'true' ]; then
-            # Keep the optional-by-presence contract, but stop it being silent.
-            echo "::warning::$bundle is UNSIGNED (no APPLE_CERTIFICATE secret). macOS will ask for the keychain password on every credential access, and Gatekeeper will refuse it on download."
-            exit 0
+          # Signing is optional-by-presence, so which contract applies depends on
+          # whether a certificate was configured for THIS run. With one, an
+          # unsigned bundle means a broken secret and must stop the release; a
+          # fork without one must still be able to build.
+          if [ "$HAS_APPLE_CERT" = 'true' ]; then
+            mode=--require-signed
+          else
+            mode=--warn-if-unsigned
           fi
 
-          fail=0
-          case "$info" in
-            *"Signature=adhoc"*)
-              echo "::error::$bundle is ad-hoc signed despite APPLE_CERTIFICATE being set - the identity was not applied"
-              fail=1 ;;
-          esac
-          case "$info" in
-            *"TeamIdentifier=not set"*)
-              echo "::error::$bundle carries no TeamIdentifier - this is not a Developer ID signature"
-              fail=1 ;;
-          esac
-          # entitlements.plist only takes effect under the hardened runtime.
-          # Without it the microphone returns silence with no error, no prompt
-          # and no log line, and only in the signed artifact.
-          case "$info" in
-            *"flags="*"runtime"*) ;;
-            *)
-              echo "::error::$bundle is missing the hardened-runtime flag - entitlements.plist will not apply"
-              fail=1 ;;
-          esac
-
-          if ! spctl -a -vvv -t exec "$bundle" 2>&1; then
-            echo "::error::Gatekeeper rejected $bundle"
-            fail=1
+          # Only demand Gatekeeper's approval when notarization was actually
+          # configured. Signing alone is ALWAYS rejected by spctl, and failing on
+          # that would fail every correctly signed build that simply is not
+          # notarized -- which is what the hand-written copy of these checks used
+          # to do.
+          notarized=""
+          if [ -n "${APPLE_API_KEY_PATH:-}" ]; then
+            notarized=--expect-notarized
           fi
 
-          exit "$fail"
+          ./scripts/verify-macos-signing.sh $mode $notarized "$bundle"
 
   # ---------------------------------------------------------------------------
   # Publish. Order matters: the updater pointer must only be moved once every

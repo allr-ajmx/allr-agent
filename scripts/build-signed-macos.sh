@@ -89,35 +89,21 @@ bundle="$(find "$app_dir/src-tauri/target/$target/release/bundle/macos" \
   -maxdepth 1 -name '*.app' -print -quit 2>/dev/null || true)"
 [[ -n "$bundle" ]] || die "the build produced no .app under target/$target/release/bundle/macos"
 
+# The assertions themselves live in one place, shared with
+# .github/workflows/release-desktop.yml -- see scripts/verify-macos-signing.sh.
+# They used to be hand-maintained in both, and had drifted: the workflow failed
+# on any Gatekeeper rejection, which is every signed-but-unnotarized build.
+#
+# --require-signed unconditionally, because this script already refused to run
+# without APPLE_SIGNING_IDENTITY. An unsigned bundle here is the exact thing
+# being ruled out, so tolerating one would defeat the point.
 echo
-echo "==> verifying $bundle"
-codesign -dv --verbose=4 "$bundle" 2>&1 | sed 's/^/    /'
-
-info="$(codesign -dv --verbose=4 "$bundle" 2>&1)"
-
-grep -q 'Signature=adhoc' <<<"$info" \
-  && die "still ad-hoc signed -- the identity was not applied, and the keychain prompts will not stop"
-grep -q 'TeamIdentifier=not set' <<<"$info" \
-  && die "no TeamIdentifier -- this is not a Developer ID signature"
-# entitlements.plist only takes effect under the hardened runtime, and without it
-# the microphone returns silence with no error and no log line.
-grep -q 'flags=.*runtime' <<<"$info" \
-  || die "the hardened runtime flag is missing -- entitlements.plist will not apply"
-
-echo
-echo "==> entitlements"
-codesign -d --entitlements :- "$bundle" 2>/dev/null | sed 's/^/    /'
-
-echo
-echo "==> Gatekeeper"
-if spctl -a -vvv -t exec "$bundle" 2>&1 | sed 's/^/    /'; then
-  :
-elif (( notarize )); then
-  die "Gatekeeper rejected a build that was supposed to be notarized"
-else
-  echo "    (expected: signed but not notarized. Notarization is what fixes this,"
-  echo "     not signing -- and it is not what causes the keychain prompts.)"
+notarized=""
+if (( notarize )); then
+  notarized=--expect-notarized
 fi
+
+"$repo_root/scripts/verify-macos-signing.sh" --require-signed $notarized "$bundle"
 
 cat <<MSG
 
