@@ -84,13 +84,24 @@ export interface SecureStoreStatus {
   gateEnforced: boolean
   /** Whether an unlock lease is open right now. */
   unlocked: boolean
+  /**
+   * Whether this build is why macOS keeps asking for the keychain password.
+   *
+   * True only for an ad-hoc signed macOS bundle. Such a build has no code
+   * identity a keychain ACL can bind to, so every credential read and write
+   * re-prompts and "Always Allow" cannot make it stop. Nothing the app does at
+   * runtime changes it — surfaced so the UI can explain the prompts rather than
+   * leaving the user to conclude the app is broken.
+   */
+  adHocSigned: boolean
 }
 
 const UNAVAILABLE: SecureStoreStatus = {
   available: false,
   gateAvailable: false,
   gateEnforced: false,
-  unlocked: false
+  unlocked: false,
+  adHocSigned: false
 }
 
 export async function secureStoreStatus(): Promise<SecureStoreStatus> {

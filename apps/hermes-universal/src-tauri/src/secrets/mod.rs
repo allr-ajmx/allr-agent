@@ -14,6 +14,7 @@
 //!
 //! Storage lives in `store`; this module owns *what may be named*.
 
+pub mod code_identity;
 pub mod error;
 pub mod gate;
 pub mod store;
@@ -172,6 +173,13 @@ pub struct SecretsStatus {
     pub gate_enforced: bool,
     /// Whether a lease is open right now.
     pub unlocked: bool,
+    /// Whether THIS build is the reason macOS keeps asking for a password.
+    ///
+    /// True only for an ad-hoc signed macOS bundle, whose code signature no
+    /// keychain ACL can bind to — see [`code_identity`]. Nothing the app does at
+    /// runtime changes it; it is here so the UI can explain the prompts instead
+    /// of leaving the user to conclude the app is broken.
+    pub ad_hoc_signed: bool,
 }
 
 /// Whether reading a credential requires a device unlock.
@@ -280,6 +288,7 @@ pub async fn secrets_status() -> SecretsStatus {
         gate_available: gate::available(),
         gate_enforced: ENFORCE_UNLOCK,
         unlocked: gate::is_unlocked(),
+        ad_hoc_signed: code_identity::current().prompts_on_every_keychain_access(),
     }
 }
 
