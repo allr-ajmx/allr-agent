@@ -95,10 +95,13 @@ export function pluginSocket(pluginId: string, path: string, onMessage: (data: u
     // Full jitter, like every other reconnect ladder in the app: a bare
     // exponential has N clients of one gateway redialling in lockstep after it
     // restarts, and each attempt here also costs a `POST /api/auth/ws-ticket`.
-    timer = window.setTimeout(() => {
-      timer = null
-      void connect()
-    }, reconnectBackoffDelayMs(attempt, { baseDelayMs: 500, capMs: 30_000 }))
+    timer = window.setTimeout(
+      () => {
+        timer = null
+        void connect()
+      },
+      reconnectBackoffDelayMs(attempt, { baseDelayMs: 500, capMs: 30_000 })
+    )
     attempt += 1
   }
 

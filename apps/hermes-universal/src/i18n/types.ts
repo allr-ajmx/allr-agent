@@ -625,12 +625,12 @@ export interface Translations {
       sshErrAuth: string
       sshErrHostKey: string
       sshErrNotInstalled: string
-    /** Offer to install Allr on the remote host after a failed connect. */
-    sshInstallTitle: (host: string) => string
-    sshInstallBody: string
-    sshInstallCancel: string
-    sshInstallDoneTitle: string
-    sshInstallDoneBody: string
+      /** Offer to install Allr on the remote host after a failed connect. */
+      sshInstallTitle: (host: string) => string
+      sshInstallBody: string
+      sshInstallCancel: string
+      sshInstallDoneTitle: string
+      sshInstallDoneBody: string
       sshErrPlatform: string
       sshErrTimeout: string
       sshErrUpdateRequired: string

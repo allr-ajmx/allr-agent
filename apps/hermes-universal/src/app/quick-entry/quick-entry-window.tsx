@@ -41,15 +41,7 @@ function useTransparentSurface(): void {
 }
 
 /** One target the prompt can be aimed at. */
-function TargetChip({
-  active,
-  label,
-  onSelect
-}: {
-  active: boolean
-  label: string
-  onSelect: () => void
-}) {
+function TargetChip({ active, label, onSelect }: { active: boolean; label: string; onSelect: () => void }) {
   return (
     <button
       aria-pressed={active}

@@ -340,9 +340,7 @@ export function TreeGroup({
   // Multi-tab selection (⌥/Ctrl-click, Shift-click) lives in ONE zone at a time.
   // Selecting to `null` for every other zone is what makes this quiet: the other
   // zones' snapshots compare equal and never re-render.
-  const tabSelection = useStoreSelector($tabSelection, selection =>
-    selection?.groupId === node.id ? selection : null
-  )
+  const tabSelection = useStoreSelector($tabSelection, selection => (selection?.groupId === node.id ? selection : null))
 
   // A tile's strip tools are read during THIS render (see `stripTools` below),
   // so a glyph whose state moved without the tile re-registering needs a nudge.

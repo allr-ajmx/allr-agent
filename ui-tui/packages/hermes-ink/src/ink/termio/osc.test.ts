@@ -24,9 +24,9 @@ describe('shouldEmitClipboardSequence', () => {
         TMUX: '/tmp/tmux-1/default,1,0'
       } as NodeJS.ProcessEnv)
     ).toBe(true)
-    expect(
-      shouldEmitClipboardSequence({ ALLR_TUI_COPY_OSC52: '0', TERM: 'xterm-256color' } as NodeJS.ProcessEnv)
-    ).toBe(false)
+    expect(shouldEmitClipboardSequence({ ALLR_TUI_COPY_OSC52: '0', TERM: 'xterm-256color' } as NodeJS.ProcessEnv)).toBe(
+      false
+    )
   })
 
   it('ALLR_TUI_FORCE_OSC52 takes precedence over TMUX suppression', () => {

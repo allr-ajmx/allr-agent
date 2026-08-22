@@ -18,12 +18,7 @@ import { onBackground, onForeground } from '@/store/app-lifecycle'
 import { atom } from '@/store/atom'
 import { $gatewayState, closeGateway, connectGateway } from '@/store/gateway'
 import { chooseGatedAuth, type Connection } from '@/store/gateway-config'
-import {
-  loadGatewayTarget,
-  saveGatewayTarget,
-  savePendingOAuth,
-  takePendingOAuth
-} from '@/store/gateway-restore'
+import { loadGatewayTarget, saveGatewayTarget, savePendingOAuth, takePendingOAuth } from '@/store/gateway-restore'
 import { getInstallationId } from '@/store/installation-id'
 import { spawnLocalBackend, stopLocalBackend } from '@/store/local-backend'
 import {

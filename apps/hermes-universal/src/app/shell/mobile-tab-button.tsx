@@ -51,20 +51,17 @@ export const mobileTabIndicatorVariants = cva('absolute inset-x-3 bottom-0 h-0.5
   }
 })
 
-export const mobileTabBarVariants = cva(
-  cn('shrink-0 border-t keyboard-open:hidden', shellChromeSurface),
-  {
-    variants: {
-      state: {
-        default: '',
-        hidden: 'hidden'
-      }
-    },
-    defaultVariants: {
-      state: 'default'
+export const mobileTabBarVariants = cva(cn('shrink-0 border-t keyboard-open:hidden', shellChromeSurface), {
+  variants: {
+    state: {
+      default: '',
+      hidden: 'hidden'
     }
+  },
+  defaultVariants: {
+    state: 'default'
   }
-)
+})
 
 export type MobileTabButtonVariantProps = VariantProps<typeof mobileTabButtonVariants>
 

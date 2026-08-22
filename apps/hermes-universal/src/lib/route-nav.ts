@@ -5,6 +5,7 @@
 
 type NavigateFn = (to: string, options?: { replace?: boolean }) => void
 let navigateImpl: NavigateFn | null = null
+
 /** Call once from a component under HashRouter. */
 export function bindNavigate(navigate: NavigateFn): void {
   navigateImpl = navigate
@@ -16,6 +17,7 @@ export function navigateTo(path: string): void {
   if (typeof window === 'undefined') {
     if (navigateImpl) {
       navigateImpl(target)
+
       return
     }
   }

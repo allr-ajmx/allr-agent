@@ -51,8 +51,7 @@ const oauthProvider = { name: 'nous', display_name: 'Nous', supports_password: f
 // whichever finishes last strands the user there. That is a real device failure (two
 // `oauth_login` calls 122 ms apart), not a theoretical race.
 describe('auto-reconnect — who may drive an interactive sign-in', () => {
-  const reauthRequired = () =>
-    Object.assign(new Error('Session expired — sign in again'), { needsOauthLogin: true })
+  const reauthRequired = () => Object.assign(new Error('Session expired — sign in again'), { needsOauthLogin: true })
 
   // The store instance the current test is driving, so afterEach can stand its supervisor
   // down. `vi.resetModules()` hands the NEXT test a fresh store but neither stops the

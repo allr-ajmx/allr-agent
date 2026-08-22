@@ -219,13 +219,11 @@ describe('pluginSocket lifecycle', () => {
 
     let releaseMint: (ticket: string) => void = () => {}
 
-    mintWsTicket
-      .mockRejectedValueOnce(new Error('Session expired'))
-      .mockReturnValue(
-        new Promise<string>(resolve => {
-          releaseMint = resolve
-        })
-      )
+    mintWsTicket.mockRejectedValueOnce(new Error('Session expired')).mockReturnValue(
+      new Promise<string>(resolve => {
+        releaseMint = resolve
+      })
+    )
 
     $connection.set(gateway('http://old.local', 'oauth'))
     open()

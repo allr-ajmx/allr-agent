@@ -20,7 +20,13 @@ import { $pinnedSessionIds } from './layout'
 import { $projectTree } from './projects'
 import { $activeStoredSessionId, $sessions } from './session'
 import { $sessionColorOverrides, sessionColorFor, setSessionColorOverride } from './session-color'
-import { chatTabTitle, liveSessionIdFor, sessionRowFor, toggleSelectedPin, useSessionRowScalars } from './session-lookup'
+import {
+  chatTabTitle,
+  liveSessionIdFor,
+  sessionRowFor,
+  toggleSelectedPin,
+  useSessionRowScalars
+} from './session-lookup'
 
 const row = (id: string, title: string, lineageRoot?: string): SessionInfo =>
   ({ id, title, ...(lineageRoot ? { _lineage_root_id: lineageRoot } : {}) }) as unknown as SessionInfo

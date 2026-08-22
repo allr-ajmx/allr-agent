@@ -84,7 +84,9 @@ describe('hudWindowHeight', () => {
 
   it('expands to fit the attachment dropdown menu and restores when closed', () => {
     // Collapsed bar with attachment menu open: 88 + 360 = 448
-    expect(hudWindowHeight({ attachmentMenuOpen: true, bandMaxPx: 336, barPx: 88, contentPx: 0, open: false })).toBe(448)
+    expect(hudWindowHeight({ attachmentMenuOpen: true, bandMaxPx: 336, barPx: 88, contentPx: 0, open: false })).toBe(
+      448
+    )
     // When closed, collapses back to bar height
     expect(hudWindowHeight({ attachmentMenuOpen: false, bandMaxPx: 336, barPx: 88, contentPx: 0, open: false })).toBe(
       HUD_BAR_HEIGHT_PX

@@ -1897,8 +1897,7 @@ export const ar = defineLocale({
     done: 'تم',
     applyingBody:
       'يتولّى مُحدِّث Allr المهمة في نافذته الخاصة ويعيد فتح Allr تلقائيا عند الانتهاء. الرجاء عدم إعادة فتح Allr بنفسك أثناء التحديث.',
-    applyingBodyBackend:
-      'تطبّق الواجهة الخلفية البعيدة التحديث وستعيد التشغيل. يعيد Allr الاتصال تلقائيا عند عودتها.',
+    applyingBodyBackend: 'تطبّق الواجهة الخلفية البعيدة التحديث وستعيد التشغيل. يعيد Allr الاتصال تلقائيا عند عودتها.',
     applyingClose: 'ستُغلق هذه النافذة أثناء تشغيل التحديث، ثم يعيد Allr فتح نفسه تلقائيا.',
     errorTitle: 'لم يكتمل التحديث',
     errorBody: 'لا داعي للقلق — لم يُفقد شيء. يمكنك إعادة المحاولة الآن.',
@@ -1964,10 +1963,10 @@ export const ar = defineLocale({
       foundVersion: version => `الإصدار ${version}`,
       missingTitle: 'لم يُعثر على تثبيت محلي',
       missingBody: 'اختر نسخة Allr التي تريد تثبيتها على هذا الجهاز.',
-      upstreamTitle: 'NousResearch Hermes Agent',  // rebrand:keep — names the upstream project, not ours
-      upstreamDesc: 'إصدار Hermes Agent الرسمي من NousResearch.',  // rebrand:keep — names the upstream project, not ours
-      forkTitle: 'نسخة MJX من Hermes Agent',  // rebrand:keep — names the upstream project, not ours
-      forkDesc: 'نسخة معدّلة من Hermes Agent مخصّصة لاختبار الميزات التجريبية.',  // rebrand:keep — names the upstream project, not ours
+      upstreamTitle: 'NousResearch Hermes Agent', // rebrand:keep — names the upstream project, not ours
+      upstreamDesc: 'إصدار Hermes Agent الرسمي من NousResearch.', // rebrand:keep — names the upstream project, not ours
+      forkTitle: 'نسخة MJX من Hermes Agent', // rebrand:keep — names the upstream project, not ours
+      forkDesc: 'نسخة معدّلة من Hermes Agent مخصّصة لاختبار الميزات التجريبية.', // rebrand:keep — names the upstream project, not ours
       install: 'تثبيت',
       retry: 'أعد المحاولة',
       doneTitle: 'Allr جاهز',
@@ -2011,8 +2010,7 @@ export const ar = defineLocale({
       },
       local: {
         short: 'مستضاف ذاتيا',
-        description:
-          'وجّه Allr إلى نقطة نهاية محلية أو مستضافة ذاتيا متوافقة مع OpenAI (vLLM، llama.cpp، Ollama، إلخ).'
+        description: 'وجّه Allr إلى نقطة نهاية محلية أو مستضافة ذاتيا متوافقة مع OpenAI (vLLM، llama.cpp، Ollama، إلخ).'
       }
     },
     backToSignIn: 'العودة إلى تسجيل الدخول',
@@ -2275,8 +2273,7 @@ export const ar = defineLocale({
       reloadingNow: 'جار إعادة تحميل المعاينة الآن.',
       restartFailedTitle: 'فشلت إعادة تشغيل المعاينة',
       restartFailedMessage: 'تعذّر على Allr إعادة تشغيل الخادم.',
-      stillWorking:
-        'لا يزال Allr يعمل، لكن لم تصل نتيجة إعادة التشغيل بعد. قد يكون أمر الخادم قيد التشغيل في المقدمة.',
+      stillWorking: 'لا يزال Allr يعمل، لكن لم تصل نتيجة إعادة التشغيل بعد. قد يكون أمر الخادم قيد التشغيل في المقدمة.',
       workspaceReloading: 'تغيّرت مساحة العمل، جار إعادة تحميل المعاينة',
       fileChanged: url => `تغيّر الملف، جار إعادة تحميل المعاينة: ${url}`,
       filesChanged: (count, url) => `${count} تغييرات ملفات، جار إعادة تحميل المعاينة: ${url}`,

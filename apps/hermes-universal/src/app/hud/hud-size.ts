@@ -18,7 +18,7 @@
 /** The bar and nothing else. Must match `HUD_COLLAPSED_HEIGHT` in
  *  `src-tauri/src/window.rs`, which is the floor Rust clamps to and the size the
  *  window is born at. */
-export const HUD_BAR_HEIGHT_PX = 40 
+export const HUD_BAR_HEIGHT_PX = 40
 
 /** Must match `HUD_MAX_HEIGHT` in `src-tauri/src/window.rs`. Rust re-clamps and
  *  is authoritative; this end knows the cap only so it stops ASKING once there
@@ -117,7 +117,7 @@ export function hudWindowHeight({
 }
 
 /** Full width of the HUD window. Must match `SatelliteSpec.width` in `src-tauri/src/window.rs`. */
-export const HUD_WIDTH_PX = 600 
+export const HUD_WIDTH_PX = 600
 export const HUD_BASE_WIDTH_PX = HUD_WIDTH_PX
 export const HUD_EXPANDED_WIDTH_PX = HUD_WIDTH_PX
 

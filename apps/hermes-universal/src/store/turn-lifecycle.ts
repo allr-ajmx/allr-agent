@@ -775,8 +775,10 @@ export async function reconcileSessionTurn(key: string): Promise<TurnReconciliat
     // an enrichment that cannot be resolved must not abort the reconciliation,
     // so a failure falls back to "let the gateway decide" as before.
     const profile = await import('@/store/session')
-      .then(m =>
-        m.knownSessionProfile(storedId) ?? (m.sessionProfileIsAmbiguous() ? m.resolveSessionProfile(storedId) : undefined)
+      .then(
+        m =>
+          m.knownSessionProfile(storedId) ??
+          (m.sessionProfileIsAmbiguous() ? m.resolveSessionProfile(storedId) : undefined)
       )
       .catch(() => undefined)
 
