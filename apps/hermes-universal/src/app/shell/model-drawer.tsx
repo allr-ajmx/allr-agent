@@ -47,8 +47,12 @@ interface ModelDrawerProps {
   controller: ModelMenuController
   gateway?: HermesGateway
   onOpenChange: (open: boolean) => void
+  /** Re-fetch the catalog. Carried over from the desktop menu's footer so a
+   *  phone is not the one surface that cannot bust a stale provider cache. */
+  onRefresh?: () => Promise<void> | void
   open: boolean
   profile?: null | string
+  refreshing?: boolean
   sessionId?: null | string
 }
 
@@ -66,7 +70,16 @@ const ROW = cn(
   'hover:bg-(--ui-row-hover-background) active:bg-(--ui-row-hover-background)'
 )
 
-export function ModelDrawer({ controller, gateway, onOpenChange, open, profile, sessionId = null }: ModelDrawerProps) {
+export function ModelDrawer({
+  controller,
+  gateway,
+  onOpenChange,
+  onRefresh,
+  open,
+  profile,
+  refreshing,
+  sessionId = null
+}: ModelDrawerProps) {
   const { t } = useI18n()
   const copy = t.shell.modelMenu
   const [search, setSearch] = useState('')
@@ -169,14 +182,27 @@ export function ModelDrawer({ controller, gateway, onOpenChange, open, profile, 
               ))}
             </div>
           ) : (
-            <ModelList
-              controller={controller}
-              current={current}
-              groups={groups}
-              onOpenEffort={setEffortPage}
-              onSelect={selectFamily}
-              search={search}
-            />
+            <>
+              <ModelList
+                controller={controller}
+                current={current}
+                groups={groups}
+                onOpenEffort={setEffortPage}
+                onSelect={selectFamily}
+                search={search}
+              />
+              {onRefresh ? (
+                <button
+                  className={cn(ROW, 'border-t border-border/65 text-(--ui-text-tertiary)')}
+                  disabled={refreshing}
+                  onClick={() => void onRefresh()}
+                  type="button"
+                >
+                  <Codicon className={cn('shrink-0', refreshing && 'animate-spin')} name="sync" size="0.875rem" />
+                  <span className="text-sm">{copy.refreshModels}</span>
+                </button>
+              ) : null}
+            </>
           )}
         </div>
       </SheetContent>

@@ -24,12 +24,18 @@ import { $activeGatewayProfile } from '@/store/profile'
 import type { ModelOptionsResponse } from '@/types/hermes'
 
 import { ModelCatalogMenu, type ModelMenuController } from './model-catalog-menu'
+import { ModelDrawer } from './model-drawer'
 
 /** Re-exported from its new home so the composer's model pill (and any other
  *  host dropdown) keeps importing it from the panel it wraps. */
 export { ModelMenuCloseContext } from './model-catalog-menu'
 
 interface ModelMenuPanelProps {
+  /** Present = render as a touch DRAWER rather than as menu content, with the
+   *  host owning open state. The controller below is identical either way —
+   *  which is the point of putting the choice here rather than giving the
+   *  drawer its own copy of what a model pick means. */
+  drawer?: { onOpenChange: (open: boolean) => void; open: boolean }
   gateway?: HermesGateway
   onSelectModel: (selection: { model: string; provider: string }) => Promise<boolean> | void
   requestGateway: <T>(method: string, params?: Record<string, unknown>) => Promise<T>
@@ -41,7 +47,7 @@ interface ModelMenuPanelProps {
  * what a model choice MEANS here, which is "write it through to the live
  * session and remember it as that model's preset".
  */
-export function ModelMenuPanel({ gateway, onSelectModel, requestGateway }: ModelMenuPanelProps) {
+export function ModelMenuPanel({ drawer, gateway, onSelectModel, requestGateway }: ModelMenuPanelProps) {
   const { t } = useI18n()
   const copy = t.shell.modelMenu
   const [refreshing, setRefreshing] = useState(false)
@@ -189,6 +195,21 @@ export function ModelMenuPanel({ gateway, onSelectModel, requestGateway }: Model
     } finally {
       setRefreshing(false)
     }
+  }
+
+  if (drawer) {
+    return (
+      <ModelDrawer
+        controller={controller}
+        gateway={gateway}
+        onOpenChange={drawer.onOpenChange}
+        onRefresh={refreshModels}
+        open={drawer.open}
+        profile={profile}
+        refreshing={refreshing}
+        sessionId={activeSessionId}
+      />
+    )
   }
 
   return (

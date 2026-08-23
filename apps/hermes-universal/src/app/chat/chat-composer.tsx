@@ -293,7 +293,20 @@ export function ChatComposer() {
               onSelectModel={selectModel}
               requestGateway={requestGateway}
             />
-          ) : null
+          ) : null,
+          // Same panel, drawer mode. Built here rather than in the pill for the
+          // same reason the menu is: this is where the gateway and the
+          // session-scoped `selectModel` live.
+          modelDrawer: isPrimary
+            ? drawer => (
+                <ModelMenuPanel
+                  drawer={drawer}
+                  gateway={getGatewayClient() ?? undefined}
+                  onSelectModel={selectModel}
+                  requestGateway={requestGateway}
+                />
+              )
+            : undefined
         },
         tools: { enabled: true, label: 'Add context' },
         voice: { enabled: true, active: false }

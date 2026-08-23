@@ -10,6 +10,7 @@ import { Tip } from '@/components/ui/tooltip'
 import { useI18n } from '@/i18n'
 import { ChevronDown } from '@/lib/icons'
 import { formatModelStatusLabel } from '@/lib/model-status-label'
+import { IS_MOBILE } from '@/lib/platform'
 import { cn } from '@/lib/utils'
 import { setModelMenuDropdownOpen, setModelPickerOpen } from '@/store/model'
 
@@ -88,6 +89,37 @@ export function ModelPill({
     : PILL
 
   const title = currentProvider ? copy.modelTitle(currentProvider, currentModel || copy.modelNone) : copy.switchModel
+
+  // Touch takes the drawer, not the dropdown. A menu anchored to a 48px pill on
+  // a 390px screen is the thing this replaces: it opened off-edge, its rows were
+  // sized by their text, and thinking depth hid behind a HOVER submenu a finger
+  // cannot reach. Desktop and the HUD keep the dropdown, which works there.
+  if (IS_MOBILE && model.modelDrawer) {
+    return (
+      <>
+        <Button
+          aria-label={title}
+          className={pillClass}
+          disabled={disabled}
+          onClick={() => {
+            setOpen(true)
+            setModelMenuDropdownOpen(true)
+          }}
+          type="button"
+          variant="ghost"
+        >
+          {label}
+        </Button>
+        {model.modelDrawer({
+          onOpenChange: next => {
+            setOpen(next)
+            setModelMenuDropdownOpen(next)
+          },
+          open
+        })}
+      </>
+    )
+  }
 
   if (!model.modelMenuContent) {
     return (
