@@ -112,12 +112,23 @@ jobs:
           # This is also what stops a retry stacking up a second draft for one tag.
           id="$(draft_id)"
 
+          # Create through the API rather than `gh release create`, and take the
+          # id straight out of the response.
+          #
+          # The obvious version -- create, then look the draft up again -- has a
+          # race, and desktop-v0.0.6 lost it: the draft was created correctly and
+          # the very next list call did not yet include it, so the job failed
+          # having just done its job. GET /releases is eventually consistent;
+          # POST /releases answers with the release object itself, which cannot
+          # be stale because it IS the thing that was written.
           if [ -z "$id" ]; then
-            gh release create "$TAG" \
-              --draft \
-              --title "Allr Desktop v$VERSION" \
-              --notes "Desktop builds of Allr and Allr Setup. See the assets below."
-            id="$(draft_id)"
+            id="$(gh api "repos/${GITHUB_REPOSITORY}/releases" \
+              --method POST \
+              -f tag_name="$TAG" \
+              -F draft=true \
+              -f name="Allr Desktop v$VERSION" \
+              -f body="Desktop builds of Allr and Allr Setup. See the assets below." \
+              --jq '.id')"
           fi
 
           # Never hand an empty releaseId to the matrix: tauri-action would treat
