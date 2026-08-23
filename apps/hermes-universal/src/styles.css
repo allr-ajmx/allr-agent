@@ -754,6 +754,13 @@
        file that must not track the rem. */
     --touch-target-min: 48px;
 
+    /* The COMPOSER's touch size, deliberately smaller than the floor above.
+       48px is right for a menu or list row, where a mis-tap picks the wrong
+       thing; the composer is a fixed bar of six controls with generous gaps, and
+       at 48 it ate a third of the screen. Separate token so tuning the bar never
+       shrinks the model drawer's rows, which is what a shared one would do. */
+    --composer-touch-control-size: 32px;
+
     --composer-width: 48.75rem;
     --composer-control-size: 1.5rem;
     --composer-control-primary-size: 1.625rem;
@@ -1583,6 +1590,12 @@ html.is-mobile:has([data-slot='composer-root']:focus-within) {
    Tailwind spacing, the --composer-* geometry) grows with it. */
 html.is-mobile {
   --dt-base-size: 1.125rem;
+  /* Phones round harder than the desktop does, and at the shared 0.25 the app
+     read as a desktop app shrunk down. Every `--radius-*` step is
+     `calc(--radius-scalar * …)`, so this one number reshapes buttons, cards,
+     menus, the composer and its corner-tracking padding together — see
+     `--composer-radius`, whose padding follows the corner it is given. */
+  --radius-scalar: 0.6;
 }
 
 /* The phone's app root IS the visible rectangle, not the layout viewport.
@@ -1643,8 +1656,16 @@ html.is-mobile:not([data-hud]) #root {
    anonymous flex items and break the ref/slash chips. Older WebKit ignores it
    and top-aligns, which is a cosmetic degrade, not a broken row. */
 html.is-mobile [data-slot='composer-rich-input'] {
-  min-block-size: var(--touch-target-min);
+  min-block-size: var(--composer-touch-control-size);
   align-content: center;
+}
+
+/* The bar's controls, back under the global floor. Higher specificity than the
+   `(pointer: coarse)` rule that sets `--touch-target-min`, so it wins wherever
+   they both apply without that rule needing to know the composer exists. */
+html.is-mobile [data-slot='composer-root'] button[data-variant]:not([class*='h-auto']) {
+  min-block-size: var(--composer-touch-control-size);
+  min-inline-size: var(--composer-touch-control-size);
 }
 
 html.is-mobile [data-slot='composer-root'] {
