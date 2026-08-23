@@ -205,17 +205,22 @@ jobs:
           fi
 
       # No releaseId and no tagName, which is what keeps this a build rather
-      # than a release. The updater keys are still passed: the bundler signs the
-      # updater tarball whenever tauri.conf.json carries an updater public key,
-      # and without the private key it fails AFTER the whole build -- which is
-      # exactly how the first local signed build died.
+      # than a release.
+      #
+      # `--bundles app` is load-bearing, not an optimization. tauri.conf.json
+      # carries an updater public key, so the bundler signs an updater tarball
+      # and needs TAURI_SIGNING_PRIVATE_KEY to do it -- and a dependabot push or
+      # a fork PR receives NO repository secrets, so that arrives empty and the
+      # build dies on `failed to decode secret key` after ten minutes of
+      # compiling. That would break the same "a branch without secrets must
+      # still build" contract that --warn-if-unsigned exists to keep.
+      #
+      # Only the .app is needed to inspect a signature, and release-desktop.yml
+      # still covers the dmg and updater paths where the keys actually exist.
       - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # action-v1.0.0
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: apps/hermes-universal
-          args: --target aarch64-apple-darwin --verbose
+          args: --target aarch64-apple-darwin --bundles app --verbose
 
       # The whole point. Same script release-desktop.yml calls, so this cannot
       # pass while a release fails.
