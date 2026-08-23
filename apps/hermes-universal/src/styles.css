@@ -1627,6 +1627,26 @@ html.is-mobile:not([data-hud]) #root {
    desktop's centered max-width + side gap. A small 8px side gap keeps it off the
    edges, growing to the safe-area inset in landscape. Its own surface keeps the
    text's inner breathing room. */
+/* Both composer rows are a finger target on a phone.
+   The controls row already is — its buttons carry `--touch-target-min`. This
+   gives the TEXT row the same height.
+
+   On the editor itself, deliberately, not on a wrapper around it: the row has to
+   be one continuous editable box or tapping the lower half would land in dead
+   space that refuses the caret (see `keepKeyboardClosed` in composer/index.tsx,
+   which tests the pointer against this element's rect). Centring a short editor
+   inside a taller wrapper would have re-created exactly the mis-tap this height
+   is meant to fix.
+
+   `align-content` keeps a single line vertically centred in the taller box while
+   the editor stays a BLOCK container — flex would reparent its text into
+   anonymous flex items and break the ref/slash chips. Older WebKit ignores it
+   and top-aligns, which is a cosmetic degrade, not a broken row. */
+html.is-mobile [data-slot='composer-rich-input'] {
+  min-block-size: var(--touch-target-min);
+  align-content: center;
+}
+
 html.is-mobile [data-slot='composer-root'] {
   width: 100%;
   padding-left: max(12px, var(--safe-area-inset-left));
