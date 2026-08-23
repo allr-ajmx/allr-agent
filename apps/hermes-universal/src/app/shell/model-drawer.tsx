@@ -159,6 +159,17 @@ export function ModelDrawer({
           action, and the floating one is 27px, under the touch floor. */}
       <SheetContent
         className="flex max-h-[calc(var(--visual-viewport-height,100vh)-4rem)] flex-col gap-0 p-0"
+        /* Radix focuses the first focusable child when a dialog opens, which
+           here is the SEARCH FIELD — so tapping the model pill raised the soft
+           keyboard on top of the drawer, covering the list it was opened to
+           read. Focus the panel itself instead: the dialog still takes focus, so
+           Escape and screen readers keep working, but nothing TYPEABLE does.
+           Tapping the field still opens the keyboard, which is the one moment it
+           is actually wanted. */
+        onOpenAutoFocus={event => {
+          event.preventDefault()
+          ;(event.currentTarget as HTMLElement | null)?.focus?.()
+        }}
         showCloseButton={false}
         side="bottom"
       >
