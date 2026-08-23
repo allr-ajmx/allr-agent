@@ -3023,26 +3023,35 @@ html[data-hud] [data-slot='composer-root'] {
   max-width: none !important;
   padding: 0 !important;
   margin: 0 !important;
-  border-radius: var(--radius-6xl, 3rem);
+  /* No border-radius override: the corner comes from the composer's own class,
+     the same one the chat screen uses, so the two read as one component. */
   background: transparent !important;
   border: none !important;
   box-shadow: none !important;
   outline: none !important;
 }
 
+/* The surface keeps the chat screen's border and fill on purpose — the HUD bar
+   should read as the SAME composer, not a chrome-less variant of it. This rule
+   used to strip `border` / `background` / `box-shadow` to nothing, which left
+   the input floating on the desktop wallpaper with no edge to it.
+
+   Only the OUTER form (`composer-root`, above) stays transparent: that is the
+   grab margin around the surface, and painting it would draw a second box
+   around this one. */
 html[data-hud] [data-slot='composer-surface'] {
-  border: none !important;
-  box-shadow: none !important;
-  background: transparent !important;
-  outline: none !important;
+  /* Deliberately empty of chrome overrides. Kept as the place that documents
+     WHY: the HUD surface paints the chat screen's border, fill and radius
+     unchanged. */
+  border-radius: inherit;
 }
 
+/* Padding only. The border/background overrides that used to sit here went with
+   the surface rule above — this element never painted either, so they were
+   describing the chrome removal rather than doing it. */
 html[data-hud] [data-slot='composer-fade'] {
   padding-inline: 1rem !important;
   padding-block: 0.375rem !important;
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
 }
 
 html[data-hud] [data-slot='composer-rich-input'] {

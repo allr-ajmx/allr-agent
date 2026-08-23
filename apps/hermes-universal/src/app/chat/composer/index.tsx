@@ -24,7 +24,7 @@ import { useTheme } from '@/themes'
 
 import { AttachmentList } from './attachments'
 import { BubbleRow } from './bubble-row'
-import { COMPOSER_FADE_BACKGROUND, type QueueEditState, slashArgStage, swallowsTriggerTab } from './composer-utils'
+import { type QueueEditState, slashArgStage, swallowsTriggerTab } from './composer-utils'
 import { ContextMenu } from './context-menu'
 import { COMPOSER_AREAS, runComposerMiddleware } from './contrib'
 import { ComposerControls } from './controls'
@@ -1071,12 +1071,6 @@ export function ChatBar({
               onHover={setTriggerActive}
               onPick={replaceTriggerWithChip}
               scope={trigger.scope}
-            />
-          )}
-          {!poppedOut && (
-            <div
-              className="pointer-events-none absolute inset-0 rounded-[inherit]"
-              style={{ background: COMPOSER_FADE_BACKGROUND }}
             />
           )}
           {/* Drag region: covers the transparent grab margin around the surface.
