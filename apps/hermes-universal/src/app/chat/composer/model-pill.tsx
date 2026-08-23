@@ -19,7 +19,13 @@ import type { ChatBarState } from './types'
 const PILL = cn(
   // `min-w-0` so the label's `truncate` can actually act if the controls row
   // does get tight — without it the pill is its content's width and pushes.
-  'h-(--composer-control-size) min-w-0 max-w-40 shrink-0 gap-1 rounded-md px-2 text-xs font-normal',
+  //
+  // And NOT `shrink-0`, which was defeating that: `min-w-0` only permits a flex
+  // item to shrink, it does not make it shrinkable, so the pill kept its full
+  // intrinsic width and shoved the dictation / wake / send buttons past the edge
+  // of the composer the moment a model with a long name was selected. Shrinking
+  // is what lets `truncate` clip the name instead.
+  'h-(--composer-control-size) min-w-0 max-w-40 shrink gap-1 rounded-md px-2 text-xs font-normal',
   'text-(--ui-text-tertiary) hover:bg-(--chrome-action-hover) hover:text-foreground'
 )
 

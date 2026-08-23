@@ -118,7 +118,12 @@ export function ComposerControls({
   const showVoicePrimary = !busy && !hasComposerPayload
 
   return (
-    <div className="ms-auto flex shrink-0 items-center gap-(--composer-control-gap)">
+    /* `min-w-0` + shrinkable, NOT `shrink-0`. The row is a fixed set of icon
+       buttons plus one variable-width pill; with the cluster frozen, a long
+       model name grew the pill and pushed the buttons off the end of the
+       composer instead of being shortened. The buttons below keep their own
+       `shrink-0`, so the pill is the only thing that gives. */
+    <div className="ms-auto flex min-w-0 items-center gap-(--composer-control-gap)">
       <ModelPill compact={compactModelPill} disabled={disabled} model={state.model} />
       {/* Dictation stays put while a correction is being typed: the mic slot is
           not the steer slot. The primary button below already carries the steer

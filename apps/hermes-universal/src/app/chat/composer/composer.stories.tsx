@@ -169,3 +169,23 @@ export const MobileTouchTargets: Story = {
   decorators: [withMobile],
   parameters: { viewport: { defaultViewport: 'mobile1' } }
 }
+
+/**
+ * A long model name must SHORTEN, not shove.
+ *
+ * The controls row is a fixed set of icon buttons plus one variable-width pill.
+ * Both the cluster and the pill were `shrink-0`, so a long name grew the pill
+ * and pushed dictation / wake / send off the end of the composer instead of
+ * being truncated. `min-w-0` alone does not fix that — it permits shrinking, it
+ * does not make an item shrinkable.
+ */
+export const MobileLongModelName: Story = {
+  args: {
+    state: {
+      ...state,
+      model: { ...state.model, model: 'claude-opus-5-20260514-extended-thinking-preview', provider: 'anthropic' }
+    }
+  },
+  decorators: [withMobile],
+  parameters: { viewport: { defaultViewport: 'mobile1' } }
+}

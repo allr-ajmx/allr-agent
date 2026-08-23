@@ -1308,7 +1308,12 @@ export function ChatBar({
                     <ContribSlot area={COMPOSER_AREAS.leading} />
                   </div>
                   <div className="min-w-0 [grid-area:input]">{input}</div>
-                  <div className="flex items-center justify-end gap-(--composer-control-gap) [grid-area:controls]">
+                  {/* `min-w-0` is load-bearing: a `1fr` grid track still has an
+                      AUTO minimum, so without it this cell refuses to go below
+                      its content width and a long model name pushed the last
+                      voice button off the edge of the composer rather than
+                      letting the pill truncate. */}
+                  <div className="flex min-w-0 items-center justify-end gap-(--composer-control-gap) [grid-area:controls]">
                     <ContribSlot area={COMPOSER_AREAS.actions} />
                     {controls}
                   </div>
