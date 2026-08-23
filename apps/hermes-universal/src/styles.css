@@ -749,8 +749,20 @@
     --composer-control-gap: 0.25rem;
     --composer-row-gap: 0.25rem;
     --composer-ring-strength: 1;
+    /* One value on both axes. These were 0.5 / 0.3125, which read as a
+       squashed box — the gap above the input never matched the gap beside it. */
     --composer-surface-pad-x: 0.5rem;
-    --composer-surface-pad-y: 0.3125rem;
+    --composer-surface-pad-y: 0.5rem;
+    /* EXTRA start inset for the text row ONLY, on top of the surface padding.
+       0 means the caret lines up exactly with the "+" on the row below, which is
+       the alignment the surface padding already gives everything else.
+
+       This is a tuning knob, deliberately separate from
+       `--composer-surface-pad-x`: raising that one moves BOTH rows and the
+       right-hand controls with them, which is not what nudging the text is for.
+       Set it here to shift the input alone; override it under `html[data-hud]`
+       or `html.is-mobile` to tune one surface. */
+    --composer-input-pad-start: 0.4rem;
     --composer-input-min-height: 1.625rem;
     --composer-input-max-height: 9.375rem;
     --composer-fallback-height: 2.75rem;
@@ -3046,17 +3058,16 @@ html[data-hud] [data-slot='composer-surface'] {
   border-radius: inherit;
 }
 
-/* Padding only. The border/background overrides that used to sit here went with
-   the surface rule above — this element never painted either, so they were
-   describing the chrome removal rather than doing it. */
-html[data-hud] [data-slot='composer-fade'] {
-  padding-inline: 1rem !important;
-  padding-block: 0.375rem !important;
-}
+/* No padding override. The HUD used to inset the bar 1rem horizontally against
+   0.375rem vertically; it now takes `--composer-surface-pad-*` like every other
+   surface, so the inset is smaller and equal on both axes. */
 
+/* No inline padding of its own. This used to force 0.5rem on both sides with
+   `!important`, which put the HUD's caret 8px right of the "+" beneath it and
+   made `--composer-input-pad-start` unsettable on this surface — the one place
+   the knob is most likely to be wanted. The input now takes the same token here
+   as everywhere else. */
 html[data-hud] [data-slot='composer-rich-input'] {
-  padding-inline-start: 0.5rem !important;
-  padding-inline-end: 0.5rem !important;
   background: transparent !important;
   border: none !important;
   box-shadow: none !important;

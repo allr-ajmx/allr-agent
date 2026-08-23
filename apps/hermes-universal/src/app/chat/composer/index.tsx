@@ -928,7 +928,11 @@ export function ChatBar({
           'min-h-(--composer-input-min-height) max-h-(--composer-input-max-height) cursor-text overflow-y-auto whitespace-pre-wrap break-words [overflow-wrap:anywhere] bg-transparent pb-1 pe-1 pt-1 leading-normal text-foreground outline-none disabled:cursor-not-allowed',
           'empty:before:content-[attr(data-placeholder)] empty:before:text-muted-foreground/60',
           '**:data-ref-text:cursor-default',
-          'w-full ps-3'
+          // Start inset is a token, not a literal — `--composer-input-pad-start`
+          // in styles.css, which defaults to 0 so the caret lines up with the
+          // "+" on the row below. It exists to be tuned without moving the
+          // controls row, which is what the surface padding would do.
+          'w-full ps-(--composer-input-pad-start)'
         )}
         contentEditable={!inputDisabled}
         data-placeholder={placeholder}
