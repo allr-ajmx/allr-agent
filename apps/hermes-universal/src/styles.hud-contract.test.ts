@@ -69,7 +69,17 @@ function selectorLists(css: string): string[] {
 }
 
 /** Every `.ts`/`.tsx` file that could RENDER something. Tests excluded: a
- *  fixture producing the attribute would let a selector outlive its element. */
+ *  fixture producing the attribute would let a selector outlive its element.
+ *
+ *  STORIES are excluded for exactly the same reason, and the risk is not
+ *  hypothetical: a Storybook story for the HUD has to render `[data-hud-card]`
+ *  and friends, because that is what the `html[data-hud]` block selects on. One
+ *  written under `src/` would satisfy this contract on its own and the check
+ *  would keep passing after the real HUD stopped rendering them — which is the
+ *  precise bug this file exists to catch (MJXHRM-438).
+ *
+ *  Today the HUD wrapper lives in `.storybook/decorators.tsx`, outside this
+ *  scan, so nothing is masked. This keeps that true if a story moves in. */
 function sourceFiles(dir: string): string[] {
   const out: string[] = []
 
@@ -78,7 +88,7 @@ function sourceFiles(dir: string): string[] {
 
     if (entry.isDirectory()) {
       out.push(...sourceFiles(full))
-    } else if (/\.tsx?$/.test(entry.name) && !/\.test\.tsx?$/.test(entry.name)) {
+    } else if (/\.tsx?$/.test(entry.name) && !/\.(stories|test)\.tsx?$/.test(entry.name)) {
       out.push(full)
     }
   }
