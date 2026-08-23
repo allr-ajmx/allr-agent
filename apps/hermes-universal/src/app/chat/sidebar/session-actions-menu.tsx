@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/dialog'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
+import { MenuDrawer } from '@/components/ui/menu-drawer'
 import { type PaneTabCloseItemsOptions, paneTabCloseSpecs } from '@/components/ui/pane-tab'
 import { useI18n } from '@/i18n'
 import { writeClipboardText } from '@/lib/clipboard'
@@ -360,6 +361,27 @@ interface SessionActionsMenuProps extends SessionActions {
 export function SessionActionsMenu({ children, ...actions }: SessionActionsMenuProps) {
   const { t } = useI18n()
   const { renameDialog, renderItems } = useSessionActions(actions)
+  const [drawerOpen, setDrawerOpen] = useState(false)
+
+  // TOUCH: the same menu as a drawer down from the top, submenus as pages.
+  // `renderItems` is unchanged — it is handed a different kit, which is the
+  // whole point of the menu being spec-driven.
+  if (IS_MOBILE) {
+    return (
+      <>
+        <span className="contents" onClick={() => setDrawerOpen(true)}>
+          {children}
+        </span>
+        <MenuDrawer
+          onOpenChange={setDrawerOpen}
+          open={drawerOpen}
+          render={renderItems}
+          title={t.sidebar.row.actionsFor(actions.title)}
+        />
+        {renameDialog}
+      </>
+    )
+  }
 
   return (
     <>

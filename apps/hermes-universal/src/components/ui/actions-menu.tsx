@@ -32,14 +32,40 @@ import {
 //
 // Ported verbatim from desktop `components/ui/actions-menu.tsx`.
 
-/** A menu flavour (dropdown / context) — the item + separator + submenu parts. */
+/**
+ * A menu flavour — the item + separator + submenu parts.
+ *
+ * Typed STRUCTURALLY rather than as `typeof DropdownMenuItem | typeof
+ * ContextMenuItem`. Those two unions admitted exactly the two Radix flavours,
+ * which was fine while both were menus; a third flavour renders a touch drawer
+ * out of plain buttons and is not a Radix menu part at all. The props below are
+ * what `renderActionItem` and the spec renderers actually pass, so a flavour
+ * only has to accept those — not to be a particular component.
+ */
+/** A selectable row. `onSelect` is the DOM-event shape Radix menu items use. */
+export interface MenuItemProps {
+  children?: React.ReactNode
+  className?: string
+  disabled?: boolean
+  onSelect?: (event: Event) => void
+  variant?: 'default' | 'destructive'
+}
+
+/** Structural parts — no `onSelect`, because a submenu trigger's is React's
+ *  handler shape and nothing here ever passes one. */
+export interface MenuSectionProps {
+  children?: React.ReactNode
+  className?: string
+  disabled?: boolean
+}
+
 export interface MenuKit {
-  Item: typeof DropdownMenuItem | typeof ContextMenuItem
-  Label: typeof DropdownMenuLabel | typeof ContextMenuLabel
-  Separator: typeof DropdownMenuSeparator | typeof ContextMenuSeparator
-  Sub: typeof DropdownMenuSub | typeof ContextMenuSub
-  SubTrigger: typeof DropdownMenuSubTrigger | typeof ContextMenuSubTrigger
-  SubContent: typeof DropdownMenuSubContent | typeof ContextMenuSubContent
+  Item: React.ComponentType<MenuItemProps>
+  Label: React.ComponentType<MenuSectionProps>
+  Separator: React.ComponentType<MenuSectionProps>
+  Sub: React.ComponentType<MenuSectionProps>
+  SubTrigger: React.ComponentType<MenuSectionProps>
+  SubContent: React.ComponentType<MenuSectionProps>
   /** `CopyButton`'s `appearance` for this flavour — pass to a menu-item copy. */
   copyAppearance: 'context-menu-item' | 'menu-item'
 }
