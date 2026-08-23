@@ -749,10 +749,25 @@
     --composer-control-gap: 0.25rem;
     --composer-row-gap: 0.25rem;
     --composer-ring-strength: 1;
-    /* One value on both axes. These were 0.5 / 0.3125, which read as a
-       squashed box — the gap above the input never matched the gap beside it. */
-    --composer-surface-pad-x: 0.5rem;
-    --composer-surface-pad-y: 0.5rem;
+    /* The composer's corner. Defaults to the system step it already used
+       (`rounded-2xl`), so it inherits `--radius-scalar` like everything else and
+       nothing moves until someone sets it. Override THIS to reshape the bar —
+       up to `calc(var(--composer-measured-height) / 2)` for a full pill. */
+    --composer-radius: var(--radius-2xl);
+
+    /* One value on both axes, and it tracks the corner.
+       (These were 0.5 / 0.3125, which read as a squashed box — the gap above the
+       input never matched the gap beside it.)
+
+       `radius - controlSize/2` is not a guess: it puts a circular control's
+       CENTRE on the centre of the corner arc, which is what makes the icon look
+       nestled in the curve instead of drifting out of it as the radius grows.
+       Floored at 0.5rem because below a ~1rem radius the expression goes
+       negative — the corner is smaller than the icon, and there is nothing to
+       centre against. At the default radius the floor wins, so this is a no-op
+       until the radius is actually turned up. */
+    --composer-surface-pad-x: max(0.5rem, calc(var(--composer-radius) - var(--composer-control-size) / 2));
+    --composer-surface-pad-y: max(0.5rem, calc(var(--composer-radius) - var(--composer-control-size) / 2));
     /* EXTRA start inset for the text row ONLY, on top of the surface padding.
        0 means the caret lines up exactly with the "+" on the row below, which is
        the alignment the surface padding already gives everything else.
