@@ -754,12 +754,15 @@
        file that must not track the rem. */
     --touch-target-min: 48px;
 
-    /* The COMPOSER's touch size, deliberately smaller than the floor above.
-       48px is right for a menu or list row, where a mis-tap picks the wrong
-       thing; the composer is a fixed bar of six controls with generous gaps, and
-       at 48 it ate a third of the screen. Separate token so tuning the bar never
-       shrinks the model drawer's rows, which is what a shared one would do. */
-    --composer-touch-control-size: 32px;
+    /* The touch size for DENSE chrome — the composer bar, and the controls
+       inside a sidebar row. Deliberately smaller than the floor above.
+       48px is right where a mis-tap picks the wrong thing (a menu row, a list
+       row in the model drawer). It is wrong for a fixed bar of six controls with
+       generous gaps, where it ate a third of the screen, and actively breaks a
+       20px kebab sitting in a 22px cell — it forced the button to 48 and clipped
+       it against the row. Second token rather than a lower floor, so the drawer's
+       rows keep the size that suits them. */
+    --touch-target-compact: 32px;
 
     --composer-width: 48.75rem;
     --composer-control-size: 1.5rem;
@@ -1656,16 +1659,20 @@ html.is-mobile:not([data-hud]) #root {
    anonymous flex items and break the ref/slash chips. Older WebKit ignores it
    and top-aligns, which is a cosmetic degrade, not a broken row. */
 html.is-mobile [data-slot='composer-rich-input'] {
-  min-block-size: var(--composer-touch-control-size);
+  min-block-size: var(--touch-target-compact);
   align-content: center;
 }
 
 /* The bar's controls, back under the global floor. Higher specificity than the
    `(pointer: coarse)` rule that sets `--touch-target-min`, so it wins wherever
    they both apply without that rule needing to know the composer exists. */
-html.is-mobile [data-slot='composer-root'] button[data-variant]:not([class*='h-auto']) {
-  min-block-size: var(--composer-touch-control-size);
-  min-inline-size: var(--composer-touch-control-size);
+html.is-mobile [data-slot='composer-root'] button[data-variant]:not([class*='h-auto']),
+/* Sidebar/session rows: the kebab lives in a 22px cell inside a ~28px row, so
+   the 48px floor overflowed it in both axes and the control was clipped against
+   the row it belongs to. */
+html.is-mobile .row-hover button[data-variant]:not([class*='h-auto']) {
+  min-block-size: var(--touch-target-compact);
+  min-inline-size: var(--touch-target-compact);
 }
 
 html.is-mobile [data-slot='composer-root'] {
