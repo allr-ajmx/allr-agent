@@ -743,6 +743,17 @@
     --sticky-human-top: 0.23rem;
     --file-tree-row-height: 1.375rem;
 
+    /* Minimum hittable size for anything tappable on a coarse pointer — every
+       button, and every menu/list ROW. One number, so raising it moves the whole
+       touch surface together.
+
+       IN PIXELS, and that is the point. `html.is-mobile` bumps `--dt-base-size`
+       to 1.125rem for readability, so a rem value here would resolve to 54px on
+       the device this exists for. A touch target is a fingertip, and a fingertip
+       does not grow when the type scale does — it is the one measurement in this
+       file that must not track the rem. */
+    --touch-target-min: 48px;
+
     --composer-width: 48.75rem;
     --composer-control-size: 1.5rem;
     --composer-control-primary-size: 1.625rem;
@@ -2913,14 +2924,11 @@ body.guest-pointer-lock iframe {
    desktop's compact scale. Coarse-pointer platforms need two things back, and
    both are re-added here declaratively rather than by forking the primitives:
 
-   1. Hittable controls, at the usual 44px minimum.
+   1. Hittable controls and rows, at `--touch-target-min`.
 
-      In PIXELS, deliberately. This was `2.75rem`, written believing that was
-      44px — true at a 16px root, but `html.is-mobile` bumps `--dt-base-size` to
-      1.125rem for readability, so on the device this rule exists for it
-      resolved to 49.5px and every button on a phone came out oversized. A touch
-      target is a fingertip, and a fingertip does not grow when the type scale
-      does; it is the one measurement here that must not track the rem.
+      The number is now the `--touch-target-min` token (see its declaration for
+      why it is in PIXELS rather than rem). It was a hardcoded 44px; it is 48px,
+      and it reaches rows as well as buttons.
 
       Buttons that opt out of a box (the `inline`/`micro` sizes and the boxless
       text variants) carry `h-auto`, so they are excluded — they must stay flush
@@ -2939,9 +2947,38 @@ body.guest-pointer-lock iframe {
       behind it) and reuses the hover token, so a press reads as the same state a
       hover does. */
 @media (pointer: coarse) {
-  [data-slot='button']:not([class*='h-auto']) {
-    min-block-size: 44px;
-    min-inline-size: 44px;
+  /* `button[data-variant]` is NOT redundant beside the slot selector, and
+     leaving it out is why this rule quietly did nothing where it mattered most.
+     `Button` renders `data-slot="button"` and then spreads `{...props}` over it,
+     so any Radix trigger using `asChild` — `TooltipTrigger`, the model pill's
+     `DropdownMenuTrigger` — replaces the slot with its own. Every control in the
+     composer is wrapped in a `Tip`, so every one of them reported
+     `data-slot="tooltip-trigger"` and none was ever caught: measured at 27x27 on
+     a phone against a 44px rule that matched nothing.
+     `data-variant` is written by `Button` and by nothing that wraps it, so it
+     survives the spread and identifies the component. */
+  [data-slot='button']:not([class*='h-auto']),
+  button[data-variant]:not([class*='h-auto']) {
+    min-block-size: var(--touch-target-min);
+    min-inline-size: var(--touch-target-min);
+  }
+
+  /* ROWS too, not just buttons. A menu row is the most-tapped control in the
+     app — picking a model, a provider, a session — and it was sized by its text
+     (`py-1`, ~26px), so it was the hardest thing on a phone to hit and the
+     easiest to miss. Height only: a row is full-width already, and a
+     `min-inline-size` on it would fight the menu's own width.
+
+     `:has()` on the sub-trigger is not needed — these are the row slots
+     themselves. Anything opting out of a box carries `h-auto`, same escape
+     hatch the button rule uses. */
+  [data-slot='command-item']:not([class*='h-auto']),
+  [data-slot='dropdown-menu-checkbox-item']:not([class*='h-auto']),
+  [data-slot='dropdown-menu-item']:not([class*='h-auto']),
+  [data-slot='dropdown-menu-radio-item']:not([class*='h-auto']),
+  [data-slot='dropdown-menu-sub-trigger']:not([class*='h-auto']),
+  [data-slot='select-item']:not([class*='h-auto']) {
+    min-block-size: var(--touch-target-min);
   }
 
   [data-slot='input'],
