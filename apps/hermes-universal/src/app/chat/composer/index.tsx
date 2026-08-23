@@ -72,6 +72,62 @@ import { UrlDialog } from './url-dialog'
 import { chipTypedUrlOnSpace, linkifyUrls } from './url-refs'
 import { VoiceActivity, VoicePlaybackActivity } from './voice-activity'
 
+/**
+ * Refuse the caret for a tap that is not on the text.
+ *
+ * The editor is a `contenteditable` filling the composer's first row, and a tap
+ * on the surface padding still raised the soft keyboard over half the screen for
+ * a tap the user never meant as typing.
+ *
+ * WHY THE TARGET IS NOT ENOUGH, which is the whole reason this is fiddly.
+ * Chrome and WebKit apply TOUCH ADJUSTMENT on a phone: a tap that misses an
+ * editable by a few pixels is snapped onto it, so the event arrives with the
+ * editor as its target even though `elementFromPoint` for the same coordinates
+ * returns the padding. Filtering on `event.target` therefore sees a normal tap
+ * on the text and lets every one of these through — measured, before this: taps
+ * on the padding reported `target=composer-rich-input`.
+ *
+ * So the test is GEOMETRIC. The pointer's own coordinates are compared against
+ * the editor's box; a real tap on the text is inside it, a snapped one is not.
+ *
+ * Everything else is left alone: interactive elements keep their press, and on
+ * desktop this does not run at all — clicking the padding to land in the
+ * composer is a real affordance there, and there is no keyboard to raise.
+ */
+function keepKeyboardClosed(event: {
+  clientX: number
+  clientY: number
+  currentTarget: EventTarget | null
+  preventDefault: () => void
+  target: EventTarget | null
+}) {
+  const target = event.target as HTMLElement | null
+
+  // A real control must still take the press.
+  if (target?.closest('a, button, input, textarea, select, [role="button"]')) {
+    return
+  }
+
+  const editor = (event.currentTarget as HTMLElement | null)?.querySelector<HTMLElement>(
+    `[data-slot="${RICH_INPUT_SLOT}"]`
+  )
+
+  if (!editor) {
+    return
+  }
+
+  const box = editor.getBoundingClientRect()
+
+  const insideText =
+    event.clientX >= box.left && event.clientX <= box.right && event.clientY >= box.top && event.clientY <= box.bottom
+
+  if (insideText) {
+    return
+  }
+
+  event.preventDefault()
+}
+
 export function ChatBar({
   busy,
   cwd,
@@ -1182,6 +1238,32 @@ export function ChatBar({
                     : 'opacity-100'
                 )}
                 data-slot="composer-fade"
+                // TOUCH: only the text raises the keyboard.
+                //
+                // The editor is a `contenteditable` filling the first row, and a
+                // tap on the surface PADDING or on the input's own wrapper — 8px
+                // of dead space that is not the text — still handed it the
+                // caret, so the keyboard came up over half the screen for a tap
+                // the user did not mean as typing. Cancelling the default on
+                // pointerdown is what stops the caret placement.
+                //
+                // Deliberately narrow. It bails for the editor itself (typing
+                // must work) and for anything interactive (a button must still
+                // take the press), so the only thing it cancels is the dead
+                // space. Mobile only: on desktop, clicking the padding to land
+                // in the composer is a real affordance and costs nothing,
+                // because there is no keyboard to raise.
+                //
+                // BOTH handlers, and that is not belt-and-braces. Cancelling
+                // `pointerdown` alone left the caret exactly where it was: what
+                // actually places it is the compatibility MOUSEDOWN the browser
+                // synthesises from the tap, and preventing default on that is
+                // the long-standing way to refuse focus without swallowing the
+                // click. `pointerdown` is kept because it is the one that
+                // suppresses the synthetic pair in the first place on engines
+                // that honour it.
+                onMouseDown={IS_MOBILE ? keepKeyboardClosed : undefined}
+                onPointerDown={IS_MOBILE ? keepKeyboardClosed : undefined}
               >
                 {/* Contribution seams: banners above, a row below, inline
                     additions beside the "+" menu and before the controls.

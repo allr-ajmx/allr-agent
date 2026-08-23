@@ -146,3 +146,26 @@ export const ModelLocked: Story = {
   args: { state: { ...state, model: { ...state.model, canSwitch: false, loading: true } } },
   decorators: [withDesktop]
 }
+
+/**
+ * Touch behaviour, for checking the keyboard by hand on a phone viewport.
+ *
+ * Two things to try, both of which used to be wrong:
+ *
+ * 1. Tap the padding just above the text, or the strip between the text and the
+ *    controls. The keyboard must NOT open. This is not the obvious kind of bug —
+ *    Chrome and WebKit apply TOUCH ADJUSTMENT and snap a near-miss onto the
+ *    editable, so those taps arrive with the editor as their `event.target` and
+ *    are indistinguishable from a real one by target alone. The guard compares
+ *    the pointer's COORDINATES to the editor's box instead.
+ * 2. Tap anywhere in the text row, including its lower half. The keyboard must
+ *    open — the row is one 48px editable box, not a short editor centred in a
+ *    tall wrapper, precisely so there is no dead strip inside it.
+ *
+ * Also worth eyeballing here: every control and both rows are 48px
+ * (`--touch-target-min`), so nothing in the bar is a small target.
+ */
+export const MobileTouchTargets: Story = {
+  decorators: [withMobile],
+  parameters: { viewport: { defaultViewport: 'mobile1' } }
+}
