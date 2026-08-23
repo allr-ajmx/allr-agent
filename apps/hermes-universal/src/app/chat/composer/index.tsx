@@ -261,7 +261,7 @@ export function ChatBar({
     return onCancel()
   }, [activeQueueSessionKeyRef, onCancel])
 
-  const { compactPill, stacked } = useComposerMetrics({ composerRef, composerSurfaceRef, editorRef, poppedOut })
+  useComposerMetrics({ composerRef, composerSurfaceRef, editorRef, poppedOut })
   const hasComposerPayload = hasText || attachments.length > 0
   const canSubmit = busy || hasComposerPayload
 
@@ -896,7 +896,7 @@ export function ChatBar({
       busyAction={busyAction}
       busyActionActive={turnOccupied}
       canSubmit={canSubmit}
-      compactModelPill={poppedOut || compactPill}
+      compactModelPill={poppedOut}
       conversation={{
         active: voiceConversationActive,
         level: conversation.level,
@@ -918,7 +918,7 @@ export function ChatBar({
   )
 
   const input = (
-    <div className={cn('relative', stacked ? 'w-full' : 'min-w-(--composer-input-inline-min-width) flex-1')}>
+    <div className="relative w-full">
       <div
         aria-disabled={inputDisabled ? true : undefined}
         aria-label={t.composer.message}
@@ -928,8 +928,7 @@ export function ChatBar({
           'min-h-(--composer-input-min-height) max-h-(--composer-input-max-height) cursor-text overflow-y-auto whitespace-pre-wrap break-words [overflow-wrap:anywhere] bg-transparent pb-1 pe-1 pt-1 leading-normal text-foreground outline-none disabled:cursor-not-allowed',
           'empty:before:content-[attr(data-placeholder)] empty:before:text-muted-foreground/60',
           '**:data-ref-text:cursor-default',
-          stacked && 'ps-3',
-          stacked ? 'w-full' : 'min-w-(--composer-input-inline-min-width) flex-1'
+          'w-full ps-3'
         )}
         contentEditable={!inputDisabled}
         data-placeholder={placeholder}
@@ -1217,14 +1216,13 @@ export function ChatBar({
                   </div>
                 )}
                 {attachments.length > 0 && <AttachmentList attachments={attachments} onRemove={onRemoveAttachment} />}
-                <div
-                  className={cn(
-                    'grid w-full',
-                    stacked
-                      ? 'grid-cols-[auto_1fr] gap-(--composer-row-gap) [grid-template-areas:"input_input"_"menu_controls"]'
-                      : 'grid-cols-[auto_1fr_auto] items-center gap-(--composer-control-gap) [grid-template-areas:"menu_input_controls"]'
-                  )}
-                >
+                {/* TWO ROWS, ALWAYS — the input on its own line, then the
+                    attach menu, model pill and voice controls beneath it. This
+                    used to be a width ladder that inlined the controls beside
+                    the input above a breakpoint, which meant the chat screen,
+                    a phone and the HUD each showed a different arrangement of
+                    the same bar. One layout is the point. */}
+                <div className='grid w-full grid-cols-[auto_1fr] gap-(--composer-row-gap) [grid-template-areas:"input_input"_"menu_controls"]'>
                   <div className="flex translate-y-[3px] items-start gap-(--composer-control-gap) self-start [grid-area:menu]">
                     {contextMenu}
                     <ContribSlot area={COMPOSER_AREAS.leading} />

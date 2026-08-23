@@ -753,7 +753,6 @@
     --composer-surface-pad-y: 0.3125rem;
     --composer-input-min-height: 1.625rem;
     --composer-input-max-height: 9.375rem;
-    --composer-input-inline-min-width: 8rem;
     --composer-fallback-height: 2.75rem;
     /* Fallbacks until `use-composer-metrics` measures the real composer. It
        writes the two vars onto the composer's OWN `.chat` root, and

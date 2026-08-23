@@ -201,8 +201,15 @@ const HUD_TOP_MARGIN: i32 = 96;
 /// A multiple of the frontend's 8px growth bucket (`app/hud/hud-size.ts`), so
 /// the first measured report after the window paints does not immediately ask
 /// for a different height than the one it was built at.
+///
+/// 72 since the composer became two rows — the input on one line, the attach
+/// menu, model pill and voice controls on the next — so that the HUD shows the
+/// same bar as the chat screen and the phone. The bar measures 70px at this
+/// window's 600px width and buckets to 72. Keep in step with
+/// `HUD_BAR_HEIGHT_PX` in `app/hud/hud-size.ts`; born smaller, the HUD paints a
+/// clipped second row until the first resize request lands.
 #[cfg(desktop)]
-const HUD_COLLAPSED_HEIGHT: f64 = 40.0;
+const HUD_COLLAPSED_HEIGHT: f64 = 72.0;
 
 /// How tall the HUD may grow once a reply is streaming into the panel below the
 /// bar. Also a multiple of 8.

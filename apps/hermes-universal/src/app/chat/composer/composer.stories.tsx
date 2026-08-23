@@ -126,10 +126,16 @@ export const Recording: Story = {
   decorators: [withDesktop]
 }
 
-/** Below 320px the control row stops sharing a line with the input and stacks.
- *  The ladder is width-driven (`use-composer-metrics`) and independent of
- *  platform, so it is reachable on desktop too. */
-export const Stacked: Story = {
+/**
+ * A desktop window squeezed to phone width.
+ *
+ * There is no longer a layout to switch to — the composer is two rows at every
+ * width — so this is here for the things that DO still have to survive being
+ * cramped: the model pill's label, the control cluster, and the input's own
+ * minimum. It was previously named `Stacked` and existed to demonstrate the
+ * width ladder crossing its breakpoint; that ladder is gone.
+ */
+export const Narrow: Story = {
   decorators: [withDesktop],
   parameters: { viewport: { defaultViewport: 'mobile1' } }
 }
