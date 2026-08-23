@@ -95,7 +95,7 @@ interface ModelCatalogMenuProps {
   sessionId?: null | string
 }
 
-interface ProviderGroup {
+export interface ProviderGroup {
   families: ModelFamily[]
   provider: ModelOptionProvider
 }
@@ -428,7 +428,10 @@ export { dropdownMenuRow }
 // full picker and the Edit Models dialog. All this does is drop empty providers
 // and put the groups in a stable order.
 
-function groupModels(
+/** Exported for the mobile drawer, which renders its own rows but must group,
+ *  curate and filter exactly as this menu does — a second implementation is how
+ *  the two surfaces would start disagreeing about what "my models" means. */
+export function groupModels(
   providers: ModelOptionProvider[],
   search: string,
   current: { model: string; provider: string },
