@@ -95,6 +95,7 @@ export function TopDrawer({
           'rounded-t-none rounded-b-xl border-t-0',
           className
         )}
+        data-top-drawer
         /* Radix focuses the first focusable child on open; where that is a field
            it means the soft keyboard arriving over the list. Focus the panel
            instead — the dialog still takes focus, so Escape and screen readers

@@ -3093,6 +3093,53 @@ body.guest-pointer-lock iframe {
   transition: none !important;
 }
 
+/* ── Top menu reveal ─────────────────────────────────────────────────────────
+   The phone's title menu (`components/ui/top-drawer`) must look like it comes
+   out from UNDER the bar it hangs off.
+
+   The obvious fix is z-index — paint the bar above the panel — and it cannot
+   work here. The panel is portalled to `<body>`, while the bar lives inside
+   `#root`, which `html.is-mobile … #root` makes `position: fixed` and therefore
+   its own stacking context. Lifting the bar above a portalled `z-50` panel means
+   lifting `#root` above it, which puts the whole app above the scrim and the
+   dimming disappears.
+
+   So the panel does not MOVE at all: it is already positioned at the bar's
+   bottom edge, and the reveal is a clip that opens downward. Nothing is ever
+   painted above its own top edge, so there is nothing for the bar to cover — and
+   this is also what a hamburger menu actually does, rather than sliding a card
+   across the chrome.
+
+   `clip-path` rather than height: the rows keep their final layout throughout,
+   so nothing reflows as it opens. */
+@keyframes top-drawer-reveal {
+  from {
+    clip-path: inset(0 0 100% 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+@keyframes top-drawer-conceal {
+  from {
+    clip-path: inset(0 0 0 0);
+  }
+  to {
+    clip-path: inset(0 0 100% 0);
+  }
+}
+
+/* Beats tw-animate-css's `slide-in-from-top` (a translate) on specificity, so
+   the panel no longer travels across the bar on its way in. */
+[data-slot='sheet-content'][data-top-drawer][data-state='open'] {
+  animation: top-drawer-reveal 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+[data-slot='sheet-content'][data-top-drawer][data-state='closed'] {
+  animation: top-drawer-conceal 160ms ease-in;
+}
+
 /* --------------------------------------------------------------------------
    HUD mode (MJXHRM-213) — a floating surface over other applications.
 
