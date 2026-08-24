@@ -255,19 +255,24 @@ function OpenMediaButton({ kind, path }: { kind: 'audio' | 'video'; path: string
 // load failures) fall back to a download link. Ported from desktop's
 // MediaAttachment; audio/video resolve to the `hermes-media://` streaming URL
 // (see lib/media-stream.ts) with a one-shot data-URL retry behind them.
-function MediaAttachment({ path }: { path: string }) {
+function MediaAttachment({ label, path }: { label?: string; path: string }) {
   const [src, setSrc] = useState('')
   const [failed, setFailed] = useState(false)
   const [triedFallback, setTriedFallback] = useState(false)
   const { open, openFailed } = useOpenMediaFile(path)
   const kind = mediaKind(path)
-  const name = mediaName(path)
+  // The label the agent wrote (`[Q3 report](/work/q3.pdf)`) beats a filename —
+  // it is the only place that wording survives, since this component replaces
+  // the link entirely. `renderMediaTags` supplies its own generated label, so
+  // a `MEDIA:` marker reads exactly as it did before.
+  const name = label?.trim() || mediaName(path)
 
   /**
    * The stream URL can legitimately fail where the data URL still works: a
    * hosted gateway confines `/api/files/download` to its managed root while
-   * `/api/fs/read-data-url` is unconfined, files over 100 MB are refused, and an
-   * older gateway may not serve the endpoint at all. Try the data URL once
+   * `/api/fs/read-data-url` is unconfined, and an older gateway may not serve
+   * the endpoint at all. (The data URL has the tighter size cap of the two —
+   * 16 MB against 100 MB — so it is a fallback, not a superset.) Try it once
    * before surfacing the "Open …" fallback.
    */
   const handleMediaError = () => {
@@ -368,7 +373,7 @@ function MarkdownLink({ children, className, href, ...props }: ComponentProps<'a
   const mediaPath = mediaPathFromMarkdownHref(href)
 
   if (mediaPath) {
-    return <MediaAttachment path={mediaPath} />
+    return <MediaAttachment label={childrenToText(children)} path={mediaPath} />
   }
 
   // An `@session:` ref the agent wrote, rewritten to a fragment href by

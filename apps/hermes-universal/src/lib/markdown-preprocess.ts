@@ -1,5 +1,6 @@
 import { normalizeMathDelimiters } from '@assistant-ui/react-streamdown'
 
+import { renderFileRefs } from '@/lib/chat-media'
 import { isLikelyProseFence, sanitizeLanguageTag } from '@/lib/markdown-code'
 import { stripPreviewTargets } from '@/lib/preview-targets'
 import { linkifySessionRefs } from '@/lib/session-refs'
@@ -143,7 +144,13 @@ function normalizeVisibleProse(text: string): string {
           // backticks is being talked about rather than linked to.
           linkifySessionRefs(
             autoLinkRawUrls(
-              part.replace(/`{3,}/g, '').replace(LOCAL_PREVIEW_URL_RE, '$1').replace(CITATION_MARKER_RE, '')
+              // `renderFileRefs` FIRST: it consumes both `MEDIA:` markers and
+              // `[label](target)` syntax, so it has to see them before the
+              // autolinker rewrites any target, and the `#media:` href it emits
+              // is inert to both passes that follow.
+              renderFileRefs(
+                part.replace(/`{3,}/g, '').replace(LOCAL_PREVIEW_URL_RE, '$1').replace(CITATION_MARKER_RE, '')
+              )
             )
           )
     )
