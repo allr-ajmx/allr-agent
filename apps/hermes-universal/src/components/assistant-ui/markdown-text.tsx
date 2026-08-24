@@ -30,7 +30,7 @@ import {
 import { isMediaStreamUrl } from '@/lib/media-stream'
 import { sessionRefFromMarkdownHref } from '@/lib/session-refs'
 import { cn } from '@/lib/utils'
-import { span } from '@/observability'
+import { noteCommitCause, span } from '@/observability'
 
 import { SessionRefLink } from './directive-content'
 import { detectEmbed, extractAlert, MarkdownAlert, RichCodeBlock, UrlEmbed } from './embeds'
@@ -306,6 +306,11 @@ function MediaAttachment({ label, path }: { label?: string; path: string }) {
     void resolveMediaDisplaySrc(path)
       .then(value => {
         if (!cancelled) {
+          // Same height change as the markdown-image path below, and the one a
+          // capture actually caught: a contact sheet's twelve slides arrive
+          // through HERE, not through `MarkdownImageContent`, so stamping only
+          // that one left every image swap in the trace unlabelled.
+          noteCommitCause(`media:${mediaName(path)}`)
           setSrc(value)
         }
       })
@@ -481,6 +486,11 @@ function MarkdownImageContent({ className, src, alt, ...props }: ComponentProps<
     void resolveMediaDisplaySrc(rawSrc)
       .then(value => {
         if (!cancelled) {
+          // A one-line placeholder becoming a full-size image is a height
+          // change, and a chat open fires a dozen of them at once — so the
+          // commit it schedules says so, and a capture can tell an image swap
+          // apart from the transcript backfill happening in the same window.
+          noteCommitCause(`media:${mediaName(rawSrc)}`)
           setResolvedSrc(value)
         }
       })
