@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildGroups, consolidationVerdict, firstVisibleGroupIndex, type MessageGroup } from './list'
+import { budgetForGroup, buildGroups, consolidationVerdict, firstVisibleGroupIndex, type MessageGroup } from './list'
 
 // Signature rows are `${index}:${id}:${role}:${weight}` (see the useAuiState
 // selector in list.tsx).
@@ -78,6 +78,35 @@ describe('firstVisibleGroupIndex', () => {
 
   it('returns groups.length for an empty list', () => {
     expect(firstVisibleGroupIndex([], 60)).toBe(0)
+  })
+})
+
+describe('budgetForGroup', () => {
+  const group = (id: string, weight: number): MessageGroup => ({ id, index: 0, kind: 'standalone', weight })
+  const groups = [group('old', 50), group('mid', 30), group('new', 30)]
+
+  it('asks for exactly the budget that makes a hidden turn the first visible one', () => {
+    // The round trip is the property that matters: the rail raises the budget to
+    // this and the turn it wants is mounted — not the one after it.
+    for (let index = 0; index < groups.length; index++) {
+      expect(firstVisibleGroupIndex(groups, budgetForGroup(groups, index))).toBe(index)
+    }
+  })
+
+  it('asks for the whole transcript to reach the oldest turn', () => {
+    expect(budgetForGroup(groups, 0)).toBe(110)
+  })
+
+  it('asks for nothing more than the newest turn to reach it', () => {
+    expect(budgetForGroup(groups, 2)).toBe(30)
+  })
+
+  it('clamps an index below the list rather than reading off the end', () => {
+    expect(budgetForGroup(groups, -5)).toBe(110)
+  })
+
+  it('asks for nothing on an empty list', () => {
+    expect(budgetForGroup([], 0)).toBe(0)
   })
 })
 

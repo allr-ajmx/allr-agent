@@ -87,30 +87,55 @@ export const setThreadAtBottom = (sessionKey: null | string | undefined, isAtBot
 
 export const resetThreadScroll = (sessionKey: null | string | undefined) => setThreadAtBottom(sessionKey, true)
 
-// Cross-component bridge: the jump button lives by the composer, the viewport's
-// `scrollToBottom` lives inside the thread. The bridge registers a handler; the
-// button fires it. Mirrors the composer focus/insert emitter pattern — and is
-// keyed by session for the same reason as the flags above, so a tile's button
-// pins ITS transcript rather than every mounted one.
-const handlers = new Map<string, Set<() => void>>()
+// Cross-component bridge: the controls live outside the thread (the jump button
+// by the composer, the prompt rail beside the transcript) while the scroller
+// they act on lives inside it. The bridge registers a handler; the control fires
+// it. Mirrors the composer focus/insert emitter pattern — and is keyed by
+// session for the same reason as the flags above, so a tile's control moves ITS
+// transcript rather than every mounted one.
+function keyedEmitter<T extends unknown[]>() {
+  const handlers = new Map<string, Set<(...args: T) => void>>()
 
-export const onScrollToBottomRequest = (sessionKey: null | string | undefined, handler: () => void) => {
-  const key = keyOf(sessionKey)
-  const forKey = handlers.get(key) ?? new Set<() => void>()
-  forKey.add(handler)
-  handlers.set(key, forKey)
+  return {
+    emit(sessionKey: null | string | undefined, ...args: T) {
+      handlers.get(keyOf(sessionKey))?.forEach(handler => handler(...args))
+    },
+    on(sessionKey: null | string | undefined, handler: (...args: T) => void) {
+      const key = keyOf(sessionKey)
+      const forKey = handlers.get(key) ?? new Set<(...args: T) => void>()
+      forKey.add(handler)
+      handlers.set(key, forKey)
 
-  return () => {
-    forKey.delete(handler)
+      return () => {
+        forKey.delete(handler)
 
-    if (forKey.size === 0) {
-      handlers.delete(key)
+        if (forKey.size === 0) {
+          handlers.delete(key)
+        }
+      }
     }
   }
 }
 
-export const requestScrollToBottom = (sessionKey: null | string | undefined) =>
-  handlers.get(keyOf(sessionKey))?.forEach(handler => handler())
+const toBottom = keyedEmitter<[]>()
+
+export const onScrollToBottomRequest = (sessionKey: null | string | undefined, handler: () => void) =>
+  toBottom.on(sessionKey, handler)
+
+export const requestScrollToBottom = (sessionKey: null | string | undefined) => toBottom.emit(sessionKey)
+
+// The prompt rail asks for a TURN, not an offset: only the list knows how to
+// find one (it may not even be mounted — see the render budget) and only the
+// list can escape stick-to-bottom to get there. So the rail names the turn and
+// the transcript that owns the key does the rest.
+const toTurn = keyedEmitter<[messageId: string]>()
+
+export const onScrollToTurnRequest = (sessionKey: null | string | undefined, handler: (messageId: string) => void) =>
+  toTurn.on(sessionKey, handler)
+
+/** Put the turn opening at `messageId` at the top of ITS transcript. */
+export const requestScrollToTurn = (sessionKey: null | string | undefined, messageId: string) =>
+  toTurn.emit(sessionKey, messageId)
 
 // Inline edit grows a sticky human bubble. Fire on pointerdown so the viewport
 // escapes stick-to-bottom before focus/layout; close clears the edit flag when

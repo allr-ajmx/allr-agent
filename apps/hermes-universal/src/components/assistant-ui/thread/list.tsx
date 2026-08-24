@@ -17,6 +17,7 @@ import { useStickToBottom } from 'use-stick-to-bottom'
 
 import { MessageRenderBoundary } from '@/components/assistant-ui/message-render-boundary'
 import { resolveShowEarlierAction, useTranscriptWindow } from '@/components/assistant-ui/thread/transcript-window'
+import { scrollTurnToTop, TURN_PAIR_SLOT, turnStartElement } from '@/components/assistant-ui/thread/turn-scroll'
 import { PageLoader } from '@/components/page-loader'
 import { usePaneVisible } from '@/components/pane-shell/pane-visibility'
 import { useI18n } from '@/i18n'
@@ -27,6 +28,7 @@ import { beginDetached, endSpan, noteCommitCause } from '@/observability'
 import { atom, useStore } from '@/store/atom'
 import {
   onScrollToBottomRequest,
+  onScrollToTurnRequest,
   onThreadEditClose,
   onThreadEditOpen,
   resetThreadScroll,
@@ -58,6 +60,11 @@ export type MessageGroup = { id: string; weight: number } & (
 // bounded above by the store window regardless (TRANSCRIPT_WINDOW_BUDGET), so
 // this cannot admit more than one window's content.
 const RENDER_BUDGET = 600
+
+/** How long a rail jump waits for the turn it wants to appear in the DOM before
+ *  giving up. Only reached when the id has gone stale (a compaction or a restore
+ *  re-keys messages) — a budget raise mounts it in the next commit or two. */
+const JUMP_MATERIALIZE_MS = 1000
 
 // Every transcript list that is actually on screen registers here (see the
 // mount effect). The budget above is sized for ONE full-height pane; a grid
@@ -242,6 +249,30 @@ export function firstVisibleGroupIndex(groups: readonly MessageGroup[], budget: 
   return Math.min(firstVisible, Math.max(0, groups.length - minVisible))
 }
 
+/**
+ * The render budget that makes `groups[index]` the first VISIBLE group — the
+ * summed weight of it and everything newer.
+ *
+ * Exact by construction rather than by luck: `firstVisibleGroupIndex` walks
+ * newest-first and breaks the moment the running weight MEETS the budget, so
+ * feeding this back lands on `index` itself and not one turn short of it.
+ * (Weights are integers, so no epsilon is needed.)
+ *
+ * This is what lets the rail jump to a turn the DOM budget has not mounted: the
+ * turn is in the runtime either way — the rail and the list read the same
+ * `thread.messages` — so it only ever needs the budget raised, never the store
+ * window expanded.
+ */
+export function budgetForGroup(groups: readonly MessageGroup[], index: number): number {
+  let weight = 0
+
+  for (let i = groups.length - 1; i >= Math.max(0, index); i--) {
+    weight += groups[i].weight
+  }
+
+  return weight
+}
+
 // LIVE-TAIL EXEMPTION (ported from desktop `list.tsx` — MJXHRM-45). The port of
 // `content-visibility:auto` came across without desktop's gate, which is the
 // half that keeps it CORRECT rather than merely fast.
@@ -348,7 +379,7 @@ const TurnRow = memo(function TurnRow({ components, group, resetKey, virtualized
         {group.kind === 'turn' ? (
           <div
             className="composer-human-ai-pair-container relative flex min-w-0 flex-col gap-(--conversation-turn-gap)"
-            data-slot="aui_turn-pair"
+            data-slot={TURN_PAIR_SLOT}
           >
             {group.indices.map(index => (
               <ThreadPrimitive.MessageByIndex components={components} index={index} key={index} />
@@ -620,6 +651,132 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
   // so a tile's button pins ITS viewport and not every mounted transcript.
   useEffect(() => onScrollToBottomRequest(sessionKey, () => void scrollToBottom()), [scrollToBottom, sessionKey])
 
+  // ── Jump to a turn (the prompt rail) ──────────────────────────────────────
+  // Three things stand between "the user picked a turn" and "the user is looking
+  // at it", and the rail could not reach any of them from outside this file:
+  // the turn may not be MOUNTED (the render budget), the follow lock has to be
+  // ESCAPED first, and the landing has to be CORRECTED once the rows around it
+  // trade their `contain-intrinsic-size` estimates for real heights.
+  //
+  // Render-phase refs, like `followingRef` above: the handler must stay stable
+  // (it is registered once per session key) while still reading live values.
+  const groupsRef = useRef(weightedGroups)
+  const renderBudgetRef = useRef(renderBudget)
+
+  groupsRef.current = weightedGroups
+  renderBudgetRef.current = renderBudget
+
+  /** Set for the whole flight of a jump — see the bottom-pin guard below. */
+  const jumpingRef = useRef(false)
+  const pendingJumpRef = useRef<{ deadlineAt: number; id: string } | null>(null)
+  const cancelJumpRef = useRef<(() => void) | null>(null)
+
+  const waitRafRef = useRef(0)
+
+  const endJump = useCallback(() => {
+    cancelAnimationFrame(waitRafRef.current)
+    waitRafRef.current = 0
+    cancelJumpRef.current?.()
+    cancelJumpRef.current = null
+    pendingJumpRef.current = null
+    jumpingRef.current = false
+  }, [])
+
+  // Try to fly the pending jump. Called immediately when the turn is already
+  // mounted, and again from the layout effect below once raising the budget has
+  // mounted it — the retry is what makes materialization a wait rather than a
+  // guess.
+  const runPendingJump = useCallback(() => {
+    const pending = pendingJumpRef.current
+    const el = scrollRef.current
+
+    if (!pending || !el) {
+      return
+    }
+
+    const node = el.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(pending.id)}"]`)
+
+    if (!node) {
+      // An id can go stale — a compaction or a restore re-keys messages — and a
+      // jump left pending would hold `jumpingRef`, and with it the bottom pin,
+      // for the rest of the session. So the wait is driven by rAF rather than
+      // only by commits: a transcript that never commits again still lets go.
+      if (performance.now() > pending.deadlineAt) {
+        endJump()
+
+        return
+      }
+
+      cancelAnimationFrame(waitRafRef.current)
+      waitRafRef.current = requestAnimationFrame(() => runPendingJump())
+
+      return
+    }
+
+    cancelAnimationFrame(waitRafRef.current)
+    waitRafRef.current = 0
+    cancelJumpRef.current?.()
+    cancelJumpRef.current = scrollTurnToTop(el, turnStartElement(node), { onSettled: endJump })
+  }, [endJump, scrollRef])
+
+  const scrollToTurn = useCallback(
+    (messageId: string) => {
+      const el = scrollRef.current
+
+      if (!el) {
+        return
+      }
+
+      // A second pick supersedes the first rather than racing it.
+      cancelJumpRef.current?.()
+      cancelJumpRef.current = null
+
+      // Disarm the library's resize-follow…
+      stopScroll()
+      // …and OUR bottom pin, which `stopScroll` cannot reach: upstream reports
+      // `isAtBottom || isNearBottom`, and `isNearBottom` only clears once a
+      // scroll event lands a frame or two later. Every backfill commit in that
+      // window would otherwise throw the jump away and leave the user at the end
+      // of the chat — which is exactly the bug this whole path is here to fix.
+      jumpingRef.current = true
+      pendingJumpRef.current = { deadlineAt: performance.now() + JUMP_MATERIALIZE_MS, id: messageId }
+
+      const index = groupsRef.current.findIndex(group => group.id === messageId)
+
+      if (index < 0) {
+        // Not a turn this transcript holds. Nothing to wait for, so let go now
+        // rather than parking a pending jump on the off-chance it arrives.
+        endJump()
+
+        return
+      }
+
+      const needed = budgetForGroup(groupsRef.current, index)
+
+      if (needed > renderBudgetRef.current) {
+        // The turn is in the runtime but not in the DOM. Raise the budget to
+        // exactly what mounts it — never `expandWindow`, which is a different
+        // (store-side) shortfall the rail cannot have: the rail reads the same
+        // `thread.messages` this list groups. Hold the on-screen position across
+        // the commit the way `showEarlier` does, then jump from a still view.
+        restoreFromBottomRef.current = el.scrollHeight - el.scrollTop
+        noteCommitCause('timeline-jump:dom')
+        setRenderBudget(budget => Math.max(budget, needed))
+
+        return
+      }
+
+      runPendingJump()
+    },
+    [endJump, runPendingJump, scrollRef, stopScroll]
+  )
+
+  useEffect(() => onScrollToTurnRequest(sessionKey, scrollToTurn), [scrollToTurn, sessionKey])
+  // A jump must not outlive the transcript it was aimed at: left running, its
+  // settle loop would keep writing scrollTop on a viewport now showing another
+  // session.
+  useEffect(() => endJump, [endJump, sessionKey])
+
   const endEditHold = useCallback(() => {
     scrollRef.current?.removeAttribute('data-editing')
   }, [scrollRef])
@@ -810,13 +967,25 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
     // Only while FOLLOWING. A user who scrolled up during a backfill is reading
     // history, and yanking them to the bottom would be a far worse bug than the
     // one this fixes.
-    if (followingRef.current && renderBudget < paneBudget) {
+    // …and not while a rail jump is in flight. See `jumpingRef`: `stopScroll()`
+    // cannot clear `followingRef` for a frame or two, so without this every
+    // backfill step of a jump-triggered budget raise pins us back to the bottom.
+    if (!jumpingRef.current && followingRef.current && renderBudget < paneBudget) {
       el.scrollTop = el.scrollHeight
     }
     // `messageSignature` is in the deps because a WINDOW expansion prepends
     // messages without changing the DOM budget — the anchor has to be re-applied
     // in the commit the taller tree lands in either way.
   }, [messageSignature, paneBudget, renderBudget, scrollRef])
+
+  // Declared AFTER the effect above so the anchor restore has already run when
+  // this measures. `renderBudget` and `messageSignature` are the only two things
+  // that can newly mount the turn a jump is waiting on.
+  useLayoutEffect(() => {
+    if (pendingJumpRef.current) {
+      runPendingJump()
+    }
+  }, [messageSignature, renderBudget, runPendingJump])
 
   // The row array is memoized on the inputs the rows actually read. This
   // component re-renders on every isAtBottom flip — and use-stick-to-bottom

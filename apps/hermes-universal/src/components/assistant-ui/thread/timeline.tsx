@@ -4,7 +4,9 @@ import { type FC, useCallback, useEffect, useMemo, useRef, useState } from 'reac
 import { queryVisible } from '@/components/pane-shell/pane-visibility'
 import { triggerHaptic } from '@/lib/haptics'
 import { createLongPress } from '@/lib/long-press'
+import { rafCoalesce } from '@/lib/raf-coalesce'
 import { cn } from '@/lib/utils'
+import { requestScrollToTurn } from '@/store/thread-scroll'
 
 import {
   activeTimelineIndex,
@@ -12,6 +14,8 @@ import {
   type TimelineEntry,
   type TimelineSourceMessage
 } from './timeline-data'
+import { resolveScrub } from './timeline-scrub'
+import { turnStartElement } from './turn-scroll'
 
 const MIN_ENTRIES = 4
 const VIEWPORT = '[data-slot="aui_thread-viewport"]'
@@ -21,6 +25,12 @@ const HOVER_CLOSE_MS = 140
 // each tick lights its row the same way — so on a phone the preview list never
 // appeared and a tap on a 2px tick jumped blind. A hold opens the list, a drag
 // picks from it, and letting go goes there.
+//
+// The drag is RELATIVE, the way the composer's bubble carousel is: it starts on
+// the turn you are already reading and moves a fixed distance per turn from
+// there (see `timeline-scrub.ts`). Picking the nearest tick to the finger
+// instead made 8px — one tick's height — a whole turn, and capped the gesture's
+// reach at the strip's own height.
 const SCRUB_LONG_PRESS_MS = 280
 const SCRUB_MOVE_TOLERANCE_PX = 12
 
@@ -78,54 +88,8 @@ const hoverProps = (index: number, paint: (index: number, on: boolean) => void) 
   onMouseLeave: () => paint(index, false)
 })
 
-// Constant-duration jump (eased), NOT native `behavior:'smooth'` — Chromium's
-// smooth scroll animates proportional to distance, so jumping across a long
-// thread crawls for seconds. A fixed ~260ms feels instant near or far. A
-// shared rAF handle cancels a prior jump so rapid tick clicks don't fight.
-let jumpRaf = 0
-
-function jumpScroll(viewport: HTMLElement, top: number, duration = 170): void {
-  cancelAnimationFrame(jumpRaf)
-  const start = viewport.scrollTop
-  const delta = top - start
-
-  if (Math.abs(delta) < 2) {
-    viewport.scrollTop = top
-
-    return
-  }
-
-  const t0 = performance.now()
-  const ease = (t: number) => 1 - (1 - t) ** 3 // easeOutCubic
-
-  const step = (now: number) => {
-    const p = Math.min(1, (now - t0) / duration)
-    viewport.scrollTop = start + delta * ease(p)
-
-    if (p < 1) {
-      jumpRaf = requestAnimationFrame(step)
-    }
-  }
-
-  jumpRaf = requestAnimationFrame(step)
-}
-
-function scrollToPrompt(id: string) {
-  const viewport = queryVisible<HTMLElement>(VIEWPORT)
-  const node = viewport?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(id)}"]`)
-
-  if (!viewport || !node) {
-    return
-  }
-
-  const top = viewport.scrollTop + (node.getBoundingClientRect().top - viewport.getBoundingClientRect().top) - 8
-
-  triggerHaptic('selection')
-  jumpScroll(viewport, Math.max(0, top))
-}
-
 /** Right-edge prompt rail — hover previews, click to jump. ≥4 user turns only. */
-export const ThreadTimeline: FC = () => {
+export const ThreadTimeline: FC<{ sessionKey?: null | string }> = ({ sessionKey }) => {
   const sourceSignature = useAuiState(s => {
     const rows: TimelineSourceMessage[] = []
 
@@ -193,34 +157,54 @@ export const ThreadTimeline: FC = () => {
   // Set when a scrub ends, so the `pointerup` that ended it doesn't also fire the
   // tick's own onClick and jump somewhere else.
   const scrubbedRef = useRef(false)
+  // Where the hold engaged, and on which entry. Every move is measured from
+  // here — that is what makes the mapping relative.
+  const scrubOriginRef = useRef<null | { index: number; y: number }>(null)
+  // Whether the finger is currently past an end stop, so the "nothing further
+  // along" buzz fires on the crossing rather than every frame beyond it.
+  const endStoppedRef = useRef(false)
 
-  /** The tick whose midpoint is nearest a viewport y. */
-  const tickAt = useCallback((clientY: number): number => {
-    let best = 0
-    let bestDistance = Number.POSITIVE_INFINITY
+  // Read through refs rather than closed over, so `applyScrub` stays stable: the
+  // rAF coalescer is built from it, and rebuilding that mid-gesture (a streamed
+  // message changes `entries`) would drop the pending frame.
+  const activeIndexRef = useRef(activeIndex)
+  const entryCountRef = useRef(entries.length)
 
-    tickRefs.current.forEach((node, index) => {
-      if (!node) {
+  activeIndexRef.current = activeIndex
+  entryCountRef.current = entries.length
+
+  const jumpTo = useCallback(
+    (id: string) => {
+      void triggerHaptic('selection')
+      // The transcript that owns this key does the work — it is the only thing
+      // that can mount a turn the render budget has hidden, and the only thing
+      // that can escape stick-to-bottom to reach one. See `store/thread-scroll`.
+      requestScrollToTurn(sessionKey, id)
+    },
+    [sessionKey]
+  )
+
+  const applyScrub = useCallback(
+    ({ y }: { y: number }) => {
+      const origin = scrubOriginRef.current
+
+      if (!origin) {
         return
       }
 
-      const rect = node.getBoundingClientRect()
-      const distance = Math.abs((rect.top + rect.bottom) / 2 - clientY)
+      const scrub = resolveScrub(origin.index, y - origin.y, entryCountRef.current)
 
-      if (distance < bestDistance) {
-        bestDistance = distance
-        best = index
+      if (scrub.atEndStop !== endStoppedRef.current) {
+        endStoppedRef.current = scrub.atEndStop
+
+        // The rail has no track to rubber-band, so this buzz is the only way it
+        // can say there is nothing further in that direction.
+        if (scrub.atEndStop) {
+          void triggerHaptic('warning')
+        }
       }
-    })
 
-    return best
-  }, [])
-
-  const scrubTo = useCallback(
-    (clientY: number) => {
-      const next = tickAt(clientY)
-
-      if (scrubIndexRef.current === next) {
+      if (scrubIndexRef.current === scrub.index) {
         return
       }
 
@@ -228,17 +212,34 @@ export const ThreadTimeline: FC = () => {
         paint(scrubIndexRef.current, false)
       }
 
-      scrubIndexRef.current = next
-      paint(next, true)
+      scrubIndexRef.current = scrub.index
+      paint(scrub.index, true)
       void triggerHaptic('selection')
     },
-    [paint, tickAt]
+    [paint]
+  )
+
+  const mover = useMemo(() => rafCoalesce(applyScrub), [applyScrub])
+
+  // Seeds the gesture on the turn the user is already reading, not on whichever
+  // tick the thumb happened to land on — the same reason the bubble row bases
+  // its drag on the ACTIVE bubble rather than the one under the press.
+  const beginScrub = useCallback(
+    (y: number) => {
+      const index = activeIndexRef.current
+
+      scrubOriginRef.current = { index, y }
+      endStoppedRef.current = false
+      scrubIndexRef.current = index
+      paint(index, true)
+    },
+    [paint]
   )
 
   // The long press is built once, so it reads the live callback through a ref
   // rather than closing over the first render's.
-  const scrubToRef = useRef(scrubTo)
-  scrubToRef.current = scrubTo
+  const beginScrubRef = useRef(beginScrub)
+  beginScrubRef.current = beginScrub
 
   const pickupIdRef = useRef<null | number>(null)
 
@@ -253,9 +254,10 @@ export const ThreadTimeline: FC = () => {
 
         setOpen(true)
         void triggerHaptic('warning')
-        // Capture so a finger that wanders off the 31px rail keeps scrubbing.
+        // Capture so a finger that wanders off the 31px rail keeps scrubbing —
+        // which is what gives a 32px-per-turn pitch unlimited reach.
         ticksRef.current?.setPointerCapture?.(pickupIdRef.current)
-        scrubToRef.current(y)
+        beginScrubRef.current(y)
       }
     })
   ).current
@@ -270,16 +272,21 @@ export const ThreadTimeline: FC = () => {
 
       paint(index, false)
       scrubIndexRef.current = null
+      // Cleared so a `pointercancel` arriving after a `pointerup` can't re-apply
+      // the coalescer's last value — `finish()` commits `pending` but does not
+      // clear it, and `applyScrub` bails without an origin.
+      scrubOriginRef.current = null
+      endStoppedRef.current = false
       scrubbedRef.current = true
       setOpen(false)
 
       const entry = jump ? entries[index] : undefined
 
       if (entry) {
-        scrollToPrompt(entry.id)
+        jumpTo(entry.id)
       }
     },
-    [entries, paint]
+    [entries, jumpTo, paint]
   )
 
   useEffect(() => {
@@ -299,7 +306,11 @@ export const ThreadTimeline: FC = () => {
       const offsets = entries.map(entry => {
         const node = viewport.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(entry.id)}"]`)
 
-        return node ? node.getBoundingClientRect().top - top : null
+        // The TURN, not the bubble. `[data-message-id]` is on the sticky human
+        // bubble, which reads `--sticky-human-top` for as long as its turn is on
+        // screen — so every partly-visible turn measured as "at the top" and the
+        // lit tick disagreed with where a jump would actually land.
+        return node ? turnStartElement(node).getBoundingClientRect().top - top : null
       })
 
       const next = activeTimelineIndex(offsets)
@@ -359,11 +370,12 @@ export const ThreadTimeline: FC = () => {
             return
           }
 
-          scrollToPrompt(id)
+          jumpTo(id)
         }}
         onPointerCancel={() => {
           pickup.cancel()
           pickupIdRef.current = null
+          mover.finish()
           endScrub(false)
         }}
         onPointerDown={event => {
@@ -377,16 +389,22 @@ export const ThreadTimeline: FC = () => {
         }}
         onPointerMove={event => {
           if (scrubIndexRef.current !== null) {
-            scrubToRef.current(event.clientY)
+            // Coalesced to one apply per frame, as the bubble row does.
+            mover.push({ y: event.clientY })
 
             return
           }
 
+          // NOT coalesced: the long press's movement tolerance has to see the
+          // raw stream, or how far the finger wandered would depend on how many
+          // frames the queue happened to run.
           pickup.move(event.clientX, event.clientY)
         }}
         onPointerUp={() => {
           pickup.up()
           pickupIdRef.current = null
+          // Commit the last pending frame BEFORE the index is read.
+          mover.finish()
           endScrub(true)
         }}
         tickRefs={tickRefs}
@@ -395,7 +413,7 @@ export const ThreadTimeline: FC = () => {
         activeIndex={activeIndex}
         entries={entries}
         onHover={paint}
-        onJump={scrollToPrompt}
+        onJump={jumpTo}
         open={open}
         rowRefs={rowRefs}
       />
