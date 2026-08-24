@@ -1133,12 +1133,27 @@ async function hydrateColdSession(storedId: string): Promise<void> {
   // authoritative value. (A cwd-less row settles to '' — a detached chat — which
   // is the correct final state, not a flicker; the files-tree white flash is
   // handled where it belongs, in use-project-tree.)
+  //
+  // The MODEL comes from the same row for the same reason, and its absence was
+  // visible: `ModelPill` shows a spinner while the model is blank, and a live
+  // session reads its OWN slice (`primaryField` in chat/session-view.tsx) rather
+  // than the sticky global — so switching chats left the pill spinning until a
+  // `session.info` happened to land, and indefinitely when none did. A row's
+  // model is the last one that session ran, which is the right thing to paint
+  // while the gateway is asked.
+  //
+  // Safe to be superseded and safe to be stale: the reducer's `adoptText` is
+  // truthiness-gated (see session-reducer.ts), so real info overwrites this and
+  // a blank heartbeat never overwrites either.
+  const row = $sessions.get().find(session => session.id === storedId)
+
   let key = hydratingKey(storedId)
 
   ensureSessionSlice(key, {
     storedSessionId: storedId,
     busy: true,
-    cwd: $sessions.get().find(session => session.id === storedId)?.cwd ?? ''
+    cwd: row?.cwd ?? '',
+    model: row?.model ?? ''
   })
 
   $activeStoredSessionId.set(storedId)
