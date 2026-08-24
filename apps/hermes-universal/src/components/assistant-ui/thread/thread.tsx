@@ -183,7 +183,7 @@ export function Thread() {
           loadingIndicator={LOADING_INDICATOR}
           sessionKey={mountedSessionKey}
         />
-        <ThreadTimeline />
+        <ThreadTimeline sessionKey={mountedSessionKey} />
         {restoreDialog}
       </ThreadPrimitive.Root>
     </RestoreRequestContext.Provider>
