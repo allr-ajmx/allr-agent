@@ -801,7 +801,20 @@
     --composer-input-pad-start: 0.4rem;
     --composer-input-min-height: 1.625rem;
     --composer-input-max-height: 9.375rem;
-    --composer-fallback-height: 2.75rem;
+    /* What the thread reserves for the composer BEFORE `use-composer-metrics`
+       measures it — so it must be roughly the composer's real surface height,
+       or the transcript lays out against one number and then jumps to another
+       the moment the measurement lands. That is a visible shift on every chat
+       mount, which is what a flat `2.75rem` was causing: the composer became
+       TWO rows and the fallback still described the old single-row bar (~70px
+       reserved against ~112px real).
+
+       Derived from the geometry rather than re-guessed, so it tracks the rows
+       instead of going stale again the next time they change. */
+    --composer-fallback-height: calc(
+      var(--composer-surface-pad-y) * 2 + var(--composer-input-min-height) + var(--composer-row-gap) +
+        var(--composer-control-size)
+    );
     /* Fallbacks until `use-composer-metrics` measures the real composer. It
        writes the two vars onto the composer's OWN `.chat` root, and
        `--thread-viewport-height` is declared THERE (not here) so each chat
@@ -1593,6 +1606,11 @@ html.is-mobile:has([data-slot='composer-root']:focus-within) {
    Tailwind spacing, the --composer-* geometry) grows with it. */
 html.is-mobile {
   --dt-base-size: 1.125rem;
+  /* Both rows are the touch size here, so the pointer-sized formula above would
+     under-reserve and re-introduce the mount jump. */
+  --composer-fallback-height: calc(
+    var(--composer-surface-pad-y) * 2 + var(--touch-target-compact) * 2 + var(--composer-row-gap)
+  );
   /* Phones round harder than the desktop does, and at the shared 0.25 the app
      read as a desktop app shrunk down. Every `--radius-*` step is
      `calc(--radius-scalar * …)`, so this one number reshapes buttons, cards,
