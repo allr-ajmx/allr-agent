@@ -2786,5 +2786,9 @@ export const ar = defineLocale({
       email: 'البريد الإلكتروني',
       github_comment: 'تعليق GitHub'
     }
+  },
+
+  mobileWorkspace: {
+    menu: 'القائمة'
   }
 })

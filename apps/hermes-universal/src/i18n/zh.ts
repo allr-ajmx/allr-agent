@@ -2855,6 +2855,7 @@ export const zh: Translations = {
 
   mobileWorkspace: {
     backToChat: '对话',
+    menu: '菜单',
     noProject: '未打开项目',
     tabsAria: '工作区分区',
     review: '审阅',

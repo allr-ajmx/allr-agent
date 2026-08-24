@@ -158,7 +158,11 @@ function SidebarSessionRowImpl({
     >
       <SidebarRowShell
         actions={
-          <div className="relative z-2 grid w-[1.375rem] place-items-center">
+          // 22px is the pointer width — the kebab is `size-5` and only appears
+          // on hover. On touch it is permanently visible AND sized to
+          // `--touch-target-compact`, so the cell has to widen to hold it or the
+          // control is clipped against the row (which is what it was).
+          <div className="relative z-2 grid w-[1.375rem] place-items-center coarse:w-8">
             {/* Switched-on metadata stays put; the bare age is hover-only, so a
                 resting sidebar is titles and nothing else. A running row hides
                 the hover age (the arc already owns that space) but keeps any

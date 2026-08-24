@@ -19,3 +19,6 @@ src-tauri/gen/*
 # Vendored plugin build artifacts — the app's src-tauri/Cargo.lock is authoritative
 src-tauri/plugins/*/target/
 src-tauri/plugins/*/Cargo.lock
+
+# Storybook build output — the composer design harness (.storybook/), dev-only.
+storybook-static/

@@ -17,8 +17,15 @@
 
 /** The bar and nothing else. Must match `HUD_COLLAPSED_HEIGHT` in
  *  `src-tauri/src/window.rs`, which is the floor Rust clamps to and the size the
- *  window is born at. */
-export const HUD_BAR_HEIGHT_PX = 40 
+ *  window is born at.
+ *
+ *  80, not 40, since the composer became two rows (input above, attach + model +
+ *  voice controls below) with uniform 0.5rem padding. The bar measures 76px at
+ *  the HUD's 600px width, which buckets to 80 — so this is what the first
+ *  measured report asks for, which is the property the Rust constant's comment
+ *  is asking us to preserve. Born smaller, the HUD would paint a clipped second
+ *  row until the first resize landed. */
+export const HUD_BAR_HEIGHT_PX = 80
 
 /** Must match `HUD_MAX_HEIGHT` in `src-tauri/src/window.rs`. Rust re-clamps and
  *  is authoritative; this end knows the cap only so it stops ASKING once there

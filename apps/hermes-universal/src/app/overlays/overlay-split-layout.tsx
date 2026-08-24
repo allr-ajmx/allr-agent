@@ -164,6 +164,8 @@ export function OverlayNav({ footer, groups }: { footer?: ReactNode; groups: Ove
           'pointer-events-none relative z-20 h-[calc(var(--titlebar-height)+0.1875rem)] items-center justify-between gap-2 ps-3 pe-12',
           BAR_HIDDEN
         )}
+        // See `topBarBottom` — the nav drawer starts under this strip.
+        data-top-bar
       >
         <div className="pointer-events-auto min-w-0">
           <TabDropdown

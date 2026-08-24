@@ -1,12 +1,8 @@
-import { useAuiState } from '@assistant-ui/react'
-import { type RefObject, useCallback, useEffect, useRef, useState } from 'react'
+import { type RefObject, useCallback, useEffect, useLayoutEffect, useRef } from 'react'
 
-import { useMediaQuery } from '@/hooks/use-media-query'
 import { useResizeObserver } from '@/hooks/use-resize-observer'
 import { $composerPoppedOut } from '@/store/composer-popout'
 import { isSecondaryWindow } from '@/store/windows'
-
-import { COMPOSER_COMPACT_PILL_PX, COMPOSER_SINGLE_LINE_MAX_PX, COMPOSER_STACK_BREAKPOINT_PX } from '../composer-utils'
 
 interface UseComposerMetricsArgs {
   composerRef: RefObject<HTMLFormElement | null>
@@ -16,59 +12,24 @@ interface UseComposerMetricsArgs {
 }
 
 /**
- * Owns the composer's *sizing* engine: the stacked-vs-inline layout decision
- * and the measured-height CSS vars the thread reads for bottom clearance. All
- * work is edge-gated — the ResizeObserver only fires on real size changes, the
- * height vars are 8px-bucketed so per-keystroke growth never invalidates the
- * tree's computed style, and `tight` only flips when it crosses the breakpoint.
- * Returns `stacked` (the only value the render needs).
+ * Publishes the composer's measured height to the CSS vars the thread reads for
+ * bottom clearance. All work is edge-gated: the ResizeObserver only fires on
+ * real size changes, and the heights are 8px-bucketed so per-keystroke growth
+ * never invalidates the tree's computed style.
+ *
+ * This hook used to ALSO own a layout decision — a width ladder
+ * (`stacked` / `compactPill`) that put the controls on their own row below a
+ * certain width and otherwise inlined them beside the input. That ladder is
+ * gone: the composer is now two rows everywhere, so the same bar appears in the
+ * chat screen, on a phone and in the HUD instead of three arrangements the
+ * viewport picked between. See the grid in `index.tsx`.
  */
-export function useComposerMetrics({ composerRef, composerSurfaceRef, editorRef, poppedOut }: UseComposerMetricsArgs): {
-  compactPill: boolean
-  stacked: boolean
-} {
-  const [expanded, setExpanded] = useState(false)
-  const [tight, setTight] = useState(false)
-  // Wider than `tight`: the pill goes icon-only before the row has to stack.
-  const [compactPill, setCompactPill] = useState(false)
-  const narrow = useMediaQuery('(max-width: 30rem)')
-
-  // Edge signals, not the live text: these only re-render when emptiness / the
-  // presence of a non-trailing newline actually flips, so typing within a line
-  // costs nothing here.
-  const isEmpty = useAuiState(s => s.composer.text.length === 0)
-  const hasHardNewline = useAuiState(s => s.composer.text.trimEnd().includes('\n'))
-
-  // Expansion (input on its own full-width row, controls below) is driven by
-  // the editor's *actual* rendered height via the ResizeObserver in
-  // syncComposerMetrics — it only fires when the text genuinely wraps to a
-  // second line, so the layout flips exactly at the wrap point rather than at
-  // a guessed character count. We only handle the two cases the observer
-  // can't: an explicit newline (expand before layout settles) and an emptied
-  // draft (collapse back). We never read scrollHeight per keystroke.
-  useEffect(() => {
-    if (isEmpty) {
-      setExpanded(false)
-
-      return
-    }
-
-    if (expanded) {
-      if (!hasHardNewline && editorRef.current && editorRef.current.scrollHeight <= COMPOSER_SINGLE_LINE_MAX_PX) {
-        setExpanded(false)
-      }
-
-      return
-    }
-
-    // Only a non-trailing newline forces an immediate expand. A trailing newline
-    // (or phantom \n from contenteditable junk) is left to the ResizeObserver,
-    // which expands only when the editor's real height actually grows.
-    if (hasHardNewline) {
-      setExpanded(true)
-    }
-  }, [editorRef, expanded, hasHardNewline, isEmpty])
-
+export function useComposerMetrics({
+  composerRef,
+  composerSurfaceRef,
+  editorRef,
+  poppedOut
+}: UseComposerMetricsArgs): void {
   // Bucket measured heights so we only invalidate the global CSS var when
   // the size crosses a meaningful threshold. Without bucketing, the editor
   // grows ~1px per character → setProperty fires every keystroke → entire
@@ -78,8 +39,6 @@ export function useComposerMetrics({ composerRef, composerSurfaceRef, editorRef,
   // until a wrap or row change actually happens.
   const lastBucketedHeightRef = useRef(0)
   const lastBucketedSurfaceHeightRef = useRef(0)
-  const lastTightRef = useRef<boolean | null>(null)
-  const lastCompactPillRef = useRef<boolean | null>(null)
   // The element the vars were last written to, so unmount clears the same one.
   const hostRef = useRef<HTMLElement | null>(null)
 
@@ -119,37 +78,9 @@ export function useComposerMetrics({ composerRef, composerSurfaceRef, editorRef,
       return
     }
 
-    const { height, width } = composer.getBoundingClientRect()
+    const { height } = composer.getBoundingClientRect()
     const surfaceHeight = composerSurfaceRef.current?.getBoundingClientRect().height
     const root = hostRef.current ?? document.documentElement
-
-    if (width > 0) {
-      const nextTight = width < COMPOSER_STACK_BREAKPOINT_PX
-
-      if (nextTight !== lastTightRef.current) {
-        lastTightRef.current = nextTight
-        setTight(nextTight)
-      }
-
-      const nextCompactPill = width < COMPOSER_COMPACT_PILL_PX
-
-      if (nextCompactPill !== lastCompactPillRef.current) {
-        lastCompactPillRef.current = nextCompactPill
-        setCompactPill(nextCompactPill)
-      }
-    }
-
-    // Expand once the input has actually wrapped past a single line. The
-    // observer only fires on real size changes, so this reads scrollHeight at
-    // most once per wrap (not per keystroke). One line ≈ 28px (1.625rem
-    // min-height + padding); a second line clears ~36px. We only ever expand
-    // here — collapse is handled by the emptied-draft effect to avoid
-    // oscillating across the wrap boundary as the input switches widths.
-    const editor = editorRef.current
-
-    if (editor && editor.scrollHeight > COMPOSER_SINGLE_LINE_MAX_PX) {
-      setExpanded(true)
-    }
 
     if (height > 0) {
       const bucket = Math.ceil(height / 8) * 8
@@ -168,8 +99,29 @@ export function useComposerMetrics({ composerRef, composerSurfaceRef, editorRef,
         root.style.setProperty('--composer-surface-measured-height', `${bucket}px`)
       }
     }
-  }, [composerRef, composerSurfaceRef, editorRef])
+  }, [composerRef, composerSurfaceRef])
 
+  // MEASURE ONCE, SYNCHRONOUSLY, ON MOUNT — before the browser paints.
+  //
+  // The observer's first delivery is same-frame and pre-paint, but only for the
+  // frame the OBSERVER starts in, and the thread has already laid itself out
+  // against `--composer-fallback-height` by then. Any difference between the
+  // fallback and the real height is a shift the user sees on every chat open:
+  // the transcript renders, then jumps as the real number lands.
+  //
+  // A layout effect here reads a dirty layout and forces one reflow, which the
+  // shared observer's comment warns about at length — that warning is about
+  // MANY elements (a bubble each, a hundred of them on a session switch). This
+  // is ONE element, once per mount, and it buys an exact first paint. The
+  // fallback still exists for the frame before this runs and for surfaces that
+  // never mount a composer.
+  useLayoutEffect(() => {
+    syncComposerMetrics()
+  }, [syncComposerMetrics])
+
+  // `editorRef` is observed but never read: the editor growing a line is what
+  // changes the composer's height, and the observer is how that reaches the
+  // measurement above.
   useResizeObserver(syncComposerMetrics, composerRef, composerSurfaceRef, editorRef)
 
   // Toggling pop-out changes whether the composer reserves thread clearance.
@@ -192,13 +144,4 @@ export function useComposerMetrics({ composerRef, composerSurfaceRef, editorRef,
       hostRef.current = null
     }
   }, [])
-
-  const isStacked = expanded || narrow || tight
-
-  // The pill collapses to a bare chevron only while it still SHARES a row with
-  // the input — that crowded row is the whole reason to hide the model's name.
-  // Once the composer stacks, the controls have a row to themselves and the name
-  // fits; on a phone that is always, which is why the model was permanently
-  // reduced to an unlabelled chevron there.
-  return { compactPill: compactPill && !isStacked, stacked: isStacked }
 }

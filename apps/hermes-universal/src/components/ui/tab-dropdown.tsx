@@ -1,4 +1,4 @@
-import { Fragment } from 'react'
+import { Fragment, useRef, useState } from 'react'
 
 import { Codicon } from '@/components/ui/codicon'
 import {
@@ -12,7 +12,10 @@ import { CountSkeleton } from '@/components/ui/skeleton'
 import { TextTab, TextTabMeta } from '@/components/ui/text-tab'
 import { compactNumber } from '@/lib/format'
 import type { IconComponent } from '@/lib/icons'
+import { IS_MOBILE } from '@/lib/platform'
 import { cn } from '@/lib/utils'
+
+import { topBarBottom, TopDrawer, TopDrawerRow } from './top-drawer'
 
 // A count badge beside a tab label. `null` = still loading (pulsing chip, not a
 // fake 0); numbers render compact; strings pass through; `undefined` = no badge.
@@ -52,6 +55,70 @@ export function TabDropdown({
   items: TabDropdownItem[]
 }) {
   const active = items.find(item => item.active) ?? items[0]
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  // Measured on open, not once: the strip carries a safe-area inset that is not
+  // resolved on the first frame, and the bar moves between surfaces.
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const [offsetTop, setOffsetTop] = useState(0)
+
+  const trigger = (
+    <>
+      {active?.icon && <TabDropdownIcon icon={active.icon} indent={active.indent} />}
+      <span className="min-w-0 truncate">{active?.label}</span>
+      {active?.meta !== undefined && <TextTabMeta>{tabMetaContent(active.meta)}</TextTabMeta>}
+      <Codicon className="text-muted-foreground" name="chevron-down" size="0.75rem" />
+    </>
+  )
+
+  // TOUCH: the same nav as a drawer down from the top.
+  //
+  // This is the one collapse every responsive nav in the app funnels through
+  // (Settings' sections, the Command Center's), so converting it here converts
+  // all of them rather than each learning about phones separately. The item list
+  // is unchanged — `OverlayNav` already flattens a group's children into it with
+  // `indent`, so sub-sections are listed rather than hidden behind another tap.
+  if (IS_MOBILE) {
+    return (
+      <>
+        <button
+          aria-label={active?.label}
+          className={cn(
+            'flex h-7 min-h-(--touch-target-compact) cursor-pointer items-center gap-1.5 px-1',
+            'text-[length:var(--conversation-caption-font-size)] font-medium text-foreground'
+          )}
+          onClick={() => {
+            // The drawer's top edge is the bar's bottom edge, so it reads as
+            // coming out from UNDER the bar instead of covering it.
+            setOffsetTop(topBarBottom(triggerRef.current))
+            setDrawerOpen(true)
+          }}
+          ref={triggerRef}
+          type="button"
+        >
+          {trigger}
+        </button>
+        <TopDrawer offsetTop={offsetTop} onOpenChange={setDrawerOpen} open={drawerOpen} title={active?.label ?? ''}>
+          {items.map(item => (
+            <TopDrawerRow
+              active={item.active}
+              indent={item.indent}
+              key={item.id}
+              onSelect={() => {
+                item.onSelect()
+                setDrawerOpen(false)
+              }}
+            >
+              {item.icon && <TabDropdownIcon icon={item.icon} indent={item.indent} />}
+              <span className="min-w-0 flex-1 truncate">{item.label}</span>
+              {item.meta !== undefined && (
+                <span className="text-xs text-(--ui-text-tertiary)">{tabMetaContent(item.meta)}</span>
+              )}
+            </TopDrawerRow>
+          ))}
+        </TopDrawer>
+      </>
+    )
+  }
 
   return (
     <DropdownMenu>
@@ -60,10 +127,7 @@ export function TabDropdown({
           className="flex h-7 cursor-pointer items-center gap-1.5 px-1 text-[length:var(--conversation-caption-font-size)] font-medium text-foreground [-webkit-app-region:no-drag]"
           type="button"
         >
-          {active?.icon && <TabDropdownIcon icon={active.icon} indent={active.indent} />}
-          <span className="min-w-0 truncate">{active?.label}</span>
-          {active?.meta !== undefined && <TextTabMeta>{tabMetaContent(active.meta)}</TextTabMeta>}
-          <Codicon className="text-muted-foreground" name="chevron-down" size="0.75rem" />
+          {trigger}
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align={align} className={cn('w-44', className)} sideOffset={6}>

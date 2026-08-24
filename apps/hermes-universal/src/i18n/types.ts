@@ -2333,6 +2333,8 @@ export interface Translations {
 
   mobileWorkspace: {
     backToChat: string
+    /** Title shown in the bar while the Workspace panel is open. */
+    menu: string
     noProject: string
     tabsAria: string
     review: string

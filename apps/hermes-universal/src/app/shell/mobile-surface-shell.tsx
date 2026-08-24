@@ -1,3 +1,4 @@
+import { useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
 import { AgentsView } from '@/app/agents'
@@ -11,8 +12,8 @@ import { useSurfaceNavRows } from '@/app/shell/surface-nav'
 import { TitlebarButton } from '@/app/shell/titlebar-button'
 import { WebhooksView } from '@/app/webhooks'
 import { Codicon } from '@/components/ui/codicon'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { TitleMenuTrigger } from '@/components/ui/title-menu-trigger'
+import { topBarBottom, TopDrawer, TopDrawerRow } from '@/components/ui/top-drawer'
 import { useKeyboardInset } from '@/hooks/use-keyboard-inset'
 import { useI18n } from '@/i18n'
 import { useStore } from '@/store/atom'
@@ -66,6 +67,10 @@ export function MobileSurfaceShell({
   const switching = useStore($gatewaySwitching)
   const ready = phase === 'ready'
 
+  const [navOpen, setNavOpen] = useState(false)
+  const [navOffset, setNavOffset] = useState(0)
+  const navTriggerRef = useRef<HTMLButtonElement>(null)
+
   const surface = activitySurfaceForPath(pathname)
   const navRows = useSurfaceNavRows(surface)
 
@@ -93,28 +98,41 @@ export function MobileSurfaceShell({
       <MobileChromeBar
         center={
           navRows.length > 0 ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <TitleMenuTrigger className="w-full justify-start" density="mobile">
-                  {title}
-                </TitleMenuTrigger>
-              </DropdownMenuTrigger>
-              {/* Aligned to the title, not centred on it: the trigger now fills
-                  the row, so "centred on the trigger" put the menu in the middle
-                  of the screen with nothing above it. */}
-              <DropdownMenuContent align="start" className="max-h-[70vh] w-56 overflow-y-auto" sideOffset={6}>
+            /* A DRAWER, not a dropdown. This is the nav for Settings and the
+               Command Center on a phone — `SettingsView` / `CommandCenterView`
+               are mounted `hideNav` here, so `OverlayNav`'s own responsive
+               collapse never runs and this is the only nav they have. It used to
+               be a popover hanging off the title; it now slides out from under
+               the bar, full width, with touch-sized rows. */
+            <>
+              <TitleMenuTrigger
+                className="w-full justify-start"
+                density="mobile"
+                onClick={() => {
+                  setNavOffset(topBarBottom(navTriggerRef.current))
+                  setNavOpen(true)
+                }}
+                ref={navTriggerRef}
+              >
+                {title}
+              </TitleMenuTrigger>
+              <TopDrawer offsetTop={navOffset} onOpenChange={setNavOpen} open={navOpen} title={title}>
                 {navRows.map(row => (
-                  <DropdownMenuItem
-                    className={row.active ? 'bg-(--ui-row-active-background) text-foreground' : undefined}
+                  <TopDrawerRow
+                    active={row.active}
+                    indent={row.indent}
                     key={row.id}
-                    onSelect={() => navigate(row.path)}
+                    onSelect={() => {
+                      navigate(row.path)
+                      setNavOpen(false)
+                    }}
                   >
                     {row.icon}
                     <span className="min-w-0 flex-1 truncate">{row.label}</span>
-                  </DropdownMenuItem>
+                  </TopDrawerRow>
                 ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
+              </TopDrawer>
+            </>
           ) : (
             <span className="block truncate text-sm font-medium">{title}</span>
           )

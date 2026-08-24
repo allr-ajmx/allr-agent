@@ -1,4 +1,5 @@
 import type { ChatMessage } from '@/lib/chat-messages'
+import { IS_MOBILE } from '@/lib/platform'
 import { messageStoreWeight } from '@/lib/render-weight'
 
 /**
@@ -25,15 +26,28 @@ import { messageStoreWeight } from '@/lib/render-weight'
  * already-materialized window before this asks the store for more — and a
  * transcript heavy enough to exhaust the heap is windowed rather than handed
  * to the repository whole.
+ *
+ * A THIRD of that on a phone, because the cost that matters there is not heap
+ * but PAINT. Traced on an iPhone opening a long code-heavy chat: interactions
+ * reported `presentationMs` of 230/225/224 against `processingMs` of 20 or
+ * less — the main thread was barely working, the compositor was rasterising a
+ * very large tree — and the transcript stalled for ~2.8s across 63 dropped
+ * frames. Every later invalidation repaints whatever this materialised, so the
+ * window size is the multiplier on all of them.
  */
-export const TRANSCRIPT_WINDOW_BUDGET = 1200
+export const TRANSCRIPT_WINDOW_BUDGET = IS_MOBILE ? 400 : 1200
 
 /**
  * Floor on messages kept regardless of weight. A transcript of enormous turns
  * must still render the turn the user is having; without this a single
  * multi-megabyte tool result could window everything after it away.
+ *
+ * Lower on a phone for the same reason as the budget, and because ten messages
+ * already fill a phone screen several times over — the floor is there to keep
+ * the CURRENT turn renderable, not to fill scrollback. "Show earlier" is what
+ * reaches the rest.
  */
-export const TRANSCRIPT_WINDOW_MIN_MESSAGES = 30
+export const TRANSCRIPT_WINDOW_MIN_MESSAGES = IS_MOBILE ? 10 : 30
 
 export interface TranscriptWindow {
   /** The tail assistant-ui is allowed to materialize. */

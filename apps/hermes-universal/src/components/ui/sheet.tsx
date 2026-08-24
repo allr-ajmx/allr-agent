@@ -39,10 +39,16 @@ function SheetOverlay({ className, ...props }: React.ComponentProps<typeof Sheet
 function SheetContent({
   className,
   children,
+  overlayClassName,
+  overlayStyle,
   side = 'right',
   showCloseButton = true,
   ...props
 }: React.ComponentProps<typeof SheetPrimitive.Content> & {
+  /** Restyle the scrim — a sheet that hangs off a bar wants it to START at that
+   *  bar rather than cover it, so the chrome it came out of stays legible. */
+  overlayClassName?: string
+  overlayStyle?: React.CSSProperties
   side?: 'top' | 'right' | 'bottom' | 'left'
   showCloseButton?: boolean
 }) {
@@ -50,7 +56,7 @@ function SheetContent({
 
   return (
     <SheetPortal>
-      <SheetOverlay />
+      <SheetOverlay className={overlayClassName} style={overlayStyle} />
       <SheetPrimitive.Content
         className={cn(
           'fixed z-50 flex flex-col gap-3 border-(--ui-stroke-secondary) bg-(--ui-sidebar-surface-background) text-[length:var(--conversation-text-font-size)] shadow-md transition ease-in-out data-[state=closed]:animate-out data-[state=closed]:duration-300 data-[state=open]:animate-in data-[state=open]:duration-500',

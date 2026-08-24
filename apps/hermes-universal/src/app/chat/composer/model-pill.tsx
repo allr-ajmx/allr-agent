@@ -10,6 +10,7 @@ import { Tip } from '@/components/ui/tooltip'
 import { useI18n } from '@/i18n'
 import { ChevronDown } from '@/lib/icons'
 import { formatModelStatusLabel } from '@/lib/model-status-label'
+import { IS_MOBILE } from '@/lib/platform'
 import { cn } from '@/lib/utils'
 import { setModelMenuDropdownOpen, setModelPickerOpen } from '@/store/model'
 
@@ -18,7 +19,13 @@ import type { ChatBarState } from './types'
 const PILL = cn(
   // `min-w-0` so the label's `truncate` can actually act if the controls row
   // does get tight — without it the pill is its content's width and pushes.
-  'h-(--composer-control-size) min-w-0 max-w-40 shrink-0 gap-1 rounded-md px-2 text-xs font-normal',
+  //
+  // And NOT `shrink-0`, which was defeating that: `min-w-0` only permits a flex
+  // item to shrink, it does not make it shrinkable, so the pill kept its full
+  // intrinsic width and shoved the dictation / wake / send buttons past the edge
+  // of the composer the moment a model with a long name was selected. Shrinking
+  // is what lets `truncate` clip the name instead.
+  'h-(--composer-control-size) min-w-0 max-w-40 shrink gap-1 rounded-md px-2 text-xs font-normal',
   'text-(--ui-text-tertiary) hover:bg-(--chrome-action-hover) hover:text-foreground'
 )
 
@@ -88,6 +95,37 @@ export function ModelPill({
     : PILL
 
   const title = currentProvider ? copy.modelTitle(currentProvider, currentModel || copy.modelNone) : copy.switchModel
+
+  // Touch takes the drawer, not the dropdown. A menu anchored to a 48px pill on
+  // a 390px screen is the thing this replaces: it opened off-edge, its rows were
+  // sized by their text, and thinking depth hid behind a HOVER submenu a finger
+  // cannot reach. Desktop and the HUD keep the dropdown, which works there.
+  if (IS_MOBILE && model.modelDrawer) {
+    return (
+      <>
+        <Button
+          aria-label={title}
+          className={pillClass}
+          disabled={disabled}
+          onClick={() => {
+            setOpen(true)
+            setModelMenuDropdownOpen(true)
+          }}
+          type="button"
+          variant="ghost"
+        >
+          {label}
+        </Button>
+        {model.modelDrawer({
+          onOpenChange: next => {
+            setOpen(next)
+            setModelMenuDropdownOpen(next)
+          },
+          open
+        })}
+      </>
+    )
+  }
 
   if (!model.modelMenuContent) {
     return (

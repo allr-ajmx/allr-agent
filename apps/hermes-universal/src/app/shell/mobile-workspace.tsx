@@ -19,7 +19,6 @@ import { useStore } from '@/store/atom'
 import { $currentCwd } from '@/store/chat'
 import { $dirtyPreviewPaths } from '@/store/preview-edit'
 import { $reviewFiles, openReview } from '@/store/review'
-import { $effectiveCwd } from '@/store/workspace-events'
 
 // The phone's Workspace: everything the desktop keeps in the right-pane column
 // stack (review, files, editor, terminal) plus the status list, as ONE
@@ -65,14 +64,6 @@ const $workspaceTab = persistentAtom<TabId>('hermes.workspaceTab', 'status', {
   decode: raw => (isTabId(raw) ? raw : 'status'),
   encode: value => value
 })
-
-/** The trailing path segment — the project name, which is all that fits. */
-function projectLabel(cwd: string): string {
-  const trimmed = cwd.replace(/[/\\]+$/, '')
-  const parts = trimmed.split(/[/\\]/)
-
-  return parts[parts.length - 1] || trimmed
-}
 
 export function MobileWorkspace({ onClose }: { onClose: () => void }) {
   const { t } = useI18n()
@@ -134,7 +125,6 @@ export function MobileWorkspace({ onClose }: { onClose: () => void }) {
     }
   }, [onClose])
 
-  const project = projectLabel(cwd || $effectiveCwd.get())
 
   const badges: Partial<Record<TabId, boolean | number>> = {
     editor: dirtyPaths.size > 0,
@@ -168,9 +158,10 @@ export function MobileWorkspace({ onClose }: { onClose: () => void }) {
       }}
     >
       <MobileChromeBar
-        // Which project this surface is acting on. On a phone there is no
-        // sidebar or statusbar in view to infer it from.
-        center={<span className="block truncate text-xs text-muted-foreground">{project || copy.noProject}</span>}
+        // Names the PANEL, not the project. This used to show the cwd's last
+        // path segment — a bare word with nothing marking it as a path, which
+        // told you less about where you were than the panel's own name does.
+        center={<span className="block truncate text-sm font-medium">{copy.menu}</span>}
         left={
           <TitlebarButton density="mobile" label={copy.backToChat} onClick={onClose}>
             <Codicon className="rtl:-scale-x-100" name="chevron-left" size="1.4rem" />

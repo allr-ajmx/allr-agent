@@ -2717,6 +2717,10 @@ export const en: Translations = {
 
   mobileWorkspace: {
     backToChat: 'Chat',
+    /** The bar's title while the Workspace panel is open. It names the PANEL,
+     *  not the project: the project name is one path segment with no label on
+     *  it, which read as a stray word rather than as where you are. */
+    menu: 'Menu',
     noProject: 'No project',
     tabsAria: 'Workspace sections',
     review: 'Review',

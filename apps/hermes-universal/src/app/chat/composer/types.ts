@@ -26,6 +26,11 @@ export interface ChatBarState {
     quickModels?: QuickModelOption[]
     /** Reused status-bar dropdown (built with gateway + selectModel upstream). */
     modelMenuContent?: ReactNode
+    /** The same picker as a touch DRAWER, used instead of the dropdown on
+     *  mobile. A render prop rather than a node because the pill owns open
+     *  state — the drawer IS the surface, so it cannot be handed over already
+     *  mounted inside a menu the way `modelMenuContent` is. */
+    modelDrawer?: (state: { onOpenChange: (open: boolean) => void; open: boolean }) => ReactNode
   }
   tools: { enabled: boolean; label: string; suggestions?: ContextSuggestion[] }
   voice: { enabled: boolean; active: boolean }

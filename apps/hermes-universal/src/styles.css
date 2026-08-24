@@ -743,18 +743,78 @@
     --sticky-human-top: 0.23rem;
     --file-tree-row-height: 1.375rem;
 
+    /* Minimum hittable size for anything tappable on a coarse pointer — every
+       button, and every menu/list ROW. One number, so raising it moves the whole
+       touch surface together.
+
+       IN PIXELS, and that is the point. `html.is-mobile` bumps `--dt-base-size`
+       to 1.125rem for readability, so a rem value here would resolve to 54px on
+       the device this exists for. A touch target is a fingertip, and a fingertip
+       does not grow when the type scale does — it is the one measurement in this
+       file that must not track the rem. */
+    --touch-target-min: 48px;
+
+    /* The touch size for DENSE chrome — the composer bar, and the controls
+       inside a sidebar row. Deliberately smaller than the floor above.
+       48px is right where a mis-tap picks the wrong thing (a menu row, a list
+       row in the model drawer). It is wrong for a fixed bar of six controls with
+       generous gaps, where it ate a third of the screen, and actively breaks a
+       20px kebab sitting in a 22px cell — it forced the button to 48 and clipped
+       it against the row. Second token rather than a lower floor, so the drawer's
+       rows keep the size that suits them. */
+    --touch-target-compact: 32px;
+
     --composer-width: 48.75rem;
     --composer-control-size: 1.5rem;
     --composer-control-primary-size: 1.625rem;
     --composer-control-gap: 0.25rem;
     --composer-row-gap: 0.25rem;
     --composer-ring-strength: 1;
-    --composer-surface-pad-x: 0.5rem;
-    --composer-surface-pad-y: 0.3125rem;
+    /* The composer's corner. Defaults to the system step it already used
+       (`rounded-2xl`), so it inherits `--radius-scalar` like everything else and
+       nothing moves until someone sets it. Override THIS to reshape the bar —
+       up to `calc(var(--composer-measured-height) / 2)` for a full pill. */
+    --composer-radius: var(--radius-2xl);
+
+    /* One value on both axes, and it tracks the corner.
+       (These were 0.5 / 0.3125, which read as a squashed box — the gap above the
+       input never matched the gap beside it.)
+
+       `radius - controlSize/2` is not a guess: it puts a circular control's
+       CENTRE on the centre of the corner arc, which is what makes the icon look
+       nestled in the curve instead of drifting out of it as the radius grows.
+       Floored at 0.5rem because below a ~1rem radius the expression goes
+       negative — the corner is smaller than the icon, and there is nothing to
+       centre against. At the default radius the floor wins, so this is a no-op
+       until the radius is actually turned up. */
+    --composer-surface-pad-x: max(0.5rem, calc(var(--composer-radius) - var(--composer-control-size) / 2));
+    --composer-surface-pad-y: max(0.5rem, calc(var(--composer-radius) - var(--composer-control-size) / 2));
+    /* EXTRA start inset for the text row ONLY, on top of the surface padding.
+       0 means the caret lines up exactly with the "+" on the row below, which is
+       the alignment the surface padding already gives everything else.
+
+       This is a tuning knob, deliberately separate from
+       `--composer-surface-pad-x`: raising that one moves BOTH rows and the
+       right-hand controls with them, which is not what nudging the text is for.
+       Set it here to shift the input alone; override it under `html[data-hud]`
+       or `html.is-mobile` to tune one surface. */
+    --composer-input-pad-start: 0.4rem;
     --composer-input-min-height: 1.625rem;
     --composer-input-max-height: 9.375rem;
-    --composer-input-inline-min-width: 8rem;
-    --composer-fallback-height: 2.75rem;
+    /* What the thread reserves for the composer BEFORE `use-composer-metrics`
+       measures it — so it must be roughly the composer's real surface height,
+       or the transcript lays out against one number and then jumps to another
+       the moment the measurement lands. That is a visible shift on every chat
+       mount, which is what a flat `2.75rem` was causing: the composer became
+       TWO rows and the fallback still described the old single-row bar (~70px
+       reserved against ~112px real).
+
+       Derived from the geometry rather than re-guessed, so it tracks the rows
+       instead of going stale again the next time they change. */
+    --composer-fallback-height: calc(
+      var(--composer-surface-pad-y) * 2 + var(--composer-input-min-height) + var(--composer-row-gap) +
+        var(--composer-control-size)
+    );
     /* Fallbacks until `use-composer-metrics` measures the real composer. It
        writes the two vars onto the composer's OWN `.chat` root, and
        `--thread-viewport-height` is declared THERE (not here) so each chat
@@ -1546,6 +1606,17 @@ html.is-mobile:has([data-slot='composer-root']:focus-within) {
    Tailwind spacing, the --composer-* geometry) grows with it. */
 html.is-mobile {
   --dt-base-size: 1.125rem;
+  /* Both rows are the touch size here, so the pointer-sized formula above would
+     under-reserve and re-introduce the mount jump. */
+  --composer-fallback-height: calc(
+    var(--composer-surface-pad-y) * 2 + var(--touch-target-compact) * 2 + var(--composer-row-gap)
+  );
+  /* Phones round harder than the desktop does, and at the shared 0.25 the app
+     read as a desktop app shrunk down. Every `--radius-*` step is
+     `calc(--radius-scalar * …)`, so this one number reshapes buttons, cards,
+     menus, the composer and its corner-tracking padding together — see
+     `--composer-radius`, whose padding follows the corner it is given. */
+  --radius-scalar: 0.6;
 }
 
 /* The phone's app root IS the visible rectangle, not the layout viewport.
@@ -1590,6 +1661,38 @@ html.is-mobile:not([data-hud]) #root {
    desktop's centered max-width + side gap. A small 8px side gap keeps it off the
    edges, growing to the safe-area inset in landscape. Its own surface keeps the
    text's inner breathing room. */
+/* Both composer rows are a finger target on a phone.
+   The controls row already is — its buttons carry `--touch-target-min`. This
+   gives the TEXT row the same height.
+
+   On the editor itself, deliberately, not on a wrapper around it: the row has to
+   be one continuous editable box or tapping the lower half would land in dead
+   space that refuses the caret (see `keepKeyboardClosed` in composer/index.tsx,
+   which tests the pointer against this element's rect). Centring a short editor
+   inside a taller wrapper would have re-created exactly the mis-tap this height
+   is meant to fix.
+
+   `align-content` keeps a single line vertically centred in the taller box while
+   the editor stays a BLOCK container — flex would reparent its text into
+   anonymous flex items and break the ref/slash chips. Older WebKit ignores it
+   and top-aligns, which is a cosmetic degrade, not a broken row. */
+html.is-mobile [data-slot='composer-rich-input'] {
+  min-block-size: var(--touch-target-compact);
+  align-content: center;
+}
+
+/* The bar's controls, back under the global floor. Higher specificity than the
+   `(pointer: coarse)` rule that sets `--touch-target-min`, so it wins wherever
+   they both apply without that rule needing to know the composer exists. */
+html.is-mobile [data-slot='composer-root'] button[data-variant]:not([class*='h-auto']),
+/* Sidebar/session rows: the kebab lives in a 22px cell inside a ~28px row, so
+   the 48px floor overflowed it in both axes and the control was clipped against
+   the row it belongs to. */
+html.is-mobile .row-hover button[data-variant]:not([class*='h-auto']) {
+  min-block-size: var(--touch-target-compact);
+  min-inline-size: var(--touch-target-compact);
+}
+
 html.is-mobile [data-slot='composer-root'] {
   width: 100%;
   padding-left: max(12px, var(--safe-area-inset-left));
@@ -2887,14 +2990,11 @@ body.guest-pointer-lock iframe {
    desktop's compact scale. Coarse-pointer platforms need two things back, and
    both are re-added here declaratively rather than by forking the primitives:
 
-   1. Hittable controls, at the usual 44px minimum.
+   1. Hittable controls and rows, at `--touch-target-min`.
 
-      In PIXELS, deliberately. This was `2.75rem`, written believing that was
-      44px — true at a 16px root, but `html.is-mobile` bumps `--dt-base-size` to
-      1.125rem for readability, so on the device this rule exists for it
-      resolved to 49.5px and every button on a phone came out oversized. A touch
-      target is a fingertip, and a fingertip does not grow when the type scale
-      does; it is the one measurement here that must not track the rem.
+      The number is now the `--touch-target-min` token (see its declaration for
+      why it is in PIXELS rather than rem). It was a hardcoded 44px; it is 48px,
+      and it reaches rows as well as buttons.
 
       Buttons that opt out of a box (the `inline`/`micro` sizes and the boxless
       text variants) carry `h-auto`, so they are excluded — they must stay flush
@@ -2913,9 +3013,38 @@ body.guest-pointer-lock iframe {
       behind it) and reuses the hover token, so a press reads as the same state a
       hover does. */
 @media (pointer: coarse) {
-  [data-slot='button']:not([class*='h-auto']) {
-    min-block-size: 44px;
-    min-inline-size: 44px;
+  /* `button[data-variant]` is NOT redundant beside the slot selector, and
+     leaving it out is why this rule quietly did nothing where it mattered most.
+     `Button` renders `data-slot="button"` and then spreads `{...props}` over it,
+     so any Radix trigger using `asChild` — `TooltipTrigger`, the model pill's
+     `DropdownMenuTrigger` — replaces the slot with its own. Every control in the
+     composer is wrapped in a `Tip`, so every one of them reported
+     `data-slot="tooltip-trigger"` and none was ever caught: measured at 27x27 on
+     a phone against a 44px rule that matched nothing.
+     `data-variant` is written by `Button` and by nothing that wraps it, so it
+     survives the spread and identifies the component. */
+  [data-slot='button']:not([class*='h-auto']),
+  button[data-variant]:not([class*='h-auto']) {
+    min-block-size: var(--touch-target-min);
+    min-inline-size: var(--touch-target-min);
+  }
+
+  /* ROWS too, not just buttons. A menu row is the most-tapped control in the
+     app — picking a model, a provider, a session — and it was sized by its text
+     (`py-1`, ~26px), so it was the hardest thing on a phone to hit and the
+     easiest to miss. Height only: a row is full-width already, and a
+     `min-inline-size` on it would fight the menu's own width.
+
+     `:has()` on the sub-trigger is not needed — these are the row slots
+     themselves. Anything opting out of a box carries `h-auto`, same escape
+     hatch the button rule uses. */
+  [data-slot='command-item']:not([class*='h-auto']),
+  [data-slot='dropdown-menu-checkbox-item']:not([class*='h-auto']),
+  [data-slot='dropdown-menu-item']:not([class*='h-auto']),
+  [data-slot='dropdown-menu-radio-item']:not([class*='h-auto']),
+  [data-slot='dropdown-menu-sub-trigger']:not([class*='h-auto']),
+  [data-slot='select-item']:not([class*='h-auto']) {
+    min-block-size: var(--touch-target-min);
   }
 
   [data-slot='input'],
@@ -2982,6 +3111,57 @@ body.guest-pointer-lock iframe {
   transition: none !important;
 }
 
+/* ── Top menu reveal ─────────────────────────────────────────────────────────
+   The phone's title menu (`components/ui/top-drawer`) slides down and must
+   appear to come out from UNDER the bar it hangs off.
+
+   Z-index cannot do it, which is worth writing down because it is the obvious
+   first attempt. The panel is portalled to `<body>`; the bar lives inside
+   `#root`, which `html.is-mobile … #root` makes `position: fixed` and therefore
+   its own stacking context. Painting the bar above a portalled `z-50` panel
+   means lifting `#root` above it — which puts the whole app above the scrim and
+   the dimming disappears.
+
+   So the CLIP does it instead. The panel is already pinned at the bar's bottom
+   edge and never moves; it only clips (`overflow: hidden`). Its CONTENTS carry
+   the slide, travelling down from behind that edge. The motion is the same one
+   `slide-in-from-top` gives, minus the part where the card is painted across the
+   chrome on its way in.
+
+   The panel's own animation is cancelled rather than left to fight this: the
+   `data-[state]:slide-in-from-top` utilities on `SheetContent` would translate
+   the clipping box itself, which is exactly what we are undoing. */
+[data-slot='sheet-content'][data-top-drawer] {
+  overflow: hidden;
+  animation: none;
+}
+
+@keyframes top-drawer-slide-in {
+  from {
+    transform: translateY(-100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes top-drawer-slide-out {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(-100%);
+  }
+}
+
+[data-top-drawer][data-state='open'] > [data-top-drawer-inner] {
+  animation: top-drawer-slide-in 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+[data-top-drawer][data-state='closed'] > [data-top-drawer-inner] {
+  animation: top-drawer-slide-out 180ms ease-in;
+}
+
 /* --------------------------------------------------------------------------
    HUD mode (MJXHRM-213) — a floating surface over other applications.
 
@@ -3024,31 +3204,39 @@ html[data-hud] [data-slot='composer-root'] {
   max-width: none !important;
   padding: 0 !important;
   margin: 0 !important;
-  border-radius: var(--radius-6xl, 3rem);
+  /* No border-radius override: the corner comes from the composer's own class,
+     the same one the chat screen uses, so the two read as one component. */
   background: transparent !important;
   border: none !important;
   box-shadow: none !important;
   outline: none !important;
 }
 
+/* The surface keeps the chat screen's border and fill on purpose — the HUD bar
+   should read as the SAME composer, not a chrome-less variant of it. This rule
+   used to strip `border` / `background` / `box-shadow` to nothing, which left
+   the input floating on the desktop wallpaper with no edge to it.
+
+   Only the OUTER form (`composer-root`, above) stays transparent: that is the
+   grab margin around the surface, and painting it would draw a second box
+   around this one. */
 html[data-hud] [data-slot='composer-surface'] {
-  border: none !important;
-  box-shadow: none !important;
-  background: transparent !important;
-  outline: none !important;
+  /* Deliberately empty of chrome overrides. Kept as the place that documents
+     WHY: the HUD surface paints the chat screen's border, fill and radius
+     unchanged. */
+  border-radius: inherit;
 }
 
-html[data-hud] [data-slot='composer-fade'] {
-  padding-inline: 1rem !important;
-  padding-block: 0.375rem !important;
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-}
+/* No padding override. The HUD used to inset the bar 1rem horizontally against
+   0.375rem vertically; it now takes `--composer-surface-pad-*` like every other
+   surface, so the inset is smaller and equal on both axes. */
 
+/* No inline padding of its own. This used to force 0.5rem on both sides with
+   `!important`, which put the HUD's caret 8px right of the "+" beneath it and
+   made `--composer-input-pad-start` unsettable on this surface — the one place
+   the knob is most likely to be wanted. The input now takes the same token here
+   as everywhere else. */
 html[data-hud] [data-slot='composer-rich-input'] {
-  padding-inline-start: 0.5rem !important;
-  padding-inline-end: 0.5rem !important;
   background: transparent !important;
   border: none !important;
   box-shadow: none !important;
