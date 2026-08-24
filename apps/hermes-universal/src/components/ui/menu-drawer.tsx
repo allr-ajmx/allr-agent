@@ -151,11 +151,14 @@ export const DRAWER_KIT: MenuKit = {
  * without the caller threading state through its spec list.
  */
 export function MenuDrawer({
+  offsetTop,
   onOpenChange,
   open,
   render,
   title
 }: {
+  /** Bottom edge of the control that opened this — see `TopDrawer`. */
+  offsetTop?: number
   onOpenChange: (open: boolean) => void
   open: boolean
   render: (kit: MenuKit) => ReactNode
@@ -173,6 +176,7 @@ export function MenuDrawer({
   return (
     <Ctx.Provider value={{ close, push: setPage }}>
       <TopDrawer
+        offsetTop={offsetTop}
         onBack={page ? () => setPage(null) : undefined}
         onOpenChange={next => (next ? onOpenChange(true) : close())}
         open={open}

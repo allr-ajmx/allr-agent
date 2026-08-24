@@ -24,6 +24,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/compon
 import { Input } from '@/components/ui/input'
 import { MenuDrawer } from '@/components/ui/menu-drawer'
 import { type PaneTabCloseItemsOptions, paneTabCloseSpecs } from '@/components/ui/pane-tab'
+import { topBarBottom } from '@/components/ui/top-drawer'
 import { useI18n } from '@/i18n'
 import { writeClipboardText } from '@/lib/clipboard'
 import { triggerHaptic } from '@/lib/haptics'
@@ -362,6 +363,8 @@ export function SessionActionsMenu({ children, ...actions }: SessionActionsMenuP
   const { t } = useI18n()
   const { renameDialog, renderItems } = useSessionActions(actions)
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const triggerRef = useRef<HTMLSpanElement>(null)
+  const [offsetTop, setOffsetTop] = useState(0)
 
   // TOUCH: the same menu as a drawer down from the top, submenus as pages.
   // `renderItems` is unchanged — it is handed a different kit, which is the
@@ -369,10 +372,21 @@ export function SessionActionsMenu({ children, ...actions }: SessionActionsMenuP
   if (IS_MOBILE) {
     return (
       <>
-        <span className="contents" onClick={() => setDrawerOpen(true)}>
+        {/* `inline-flex`, not `contents`: the wrapper has to have a BOX for
+            `getBoundingClientRect` to report the trigger's bottom edge, and a
+            `display: contents` element has none. */}
+        <span
+          className="inline-flex min-w-0 flex-1 self-stretch"
+          onClick={() => {
+            setOffsetTop(topBarBottom(triggerRef.current))
+            setDrawerOpen(true)
+          }}
+          ref={triggerRef}
+        >
           {children}
         </span>
         <MenuDrawer
+          offsetTop={offsetTop}
           onOpenChange={setDrawerOpen}
           open={drawerOpen}
           render={renderItems}

@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react-vite'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
 import type { MenuKit } from '@/components/ui/actions-menu'
 import { Codicon } from '@/components/ui/codicon'
@@ -7,6 +7,7 @@ import { Codicon } from '@/components/ui/codicon'
 import { withMobile } from '../../../.storybook/decorators'
 
 import { MenuDrawer } from './menu-drawer'
+import { topBarBottom } from './top-drawer'
 
 /**
  * A kit-rendered menu hosted as a top drawer.
@@ -19,6 +20,8 @@ import { MenuDrawer } from './menu-drawer'
  */
 function Harness() {
   const [open, setOpen] = useState(true)
+  const [offsetTop, setOffsetTop] = useState(0)
+  const triggerRef = useRef<HTMLButtonElement>(null)
 
   const render = (kit: MenuKit) => (
     <>
@@ -55,12 +58,35 @@ function Harness() {
     </>
   )
 
+  // A stand-in top bar carrying `data-top-bar`, which is what the drawer
+  // anchors to — the panel and its scrim both start at this bar's bottom edge,
+  // so the bar stays legible instead of being dimmed behind a modal sheet.
   return (
-    <div className="flex h-full flex-col items-center justify-center">
-      <button className="rounded-md border border-border/65 px-3 py-2 text-sm" onClick={() => setOpen(true)} type="button">
-        Open menu
-      </button>
-      <MenuDrawer onOpenChange={setOpen} open={open} render={render} title="Session actions" />
+    <div className="flex h-full flex-col">
+      <div
+        className="flex h-11 shrink-0 items-center border-b border-border/65 bg-(--ui-bg-chrome) px-3"
+        data-top-bar
+      >
+        <button
+          className="text-sm font-medium"
+          onClick={() => {
+            setOffsetTop(topBarBottom(triggerRef.current))
+            setOpen(true)
+          }}
+          ref={triggerRef}
+          type="button"
+        >
+          Research pre-seed funding checklist ⌄
+        </button>
+      </div>
+      <div className="flex-1" />
+      <MenuDrawer
+        offsetTop={offsetTop}
+        onOpenChange={setOpen}
+        open={open}
+        render={render}
+        title="Session actions"
+      />
     </div>
   )
 }

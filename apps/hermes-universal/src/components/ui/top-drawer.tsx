@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { useI18n } from '@/i18n'
-import { ChevronLeft, X } from '@/lib/icons'
+import { ChevronLeft } from '@/lib/icons'
 import { cn } from '@/lib/utils'
 
 /**
@@ -20,9 +20,44 @@ import { cn } from '@/lib/utils'
  * the caller knows what a submenu means. That keeps one drawer serving both a
  * flat nav list and a menu with interactive submenus.
  */
+/**
+ * Where a drawer opened by `el` should start: the bottom of the BAR it sits in,
+ * falling back to the control itself.
+ *
+ * The control is vertically centred in a taller bar, so anchoring to the control
+ * alone leaves the drawer covering the bar's last few pixels — including its
+ * border — which is exactly the "over the top bar" look this avoids. Bars opt in
+ * with `data-top-bar` rather than being guessed at by walking parents, because
+ * the two that matter (the phone's chrome bar, the overlay nav strip) have
+ * nothing structural in common.
+ */
+export function topBarBottom(el: HTMLElement | null): number {
+  const bar = el?.closest<HTMLElement>('[data-top-bar]')
+
+  if (bar) {
+    return Math.round(bar.getBoundingClientRect().bottom)
+  }
+
+  // The trigger is not inside a marked bar — a menu opened from somewhere else,
+  // or a ref that was not attached by the time it was read. Fall back to the
+  // LOWEST bar on screen rather than to the control: a menu that opens at 0
+  // covers the chrome it belongs to, which is the one outcome to avoid, and the
+  // lowest bar is the innermost one on a stacked surface.
+  const bars = [...document.querySelectorAll<HTMLElement>('[data-top-bar]')]
+    .map(node => node.getBoundingClientRect().bottom)
+    .filter(bottom => bottom > 0)
+
+  if (bars.length > 0) {
+    return Math.round(Math.max(...bars))
+  }
+
+  return el ? Math.round(el.getBoundingClientRect().bottom) : 0
+}
+
 export function TopDrawer({
   children,
   className,
+  offsetTop,
   onBack,
   onOpenChange,
   open,
@@ -30,6 +65,12 @@ export function TopDrawer({
 }: {
   children: ReactNode
   className?: string
+  /** Where the panel's top edge sits, in px — normally the BOTTOM of the control
+   *  that opened it, so the drawer appears to come out from under the bar rather
+   *  than over it. Measured by the caller rather than assumed here: the chat's
+   *  top bar and the Settings / Command Center nav strip are different heights,
+   *  so any constant would be wrong on one of them. */
+  offsetTop?: number
   /** Present = a sub-page is showing; renders the back button. */
   onBack?: () => void
   onOpenChange: (open: boolean) => void
@@ -41,38 +82,61 @@ export function TopDrawer({
   return (
     <Sheet onOpenChange={onOpenChange} open={open}>
       <SheetContent
-        className={cn('flex max-h-[calc(var(--visual-viewport-height,100vh)-4rem)] flex-col gap-0 p-0', className)}
-        /* Radix focuses the first focusable child on open. In a drawer with a
-           search or a text field that is the soft keyboard, arriving on top of
-           the list you opened this to read. Focus the panel: the dialog still
-           takes focus, so Escape and screen readers work, but nothing typeable
-           does. Same reason the model drawer does it. */
+        className={cn(
+          'flex flex-col gap-0 p-0',
+          // No focus ring. The panel is focused on open (see below) and a
+          // `tabIndex={-1}` container takes the platform's default outline with
+          // it — which is where the stray blue line above the list came from.
+          // It is not a theme colour and never was.
+          'outline-none focus:outline-none focus-visible:outline-none',
+          // Hangs off the bar: square at the top, rounded below, and no top
+          // border, so it reads as the bar continuing downward rather than as a
+          // separate card floating under it.
+          'rounded-t-none rounded-b-xl border-t-0',
+          className
+        )}
+        /* Radix focuses the first focusable child on open; where that is a field
+           it means the soft keyboard arriving over the list. Focus the panel
+           instead — the dialog still takes focus, so Escape and screen readers
+           work, but nothing typeable does. */
         onOpenAutoFocus={event => {
           event.preventDefault()
           ;(event.currentTarget as HTMLElement | null)?.focus?.()
         }}
+        /* The scrim starts where the panel does. Covering the bar dimmed AND
+           blurred the very chrome the menu belongs to, which is what made this
+           read as a modal sheet instead of a menu. */
+        overlayClassName="backdrop-blur-none bg-black/22"
+        overlayStyle={{ top: offsetTop ?? 0 }}
         showCloseButton={false}
         side="top"
+        style={{
+          // 75% of the visible screen, and capped by what is actually left below
+          // the bar — whichever is smaller. The second term matters on a short
+          // screen or with the keyboard up, where 75% of the viewport would run
+          // the panel off the bottom.
+          maxHeight: `min(75vh, calc(var(--visual-viewport-height, 100vh) - ${offsetTop ?? 0}px - 2rem))`,
+          top: offsetTop ?? 0
+        }}
       >
-        <div className="flex shrink-0 items-center gap-2 border-b border-border/65 p-3">
-          {onBack && (
-            <Button aria-label={common.back} className="shrink-0" onClick={onBack} size="icon" type="button" variant="ghost">
+        {/* Radix needs an accessible name; the BAR already shows it, so
+            repeating it as a heading just said "Settings" twice down the
+            screen. Visually hidden, not removed. */}
+        <SheetTitle className="sr-only">{title}</SheetTitle>
+
+        {/* A header only when there is somewhere to go back to. At the top level
+            the rows are the whole menu — a hamburger has no title bar of its
+            own, and the close is the same control you opened it with. */}
+        {onBack && (
+          <div className="flex shrink-0 items-center gap-2 border-b border-border/65 px-2 py-1.5">
+            <Button aria-label={common.back} onClick={onBack} size="icon" type="button" variant="ghost">
               <ChevronLeft className="size-5" />
             </Button>
-          )}
-          <SheetTitle className="min-w-0 flex-1 truncate text-sm font-medium">{title}</SheetTitle>
-          <Button
-            aria-label={common.close}
-            className="shrink-0"
-            onClick={() => onOpenChange(false)}
-            size="icon"
-            type="button"
-            variant="ghost"
-          >
-            <X className="size-5" />
-          </Button>
-        </div>
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-2">{children}</div>
+            <span className="min-w-0 flex-1 truncate text-sm font-medium">{title}</span>
+          </div>
+        )}
+
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain py-1">{children}</div>
       </SheetContent>
     </Sheet>
   )

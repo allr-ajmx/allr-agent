@@ -1,4 +1,4 @@
-import { Fragment, useState } from 'react'
+import { Fragment, useRef, useState } from 'react'
 
 import { Codicon } from '@/components/ui/codicon'
 import {
@@ -15,7 +15,7 @@ import type { IconComponent } from '@/lib/icons'
 import { IS_MOBILE } from '@/lib/platform'
 import { cn } from '@/lib/utils'
 
-import { TopDrawer, TopDrawerRow } from './top-drawer'
+import { topBarBottom, TopDrawer, TopDrawerRow } from './top-drawer'
 
 // A count badge beside a tab label. `null` = still loading (pulsing chip, not a
 // fake 0); numbers render compact; strings pass through; `undefined` = no badge.
@@ -56,6 +56,10 @@ export function TabDropdown({
 }) {
   const active = items.find(item => item.active) ?? items[0]
   const [drawerOpen, setDrawerOpen] = useState(false)
+  // Measured on open, not once: the strip carries a safe-area inset that is not
+  // resolved on the first frame, and the bar moves between surfaces.
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const [offsetTop, setOffsetTop] = useState(0)
 
   const trigger = (
     <>
@@ -82,12 +86,18 @@ export function TabDropdown({
             'flex h-7 min-h-(--touch-target-compact) cursor-pointer items-center gap-1.5 px-1',
             'text-[length:var(--conversation-caption-font-size)] font-medium text-foreground'
           )}
-          onClick={() => setDrawerOpen(true)}
+          onClick={() => {
+            // The drawer's top edge is the bar's bottom edge, so it reads as
+            // coming out from UNDER the bar instead of covering it.
+            setOffsetTop(topBarBottom(triggerRef.current))
+            setDrawerOpen(true)
+          }}
+          ref={triggerRef}
           type="button"
         >
           {trigger}
         </button>
-        <TopDrawer onOpenChange={setDrawerOpen} open={drawerOpen} title={active?.label ?? ''}>
+        <TopDrawer offsetTop={offsetTop} onOpenChange={setDrawerOpen} open={drawerOpen} title={active?.label ?? ''}>
           {items.map(item => (
             <TopDrawerRow
               active={item.active}

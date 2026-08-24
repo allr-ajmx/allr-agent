@@ -79,7 +79,10 @@ export function MobileChromeBar({
       data-slot="mobile-chrome-bar"
       style={{ paddingTop: 'var(--safe-area-inset-top)' }}
     >
-      <div className={mobileChromeBarRowVariants({ density })}>
+      {/* `data-top-bar`: a drawer opened from this bar starts at its bottom
+          edge rather than at the control's, so it reads as coming out from
+          under the bar. See `topBarBottom` in components/ui/top-drawer. */}
+      <div className={mobileChromeBarRowVariants({ density })} data-top-bar>
         {left != null ? <div className={mobileChromeBarSlotVariants({ slot: 'left' })}>{left}</div> : left}
         <div className={mobileChromeBarSlotVariants({ slot: 'center' })}>{center}</div>
         {right != null ? <div className={mobileChromeBarSlotVariants({ slot: 'right' })}>{right}</div> : right}

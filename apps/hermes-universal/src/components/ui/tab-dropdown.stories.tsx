@@ -24,13 +24,26 @@ const ITEMS = [
   { active: false, icon: Settings, id: 'backups', indent: true, label: 'Backups', onSelect: () => {} }
 ]
 
+/** A stand-in for the surface's own top strip, so the drawer's top edge can be
+ *  seen to land on the bar's bottom edge rather than over it. */
+function WithTopBar() {
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex h-11 shrink-0 items-center border-b border-border/65 bg-(--ui-bg-chrome) px-3" data-top-bar>
+        <TabDropdown items={ITEMS} />
+      </div>
+      <div className="flex-1" />
+    </div>
+  )
+}
+
 const meta = {
   args: { items: ITEMS },
-  component: TabDropdown,
+  component: WithTopBar,
   decorators: [withMobile],
   parameters: { layout: 'fullscreen', viewport: { defaultViewport: 'mobile1' } },
   title: 'Nav/Tab Dropdown'
-} satisfies Meta<typeof TabDropdown>
+} satisfies Meta<typeof WithTopBar>
 
 export default meta
 

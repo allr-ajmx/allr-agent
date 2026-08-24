@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import { useLocation } from 'react-router-dom'
 
 import { COMMAND_CENTER_ROUTE } from '@/app/routes'
-import { useSettingsNav } from '@/app/settings/settings-nav'
+import { useSettingsNavGroups } from '@/app/settings/settings-nav'
 import { useI18n } from '@/i18n'
 import { Activity, BarChart3, MessageCircle, Wrench } from '@/lib/icons'
 import type { ActivitySurface } from '@/store/windows'
@@ -21,6 +21,8 @@ export interface SurfaceNavRow {
   active: boolean
   icon: ReactNode
   id: string
+  /** A sub-tab, listed under its group and indented. */
+  indent?: boolean
   label: string
   path: string
 }
@@ -38,7 +40,14 @@ export function useSurfaceNavRows(surface: ActivitySurface): SurfaceNavRow[] {
   const { t } = useI18n()
   const location = useLocation()
   // Hooks run unconditionally; only the settings branch consumes this.
-  const settingsEntries = useSettingsNav()
+  //
+  // The GROUPED model, not the flat `useSettingsNav()` this used to read. The
+  // flat one has no `children`, so the phone could not list Providers → API
+  // keys / Custom endpoints or Keys → Settings at all; they were reachable only
+  // by opening the group and finding a second, different control inside the
+  // page. This is the same model the desktop rail renders, so the two now agree
+  // on what Settings contains.
+  const settingsEntries = useSettingsNavGroups()
 
   if (surface === 'command-center') {
     const active = new URLSearchParams(location.search).get('section') ?? 'sessions'
@@ -57,13 +66,31 @@ export function useSurfaceNavRows(surface: ActivitySurface): SurfaceNavRow[] {
       ? location.pathname.slice('/settings/'.length).split('/')[0]
       : settingsEntries[0]?.id
 
-    return settingsEntries.map(entry => ({
-      active: entry.id === topId,
-      icon: <entry.icon className={ICON_CLASS} />,
-      id: entry.id,
-      label: entry.label,
-      path: `/settings/${entry.id}`
-    }))
+    const section = location.pathname.startsWith('/settings/')
+      ? location.pathname.slice('/settings/'.length)
+      : (settingsEntries[0]?.id ?? '')
+
+    // Groups AND their sub-tabs, flattened and indented — the same shape
+    // `OverlayNav` flattens into its narrow dropdown. Only the groups were
+    // listed before, which put Providers → API keys (and Keys → Settings)
+    // behind a group tap and then a second, different control inside the page.
+    return settingsEntries.flatMap(entry => [
+      {
+        active: entry.id === topId && section === entry.id,
+        icon: <entry.icon className={ICON_CLASS} />,
+        id: entry.id,
+        label: entry.label,
+        path: `/settings/${entry.id}`
+      },
+      ...(entry.children ?? []).map(child => ({
+        active: section === child.id,
+        icon: <child.icon className={ICON_CLASS} />,
+        id: child.id,
+        indent: true,
+        label: child.label,
+        path: `/settings/${child.id}`
+      }))
+    ])
   }
 
   return []
