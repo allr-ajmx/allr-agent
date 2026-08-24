@@ -32,7 +32,7 @@ import {
   setZoneRenderHook
 } from '@/components/pane-shell/tree/renderer/telemetry'
 
-import { isRecording, recordSpan } from '../span'
+import { isRecording, recordSpan, takeCommitCause } from '../span'
 
 import { probeCommit } from './engine-probe'
 import { currentFrame, noteFrameWork, onFrameEnd } from './frames'
@@ -156,11 +156,26 @@ export function installLayoutCounters(): () => void {
     // (startTime → commitTime) covers the whole render+commit including
     // whatever React yielded for. A 40ms span with `actualMs: 6` is React
     // yielding, not React working, and without both it reads as the latter.
+    // WHO SCHEDULED THIS. The autocapture knows a commit happened and what it
+    // cost; only the scheduler knows why, so it claims a cause and this reads it
+    // (see `noteCommitCause` in span.ts). Claimed on the root commit rather than
+    // the pane spans above because "who caused it" is one answer per commit,
+    // while "which pane paid" is one per pane.
+    //
+    // Best-effort by construction: a claim is consumed by the NEXT commit, so an
+    // update that batches with an unrelated one labels whichever lands first.
+    // That is why an unclaimed commit stays unlabelled instead of inheriting —
+    // a cause that is sometimes stale would be indistinguishable from one that
+    // is right.
+    const cause = takeCommitCause()
+
     recordSpan(
       'react.commit',
       startTime,
       commitTime,
-      { actualMs: Math.round(actualDuration), baseMs: Math.round(baseDuration), phase },
+      cause
+        ? { actualMs: Math.round(actualDuration), baseMs: Math.round(baseDuration), cause, phase }
+        : { actualMs: Math.round(actualDuration), baseMs: Math.round(baseDuration), phase },
       currentFrame() || undefined
     )
 

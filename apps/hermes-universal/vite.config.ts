@@ -15,6 +15,7 @@ import { defineConfig } from 'vitest/config'
 // default) resolves config imports through Node, which does not do extension
 // inference. Without it the config loads today and warns, and stops loading
 // the day that flag flips.
+import { addSpanSources } from './src/observability/auto/span-sources.ts'
 import { addStoreNames } from './src/observability/auto/store-names.ts'
 
 // Tauri expects a fixed dev port and a non-clearing console.
@@ -123,6 +124,36 @@ const storeNamePlugin = {
   }
 }
 
+/**
+ * Span source attribution — same shape as the store transform above, and on in
+ * every build rather than dev-only.
+ *
+ * It ships because a span that cannot say which module raised it is materially
+ * harder to read, and the cost is one interned integer per span (see the
+ * `spanSrc` column in span.ts) rather than the alias-plus-wrapper the store
+ * transform needs. A user's OTLP dump from a release build is worth the same
+ * attribution a dev capture gets.
+ */
+const spanSourcePlugin = {
+  enforce: 'pre' as const,
+  name: 'hermes-span-sources',
+  transform(code: string, id: string) {
+    // Tests excluded for the reason the store transform gives: this matches raw
+    // TEXT, and a spec whose fixtures ARE import statements is indistinguishable
+    // from the real thing. `span-sources.test.ts` is exactly that file.
+    if (!id.includes('/src/') || !/\.tsx?$/.test(id) || /\.(test|spec)\.tsx?$/.test(id)) {
+      return null
+    }
+
+    const next = addSpanSources(code, id)
+
+    // `map: null` — the rewrite replaces one line with one line, so line
+    // numbers are unchanged and stack traces stay truthful. The transform
+    // refuses multi-line imports to keep that true.
+    return next === null ? null : { code: next, map: null }
+  }
+}
+
 // The emoji picker (frimousse) fetches `<emojibaseUrl>/<locale>/data.json` at
 // runtime, defaulting to a CDN. The app's CSP has no `connect-src` for one, and
 // a client that has to reach the internet to draw a picker is broken on a
@@ -179,7 +210,13 @@ export default defineConfig(({ command }) => ({
   define: {
     __TRACE_RUN_DEFAULT__: JSON.stringify(traceRunDefault())
   },
-  plugins: [react(), tailwindcss(), emojibaseAssets(), ...(STORE_TRACING ? [storeNamePlugin] : [])],
+  plugins: [
+    react(),
+    tailwindcss(),
+    emojibaseAssets(),
+    spanSourcePlugin,
+    ...(STORE_TRACING ? [storeNamePlugin] : [])
+  ],
   // Tailwind v4 is handled entirely by `@tailwindcss/vite`; pin an explicit
   // empty PostCSS config so Vite doesn't walk UP the filesystem and pick up a
   // stray postcss/tailwind config from the install location (see desktop

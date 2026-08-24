@@ -70,8 +70,15 @@ function encode(batch: ExportSpan[], roots: CaptureRoot[]) {
   const origin = timeOrigin()
   const nanos = (ms: number) => String(Math.round((origin + ms) * 1e6))
 
+  // `code.namespace` is OTel's conventional name for "the module this came
+  // from", so Jaeger shows it as a span tag and can filter on it without any
+  // configuration of ours. Omitted when unattributed rather than sent empty: a
+  // tag present on every span with a blank value is noise in the tag list.
   const encodeOne = (s: ExportSpan) => ({
-    attributes: Object.entries(s.attrs ?? {}).map(([key, value]) => ({ key, value: attrValue(value) })),
+    attributes: [
+      ...Object.entries(s.attrs ?? {}).map(([key, value]) => ({ key, value: attrValue(value) })),
+      ...(s.src ? [{ key: 'code.namespace', value: attrValue(s.src) }] : [])
+    ],
     endTimeUnixNano: nanos(Number.isNaN(s.endMs) ? s.startMs : s.endMs),
     kind: 1,
     name: s.name,
@@ -91,6 +98,8 @@ function encode(batch: ExportSpan[], roots: CaptureRoot[]) {
         name: root.name,
         parent: 0,
         serial: root.serial,
+        // The capture root is raised by the tracer itself, not by any module.
+        src: '',
         startMs: root.startMs,
         trace: root.trace
       })
