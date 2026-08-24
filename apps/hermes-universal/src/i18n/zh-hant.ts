@@ -4,6 +4,17 @@ import { defineLocale } from './define-locale'
 
 export const zhHant = defineLocale({
   common: {
+    fileDownload: {
+      saved: '檔案已儲存',
+      failed: '下載失敗',
+      notFound: '該檔案已不在閘道上。',
+      forbidden: '閘道不提供該檔案。',
+      tooLarge: '該檔案過大，無法下載。',
+      unauthorized: '工作階段已過期，請重新連線後再試。',
+      noGateway: '尚未連線到閘道。',
+      unreachable: '無法連線到閘道。',
+      writeFailed: '無法將檔案寫入磁碟。'
+    },
     apply: '套用',
     back: '返回',
     save: '儲存',

@@ -112,3 +112,96 @@ describe('preprocessMarkdown', () => {
     expect(preprocessMarkdown(fence)).toContain('echo $5')
   })
 })
+
+/**
+ * File links the agent wrote by hand, rather than as a `MEDIA:` marker.
+ *
+ * Both shapes were dead before this pass. A `file:` href is DELETED outright by
+ * streamdown's `rehype-sanitize` (its GitHub schema allows http/https/irc/ircs/
+ * mailto/xmpp for `href`), so `MarkdownLink` received `href === undefined` and
+ * rendered inert text. A bare path survived sanitize but fell through to
+ * `openExternalLink`, which asks THIS device's OS to open a path that only
+ * exists on the gateway. Rewriting to the `#media:` fragment dodges both: a
+ * fragment has no protocol for sanitize to reject.
+ */
+describe('preprocessMarkdown file links', () => {
+  it('routes a bare absolute path through the media scheme', () => {
+    expect(preprocessMarkdown('[Q3 report](/work/out/q3.pdf)')).toBe('[Q3 report](#media:%2Fwork%2Fout%2Fq3.pdf)')
+  })
+
+  it('routes a file: URL through it too, unwrapping the path first', () => {
+    expect(preprocessMarkdown('[notes](file:///work/notes.txt)')).toBe('[notes](#media:%2Fwork%2Fnotes.txt)')
+  })
+
+  it('keeps the label the agent wrote — it is the only copy of that wording', () => {
+    expect(preprocessMarkdown('see [the full audit](/srv/audit.csv) for detail')).toContain('[the full audit](')
+  })
+
+  it('leaves an image as a bare path, which MarkdownImage resolves itself', () => {
+    expect(preprocessMarkdown('![chart](file:///work/chart.png)')).toBe('![chart](/work/chart.png)')
+  })
+
+  it('does not touch http(s) links', () => {
+    expect(preprocessMarkdown('[docs](https://example.com/a.pdf)')).toBe('[docs](https://example.com/a.pdf)')
+  })
+
+  // `[docs](/guide)` is a route, not a file. Without the extension test this
+  // pass would claim it and turn a working link into a download attempt.
+  it('does not claim an extensionless absolute target', () => {
+    expect(preprocessMarkdown('[docs](/guide)')).toBe('[docs](/guide)')
+  })
+
+  it('leaves a path inside a fenced block literal', () => {
+    const fenced = '```\n[report](/work/out/q3.pdf)\n```'
+
+    expect(preprocessMarkdown(fenced)).toContain('[report](/work/out/q3.pdf)')
+  })
+
+  it('leaves a path inside an inline code span literal', () => {
+    expect(preprocessMarkdown('`[report](/work/q3.pdf)`')).toBe('`[report](/work/q3.pdf)`')
+  })
+
+  // `renderMediaTags` has already produced these upstream; a second pass must
+  // not double-encode them.
+  it('is idempotent on an existing #media: link', () => {
+    const already = '[File: q3.pdf](#media:%2Fwork%2Fq3.pdf)'
+
+    expect(preprocessMarkdown(already)).toBe(already)
+  })
+})
+
+/**
+ * `MEDIA:/path` and `[label](/path)` are two spellings of "here is a file", so
+ * they converge on one href through one function (`renderFileRefs`).
+ *
+ * Running that at RENDER rather than only at ingest is what makes it
+ * retroactive: an old transcript is normalized as it is drawn, so chats that
+ * predate this work do not need re-ingesting or rewriting on the gateway. It is
+ * also a safety net — the ingest pass is guarded on a literal `MEDIA:` at both
+ * call sites (so it cannot reflow plain prose), which means text arriving by
+ * any other route would otherwise never be normalized at all.
+ */
+describe('preprocessMarkdown unifies both file conventions', () => {
+  it('normalizes a MEDIA: marker that never went through ingest', () => {
+    expect(preprocessMarkdown('MEDIA:/tmp/demo.mp4')).toBe('[Video: demo.mp4](#media:%2Ftmp%2Fdemo.mp4)')
+  })
+
+  it('lands both spellings of the same file on the same href', () => {
+    const fromMarker = preprocessMarkdown('MEDIA:/work/q3.pdf')
+    const fromLink = preprocessMarkdown('[q3.pdf](/work/q3.pdf)')
+    const href = (out: string) => out.slice(out.indexOf('](') + 2, out.length - 1)
+
+    expect(href(fromMarker)).toBe(href(fromLink))
+  })
+
+  it('handles a message that mixes the two', () => {
+    const out = preprocessMarkdown('MEDIA:/tmp/clip.mp3\n\nand [the notes](/work/notes.txt) too')
+
+    expect(out).toContain('(#media:%2Ftmp%2Fclip.mp3)')
+    expect(out).toContain('[the notes](#media:%2Fwork%2Fnotes.txt)')
+  })
+
+  it('leaves a MEDIA: marker inside a fence literal, which ingest cannot do', () => {
+    expect(preprocessMarkdown('```\nMEDIA:/tmp/demo.mp4\n```')).toContain('MEDIA:/tmp/demo.mp4')
+  })
+})

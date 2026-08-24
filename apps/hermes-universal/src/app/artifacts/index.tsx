@@ -34,7 +34,7 @@ import { normalize } from '@/lib/text'
 import { fmtDayTime } from '@/lib/time'
 import { cn } from '@/lib/utils'
 import { useDisplayPath } from '@/store/display-home'
-import { notifyError } from '@/store/notifications'
+import { notify, notifyError } from '@/store/notifications'
 
 import { useRefreshHotkey } from '../hooks/use-refresh-hotkey'
 import { useRouteEnumParam } from '../hooks/use-route-enum-param'
@@ -249,14 +249,19 @@ export function ArtifactsView({ setStatusbarItemGroup: _setStatusbarItemGroup, .
   const openArtifact = useCallback(
     async (artifact: ArtifactRecord) => {
       try {
-        // A gateway-local artifact is bytes on the GATEWAY's disk, so it is
-        // fetched over the authenticated Rust transport and handed to the webview
-        // as a download. Sending the browser to `artifact.href` instead — the raw
-        // /api/files/download URL — cannot work behind a gated gateway: nothing
-        // outside the transport can authenticate that request, and it comes back
-        // 401. http(s) artifacts are somebody else's URL and still open outside.
+        // A gateway-local artifact is bytes on the GATEWAY's disk, so Rust
+        // fetches it over the authenticated transport and writes it to the path
+        // the save dialog returned — the bytes never enter the webview. Sending
+        // the browser to `artifact.href` instead — the raw /api/files/download
+        // URL — cannot work behind a gated gateway: nothing outside the
+        // transport can authenticate that request, and it comes back 401.
+        // http(s) artifacts are somebody else's URL and still open outside.
         if (isFileMediaPath(artifact.value)) {
-          await downloadGatewayMediaFile(artifact.value)
+          // false = the user dismissed the save dialog, which is not an outcome
+          // worth a toast either way.
+          if (await downloadGatewayMediaFile(artifact.value)) {
+            notify({ kind: 'success', message: t.common.fileDownload.saved })
+          }
 
           return
         }
@@ -266,7 +271,7 @@ export function ArtifactsView({ setStatusbarItemGroup: _setStatusbarItemGroup, .
         notifyError(err, a.openFailed)
       }
     },
-    [a]
+    [a, t]
   )
 
   const markImageFailed = useCallback((id: string) => {

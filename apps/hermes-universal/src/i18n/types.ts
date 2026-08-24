@@ -50,6 +50,17 @@ interface AuxTaskCopy {
 
 export interface Translations {
   common: {
+    fileDownload: {
+      saved: string
+      failed: string
+      notFound: string
+      forbidden: string
+      tooLarge: string
+      unauthorized: string
+      noGateway: string
+      unreachable: string
+      writeFailed: string
+    }
     apply: string
     back: string
     save: string

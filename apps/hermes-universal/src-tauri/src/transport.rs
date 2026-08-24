@@ -603,7 +603,7 @@ fn bearer_retry_warranted(sent: Option<&str>, rotated: Option<&str>) -> bool {
 /// Attach the gateway bearer, if we hold one. Split out so the "the header is
 /// actually on the request" invariant is testable without a network or a
 /// keyring: `RequestBuilder::build` produces the request without sending it.
-fn apply_gateway_bearer(
+pub(crate) fn apply_gateway_bearer(
     builder: reqwest::RequestBuilder,
     bearer: Option<&str>,
 ) -> reqwest::RequestBuilder {

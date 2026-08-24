@@ -4,6 +4,17 @@ import type { Translations } from './types'
 
 export const en: Translations = {
   common: {
+    fileDownload: {
+      saved: 'File saved',
+      failed: 'Download failed',
+      notFound: 'That file is no longer on the gateway.',
+      forbidden: 'The gateway will not serve that file.',
+      tooLarge: 'That file is too large to download.',
+      unauthorized: 'Your session expired. Reconnect and try again.',
+      noGateway: 'Not connected to a gateway.',
+      unreachable: 'Could not reach the gateway.',
+      writeFailed: 'Could not write the file to disk.'
+    },
     apply: 'Apply',
     back: 'Back',
     save: 'Save',

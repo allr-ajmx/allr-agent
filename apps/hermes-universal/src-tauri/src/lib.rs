@@ -14,6 +14,7 @@ mod appearance;
 mod artifact;
 mod background;
 mod cloud;
+mod files;
 mod find_in_page;
 mod keep_awake;
 mod link_title;
@@ -44,6 +45,7 @@ use background::{get_background_mode, quit_app, set_background_mode, BackgroundS
 use cloud::{
     portal_agent_sign_in, portal_discover_agents, portal_login, portal_logout, portal_status,
 };
+use files::download_file;
 use find_in_page::{find_in_page, stop_find_in_page};
 use keep_awake::{set_keep_awake, KeepAwakeState};
 use link_title::fetch_link_title;
@@ -386,6 +388,7 @@ pub fn run() {
             artifact_release,
             artifact_stage,
             media_set_target,
+            download_file,
             fetch_link_title,
             oauth_login,
             oauth_status,

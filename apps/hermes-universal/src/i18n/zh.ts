@@ -4,6 +4,17 @@ import type { Translations } from './types'
 
 export const zh: Translations = {
   common: {
+    fileDownload: {
+      saved: '文件已保存',
+      failed: '下载失败',
+      notFound: '该文件已不在网关上。',
+      forbidden: '网关不提供该文件。',
+      tooLarge: '该文件过大，无法下载。',
+      unauthorized: '会话已过期，请重新连接后重试。',
+      noGateway: '尚未连接到网关。',
+      unreachable: '无法连接到网关。',
+      writeFailed: '无法将文件写入磁盘。'
+    },
     apply: '应用',
     back: '返回',
     save: '保存',
