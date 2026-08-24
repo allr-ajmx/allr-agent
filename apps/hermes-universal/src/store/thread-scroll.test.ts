@@ -13,7 +13,9 @@ import { describe, expect, it, vi } from 'vitest'
 
 import {
   onScrollToBottomRequest,
+  onScrollToTurnRequest,
   requestScrollToBottom,
+  requestScrollToTurn,
   resetThreadScroll,
   sessionThreadJumpVisible,
   sessionThreadScrolledUp,
@@ -98,5 +100,47 @@ describe('thread scroll mirror', () => {
     expect(sessionThreadScrolledUp(undefined).get()).toBe(true)
     expect(sessionThreadScrolledUp('a').get()).toBe(false)
     resetThreadScroll(null)
+  })
+})
+
+// The prompt rail names a turn; the transcript that owns the key finds it. Same
+// keying as the jump button above, and for the same reason — a rail in one tile
+// must not scroll a neighbouring tile's transcript.
+describe('scroll-to-turn requests', () => {
+  it('delivers the turn id to the handler for that session', () => {
+    const handler = vi.fn()
+    const off = onScrollToTurnRequest('a', handler)
+
+    requestScrollToTurn('a', 'msg-7')
+
+    expect(handler).toHaveBeenCalledWith('msg-7')
+    off()
+  })
+
+  it("does not reach another session's transcript", () => {
+    const a = vi.fn()
+    const b = vi.fn()
+    const offA = onScrollToTurnRequest('a', a)
+    const offB = onScrollToTurnRequest('b', b)
+
+    requestScrollToTurn('a', 'msg-7')
+
+    expect(a).toHaveBeenCalledTimes(1)
+    expect(b).not.toHaveBeenCalled()
+    offA()
+    offB()
+  })
+
+  it('stops delivering once unsubscribed', () => {
+    const handler = vi.fn()
+    onScrollToTurnRequest('a', handler)()
+
+    requestScrollToTurn('a', 'msg-7')
+
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  it('is a no-op for a session nothing is listening on', () => {
+    expect(() => requestScrollToTurn('nobody', 'msg-7')).not.toThrow()
   })
 })
