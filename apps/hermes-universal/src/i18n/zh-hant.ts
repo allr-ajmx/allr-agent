@@ -2928,5 +2928,9 @@ export const zhHant = defineLocale({
       email: '電子郵件',
       github_comment: 'GitHub 留言'
     }
+  },
+
+  mobileWorkspace: {
+    menu: '選單'
   }
 })

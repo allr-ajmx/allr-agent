@@ -3050,5 +3050,9 @@ export const ja = defineLocale({
       email: 'メール',
       github_comment: 'GitHub コメント'
     }
+  },
+
+  mobileWorkspace: {
+    menu: 'メニュー'
   }
 })
