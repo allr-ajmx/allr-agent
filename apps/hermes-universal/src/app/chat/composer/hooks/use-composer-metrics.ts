@@ -1,4 +1,4 @@
-import { type RefObject, useCallback, useEffect, useRef } from 'react'
+import { type RefObject, useCallback, useEffect, useLayoutEffect, useRef } from 'react'
 
 import { useResizeObserver } from '@/hooks/use-resize-observer'
 import { $composerPoppedOut } from '@/store/composer-popout'
@@ -100,6 +100,24 @@ export function useComposerMetrics({
       }
     }
   }, [composerRef, composerSurfaceRef])
+
+  // MEASURE ONCE, SYNCHRONOUSLY, ON MOUNT — before the browser paints.
+  //
+  // The observer's first delivery is same-frame and pre-paint, but only for the
+  // frame the OBSERVER starts in, and the thread has already laid itself out
+  // against `--composer-fallback-height` by then. Any difference between the
+  // fallback and the real height is a shift the user sees on every chat open:
+  // the transcript renders, then jumps as the real number lands.
+  //
+  // A layout effect here reads a dirty layout and forces one reflow, which the
+  // shared observer's comment warns about at length — that warning is about
+  // MANY elements (a bubble each, a hundred of them on a session switch). This
+  // is ONE element, once per mount, and it buys an exact first paint. The
+  // fallback still exists for the frame before this runs and for surfaces that
+  // never mount a composer.
+  useLayoutEffect(() => {
+    syncComposerMetrics()
+  }, [syncComposerMetrics])
 
   // `editorRef` is observed but never read: the editor growing a line is what
   // changes the composer's height, and the observer is how that reaches the
