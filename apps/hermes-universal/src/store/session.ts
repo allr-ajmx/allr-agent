@@ -1624,6 +1624,10 @@ async function forkBranchSession({
     // then (desktop's `branchStoredSession` behaves identically).
     const branched = await requestGateway<SessionCreateResponse>('session.create', {
       cols: 96,
+      // Same tag `startChat` sends. Without it the gateway falls back to
+      // env-resolved platform ("tui"), and a branched chat would be the only
+      // session in the app whose agent thinks it is talking to a terminal.
+      source: 'universal',
       ...(cwd && { cwd }),
       ...(profile ? { profile } : {}),
       messages: branchMessages.map(({ content, role }) => ({ content, role })),

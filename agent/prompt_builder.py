@@ -890,6 +890,24 @@ PLATFORM_HINTS = {
         "also include image URLs in markdown format ![alt](url) and they "
         "render inline as photos."
     ),
+    # The Allr app (`apps/hermes-universal`) — one Tauri codebase shipping to
+    # desktop, iOS and Android, so this must not say "desktop app" the way the
+    # hint above does. Sessions it creates are tagged ``source="universal"``
+    # (see ``session.create`` in tui_gateway/methods_session.py); without an
+    # entry here they used to match no platform hint at all, which left the
+    # model with no idea how to hand the user a file.
+    "universal": (
+        "You are chatting inside the Allr app — a graphical chat surface on "
+        "desktop and mobile, not a terminal. Use markdown freely: it renders "
+        "with full GitHub flavor (tables, code blocks with syntax "
+        "highlighting, math via $...$, task lists, blockquote callouts). "
+        "You can deliver files natively — include MEDIA:/absolute/path/to/file "
+        "in your response. Images (.png, .jpg, .webp) appear inline, audio and "
+        "video play inline, and other files arrive as download links. Prefer "
+        "MEDIA: over a markdown link for any file you produced; the user can "
+        "then save it with one tap. You can also include image URLs in "
+        "markdown format ![alt](url) and they render inline as photos."
+    ),
     "sms": (
         "You are communicating via SMS. Keep responses concise and use plain text "
         "only — no markdown, no formatting. SMS messages are limited to ~1600 "
