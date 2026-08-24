@@ -120,24 +120,29 @@ export function TopDrawer({
           top: offsetTop ?? 0
         }}
       >
-        {/* Radix needs an accessible name; the BAR already shows it, so
-            repeating it as a heading just said "Settings" twice down the
-            screen. Visually hidden, not removed. */}
-        <SheetTitle className="sr-only">{title}</SheetTitle>
+        {/* The panel clips; THIS slides. Keeping the two apart is what makes
+            the menu appear from under the bar — see the `top-drawer` block in
+            styles.css. */}
+        <div className="flex min-h-0 flex-1 flex-col" data-top-drawer-inner>
+          {/* Radix needs an accessible name; the BAR already shows it, so
+              repeating it as a heading just said "Settings" twice down the
+              screen. Visually hidden, not removed. */}
+          <SheetTitle className="sr-only">{title}</SheetTitle>
 
-        {/* A header only when there is somewhere to go back to. At the top level
-            the rows are the whole menu — a hamburger has no title bar of its
-            own, and the close is the same control you opened it with. */}
-        {onBack && (
-          <div className="flex shrink-0 items-center gap-2 border-b border-border/65 px-2 py-1.5">
-            <Button aria-label={common.back} onClick={onBack} size="icon" type="button" variant="ghost">
-              <ChevronLeft className="size-5" />
-            </Button>
-            <span className="min-w-0 flex-1 truncate text-sm font-medium">{title}</span>
-          </div>
-        )}
+          {/* A header only when there is somewhere to go back to. At the top
+              level the rows are the whole menu — a hamburger has no title bar of
+              its own, and the close is the same control you opened it with. */}
+          {onBack && (
+            <div className="flex shrink-0 items-center gap-2 border-b border-border/65 px-2 py-1.5">
+              <Button aria-label={common.back} onClick={onBack} size="icon" type="button" variant="ghost">
+                <ChevronLeft className="size-5" />
+              </Button>
+              <span className="min-w-0 flex-1 truncate text-sm font-medium">{title}</span>
+            </div>
+          )}
 
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain py-1">{children}</div>
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain py-1">{children}</div>
+        </div>
       </SheetContent>
     </Sheet>
   )

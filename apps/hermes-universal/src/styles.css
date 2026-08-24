@@ -3094,50 +3094,54 @@ body.guest-pointer-lock iframe {
 }
 
 /* ── Top menu reveal ─────────────────────────────────────────────────────────
-   The phone's title menu (`components/ui/top-drawer`) must look like it comes
-   out from UNDER the bar it hangs off.
+   The phone's title menu (`components/ui/top-drawer`) slides down and must
+   appear to come out from UNDER the bar it hangs off.
 
-   The obvious fix is z-index — paint the bar above the panel — and it cannot
-   work here. The panel is portalled to `<body>`, while the bar lives inside
+   Z-index cannot do it, which is worth writing down because it is the obvious
+   first attempt. The panel is portalled to `<body>`; the bar lives inside
    `#root`, which `html.is-mobile … #root` makes `position: fixed` and therefore
-   its own stacking context. Lifting the bar above a portalled `z-50` panel means
-   lifting `#root` above it, which puts the whole app above the scrim and the
-   dimming disappears.
+   its own stacking context. Painting the bar above a portalled `z-50` panel
+   means lifting `#root` above it — which puts the whole app above the scrim and
+   the dimming disappears.
 
-   So the panel does not MOVE at all: it is already positioned at the bar's
-   bottom edge, and the reveal is a clip that opens downward. Nothing is ever
-   painted above its own top edge, so there is nothing for the bar to cover — and
-   this is also what a hamburger menu actually does, rather than sliding a card
-   across the chrome.
+   So the CLIP does it instead. The panel is already pinned at the bar's bottom
+   edge and never moves; it only clips (`overflow: hidden`). Its CONTENTS carry
+   the slide, travelling down from behind that edge. The motion is the same one
+   `slide-in-from-top` gives, minus the part where the card is painted across the
+   chrome on its way in.
 
-   `clip-path` rather than height: the rows keep their final layout throughout,
-   so nothing reflows as it opens. */
-@keyframes top-drawer-reveal {
+   The panel's own animation is cancelled rather than left to fight this: the
+   `data-[state]:slide-in-from-top` utilities on `SheetContent` would translate
+   the clipping box itself, which is exactly what we are undoing. */
+[data-slot='sheet-content'][data-top-drawer] {
+  overflow: hidden;
+  animation: none;
+}
+
+@keyframes top-drawer-slide-in {
   from {
-    clip-path: inset(0 0 100% 0);
+    transform: translateY(-100%);
   }
   to {
-    clip-path: inset(0 0 0 0);
+    transform: translateY(0);
   }
 }
 
-@keyframes top-drawer-conceal {
+@keyframes top-drawer-slide-out {
   from {
-    clip-path: inset(0 0 0 0);
+    transform: translateY(0);
   }
   to {
-    clip-path: inset(0 0 100% 0);
+    transform: translateY(-100%);
   }
 }
 
-/* Beats tw-animate-css's `slide-in-from-top` (a translate) on specificity, so
-   the panel no longer travels across the bar on its way in. */
-[data-slot='sheet-content'][data-top-drawer][data-state='open'] {
-  animation: top-drawer-reveal 220ms cubic-bezier(0.22, 1, 0.36, 1);
+[data-top-drawer][data-state='open'] > [data-top-drawer-inner] {
+  animation: top-drawer-slide-in 260ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-[data-slot='sheet-content'][data-top-drawer][data-state='closed'] {
-  animation: top-drawer-conceal 160ms ease-in;
+[data-top-drawer][data-state='closed'] > [data-top-drawer-inner] {
+  animation: top-drawer-slide-out 180ms ease-in;
 }
 
 /* --------------------------------------------------------------------------
