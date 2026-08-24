@@ -4,6 +4,17 @@ import { defineLocale } from './define-locale'
 
 export const ja = defineLocale({
   common: {
+    fileDownload: {
+      saved: 'ファイルを保存しました',
+      failed: 'ダウンロードに失敗しました',
+      notFound: 'そのファイルはゲートウェイに存在しません。',
+      forbidden: 'ゲートウェイはそのファイルを提供しません。',
+      tooLarge: 'そのファイルは大きすぎてダウンロードできません。',
+      unauthorized: 'セッションの有効期限が切れました。再接続してください。',
+      noGateway: 'ゲートウェイに接続していません。',
+      unreachable: 'ゲートウェイに接続できませんでした。',
+      writeFailed: 'ファイルをディスクに書き込めませんでした。'
+    },
     apply: '適用',
     back: '戻る',
     save: '保存',

@@ -11,6 +11,17 @@ import { defineLocale } from './define-locale'
 
 export const ar = defineLocale({
   common: {
+    fileDownload: {
+      saved: 'تم حفظ الملف',
+      failed: 'فشل التنزيل',
+      notFound: 'لم يعد هذا الملف موجودًا على البوابة.',
+      forbidden: 'البوابة لا تسمح بتقديم هذا الملف.',
+      tooLarge: 'هذا الملف كبير جدًا للتنزيل.',
+      unauthorized: 'انتهت صلاحية جلستك. أعد الاتصال وحاول مرة أخرى.',
+      noGateway: 'غير متصل ببوابة.',
+      unreachable: 'تعذّر الوصول إلى البوابة.',
+      writeFailed: 'تعذّرت كتابة الملف على القرص.'
+    },
     apply: 'تطبيق',
     back: 'رجوع',
     save: 'حفظ',

@@ -1,6 +1,8 @@
+import { translateNow } from '@/i18n'
 import { readDesktopFileDataUrl } from '@/lib/desktop-fs'
 import { filePathFromMediaPath, isFileMediaPath, isInlineMediaSrc, mediaName } from '@/lib/media-format'
 import { canStreamMedia, mediaStreamUrl } from '@/lib/media-stream'
+import { IS_TAURI } from '@/lib/platform'
 import { $connection } from '@/store/connection'
 
 // Media resolver for the universal (Tauri) client. Ported from
@@ -83,10 +85,76 @@ export async function gatewayMediaDataUrl(path: string): Promise<string> {
   return readDesktopFileDataUrl(filePathFromMediaPath(path))
 }
 
-// Fetch gateway-local bytes over the fs bridge and hand them to the webview as
-// a browser download (the file lives on the gateway, so there's no local path
-// to open directly).
-export async function downloadGatewayMediaFile(path: string): Promise<void> {
+// Codes `src-tauri/src/files.rs` returns, mapped to localized messages. Rust
+// returns codes rather than prose so the only English in a translated UI isn't
+// coming from the native layer.
+const DOWNLOAD_ERRORS: Record<string, string> = {
+  download_failed: 'failed',
+  file_forbidden: 'forbidden',
+  file_not_found: 'notFound',
+  file_too_large: 'tooLarge',
+  gateway_unreachable: 'unreachable',
+  no_gateway: 'noGateway',
+  unauthorized: 'unauthorized',
+  write_failed: 'writeFailed'
+}
+
+function downloadError(err: unknown): Error {
+  const code = typeof err === 'string' ? err : (err as Error)?.message
+  const key = DOWNLOAD_ERRORS[code ?? '']
+
+  return new Error(translateNow(`common.fileDownload.${key ?? 'failed'}`))
+}
+
+/**
+ * Save a gateway file to a local path the user picks.
+ *
+ * The bytes never enter the webview: Rust fetches `/api/files/download` over
+ * the authenticated transport and writes the file itself. That is what makes
+ * this work at all —
+ *
+ *  * a raw download URL can't authenticate from the webview under a gated
+ *    gateway (no `?token=` outside token mode, and the `SameSite=Lax` session
+ *    cookie never rides on a cross-site subresource);
+ *  * the previous route read the file as a `data:` URL and `fetch`ed it, which
+ *    the app CSP (`connect-src 'self' ipc:`) blocks outright;
+ *  * `/api/fs/read-data-url` also caps at 16 MB, against 100 MB here;
+ *  * and the `<a download>` it ended in is not honoured by the mobile webview.
+ *
+ * Resolves to `false` when the user dismisses the save dialog.
+ *
+ * Off Tauri (plain-web dev, vitest) there is no native side, so it falls back
+ * to the blob route — which is fine there: a browser has no CSP of ours and
+ * honours `<a download>`.
+ */
+export async function downloadGatewayMediaFile(path: string): Promise<boolean> {
+  if (!IS_TAURI) {
+    await browserDownloadFallback(path)
+
+    return true
+  }
+
+  const [{ save }, { invoke }] = await Promise.all([
+    import('@tauri-apps/plugin-dialog'),
+    import('@tauri-apps/api/core')
+  ])
+
+  const dest = await save({ defaultPath: mediaName(path) })
+
+  if (!dest) {
+    return false
+  }
+
+  try {
+    await invoke('download_file', { dest, path: filePathFromMediaPath(path) })
+  } catch (err) {
+    throw downloadError(err)
+  }
+
+  return true
+}
+
+async function browserDownloadFallback(path: string): Promise<void> {
   const dataUrl = await gatewayMediaDataUrl(path)
 
   if (!dataUrl) {
