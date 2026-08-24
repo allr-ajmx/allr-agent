@@ -55,6 +55,17 @@ pub struct MediaTarget {
 #[derive(Default)]
 pub struct MediaState(RwLock<Option<MediaTarget>>);
 
+impl MediaState {
+    /// The current gateway target, if JS has pushed one.
+    ///
+    /// The scheme handler below reads `self.0` directly; this accessor exists
+    /// for `files.rs`, which downloads whole files from the same gateway with
+    /// the same auth and has no business owning a second copy of the target.
+    pub fn target(&self) -> Option<MediaTarget> {
+        self.0.read().ok().and_then(|guard| guard.clone())
+    }
+}
+
 #[tauri::command]
 pub fn media_set_target(
     state: State<'_, MediaState>,
