@@ -307,6 +307,56 @@ describe('openSession — an abandoned hydrate', () => {
 })
 
 /**
+ * ALLR-32. `ModelPill` spins while the model is blank, and a live session reads
+ * its OWN slice rather than the sticky global — so a hydrate that seeds no model
+ * leaves the composer's pill loading until a `session.info` happens to land, and
+ * forever when none does. The list row already knows the answer: it is what the
+ * sidebar prints under the title. `session-tile-delegate.ts` seeded it all along,
+ * which is what made the primary path's omission a bug rather than a design.
+ */
+describe('openSession — the model the pill paints', () => {
+  const listRow = (id: string, model: null | string) =>
+    ({ cwd: '/work', id, model, title: 'row' }) as unknown as SessionInfo
+
+  it('seeds the placeholder slice with the row\'s model', async () => {
+    $sessions.set([listRow('stored-m', 'anthropic/claude-opus-4')])
+    vi.mocked(getSessionMessages).mockResolvedValue({ messages: [], session_id: 'stored-m' } as never)
+
+    let release = () => {}
+
+    vi.mocked(requestGateway).mockImplementation(
+      () =>
+        new Promise(resolve => {
+          release = () => resolve({ messages: [], session_id: 'runtime-m' })
+        }) as never
+    )
+
+    const opening = openSession('stored-m')
+
+    // WHILE the resume is still in flight — the whole point is that the pill has
+    // something to paint before the gateway answers.
+    expect($sessionStates.get()[hydratingKey('stored-m')]).toMatchObject({
+      model: 'anthropic/claude-opus-4'
+    })
+
+    release()
+    await opening
+  })
+
+  it('settles to blank for a row with no model rather than throwing one in', async () => {
+    $sessions.set([listRow('stored-none', null)])
+    vi.mocked(getSessionMessages).mockResolvedValue({ messages: [], session_id: 'stored-none' } as never)
+    vi.mocked(requestGateway).mockResolvedValue({ messages: [], session_id: 'runtime-none' })
+
+    await openSession('stored-none')
+
+    // Blank is the honest state here: the reducer's adopt is truthiness-gated,
+    // so a real `session.info` still fills it.
+    expect($sessionStates.get()['runtime-none']?.model ?? '').toBe('')
+  })
+})
+
+/**
  * MJXHRM-371. The warm short-circuit is what makes switching mid-turn lossless
  * (MJX-132) — and it is also what leaves the gateway TRANSPORT bound to whatever
  * webview last resumed the session. `forceResume` separates the two: a caller

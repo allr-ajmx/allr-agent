@@ -129,6 +129,17 @@ const spanTrace = new Float64Array(CAPACITY)
 const spanStacked = new Uint8Array(CAPACITY)
 /** Sparse — only spans actually given attributes appear here, keyed by index. */
 const spanAttrs = new Map<number, SpanAttrs>()
+/**
+ * Which MODULE raised this span, interned like `names`. 0 means unattributed.
+ *
+ * A column rather than an attribute, and this is the whole reason it is
+ * affordable: there are ~17 emitting modules in the app, so the intern table is
+ * a handful of entries and the per-span cost is one integer write. Putting it in
+ * `SpanAttrs` would mean an object spread on the hottest path in the tracer —
+ * `{ ...attrs, src }` per span, at 60fps — which is exactly the allocation
+ * pressure the typed-array storage above exists to avoid.
+ */
+const spanSrc = new Int32Array(CAPACITY)
 
 let count = 0
 
@@ -334,6 +345,149 @@ function intern(name: string): number {
   return id
 }
 
+// ─── Source attribution ─────────────────────────────────────────────────────
+//
+// A span says WHAT happened; it never said WHERE IT WAS RAISED FROM. Reading a
+// capture then means recognising an operation name and remembering which module
+// emits it, which works right up until two modules emit the same name — and
+// stops working entirely for anyone who did not write the instrumentation.
+//
+// `withSource` (below) binds a module's name once at import time; `alloc` reads
+// it. Deliberately NOT a stack capture: `new Error().stack` per span is tens of
+// microseconds inside the frames this thing measures, which is the one cost the
+// tracer must never pay (see the HUD note in TRACING.md).
+
+/** Interned module names. Index 0 is reserved for "unattributed". */
+const sources: string[] = ['']
+const sourceIds = new Map<string, number>()
+
+function internSource(source: string): number {
+  const existing = sourceIds.get(source)
+
+  if (existing !== undefined) {
+    return existing
+  }
+
+  const id = sources.length
+
+  sources.push(source)
+  sourceIds.set(source, id)
+
+  return id
+}
+
+/**
+ * Set by `withSource`'s facade immediately before it delegates, read and cleared
+ * by `alloc`. Synchronous hand-off with nothing in between — the facade's next
+ * statement IS the delegated call.
+ */
+let pendingSrc = 0
+
+/**
+ * The functions `withSource` binds. Everything that can open or record a span,
+ * which is what makes the facade total: a module cannot reach past it to an
+ * un-attributed entry point without importing `./span` directly.
+ */
+export interface SourcedSpanApi {
+  beginDetached: typeof beginDetached
+  beginSpan: typeof beginSpan
+  openSpan: typeof openSpan
+  recordSpan: typeof recordSpan
+  span: typeof span
+  spanAsync: typeof spanAsync
+}
+
+const facades = new Map<string, SourcedSpanApi>()
+
+/**
+ * Span helpers that stamp every span they raise with `source`.
+ *
+ * Called once per module by the `hermes-span-sources` build transform, which
+ * rewrites the import rather than the call sites — see
+ * `auto/span-sources.ts`. Memoized per module because the transform runs at
+ * module scope and a fresh object per import would be pure waste.
+ *
+ * Inert when the transform is off: nothing sets `pendingSrc`, so `src` is simply
+ * absent and every span reads exactly as it did before.
+ */
+export function withSource(source: string): SourcedSpanApi {
+  const cached = facades.get(source)
+
+  if (cached) {
+    return cached
+  }
+
+  const id = internSource(source)
+
+  const api: SourcedSpanApi = {
+    beginDetached: (name, attrs) => {
+      pendingSrc = id
+
+      return beginDetached(name, attrs)
+    },
+    beginSpan: (name, attrs) => {
+      pendingSrc = id
+
+      return beginSpan(name, attrs)
+    },
+    openSpan: (name, startMs, parent, attrs) => {
+      pendingSrc = id
+
+      return openSpan(name, startMs, parent, attrs)
+    },
+    recordSpan: (name, startMs, endMs, attrs, parent) => {
+      pendingSrc = id
+      recordSpan(name, startMs, endMs, attrs, parent)
+    },
+    span: (name, fn, attrs) => {
+      pendingSrc = id
+
+      return span(name, fn, attrs)
+    },
+    spanAsync: (name, fn, attrs) => {
+      pendingSrc = id
+
+      return spanAsync(name, fn, attrs)
+    }
+  }
+
+  facades.set(source, api)
+
+  return api
+}
+
+/**
+ * What CAUSED the next React commit, when something is willing to say.
+ *
+ * The module hint above is constant for an autocapture — `react.commit` always
+ * comes from `auto/layout-counters.ts`, which is not the interesting half. The
+ * interesting half is who scheduled the update, and only the scheduler knows.
+ * So it claims it: the transcript backfill, a media resolve, a window expansion.
+ *
+ * Read-and-clear, and unclaimed commits stay unlabelled rather than inheriting a
+ * stale cause — an attribution that is sometimes wrong is worse than one that is
+ * sometimes absent, because absence is visible.
+ *
+ * It lives here, in the module that ships, rather than in `auto/` so that a
+ * shipping call site can claim a cause without pulling a dev-only autocapture
+ * into the bundle.
+ */
+let pendingCause = ''
+
+export function noteCommitCause(cause: string): void {
+  if (recording) {
+    pendingCause = cause
+  }
+}
+
+export function takeCommitCause(): string {
+  const cause = pendingCause
+
+  pendingCause = ''
+
+  return cause
+}
+
 /** Write the shared columns for a new span and return its buffer index. */
 function alloc(name: string, parent: number, startMs: number, endMs: number, attrs?: SpanAttrs): number {
   const index = count++
@@ -347,6 +501,10 @@ function alloc(name: string, parent: number, startMs: number, endMs: number, att
   spanStart[index] = startMs
   spanEnd[index] = endMs
   spanStacked[index] = 0
+  // Read AND clear: an un-sourced call after a sourced one must not inherit the
+  // previous module's name. Absent beats wrong.
+  spanSrc[index] = pendingSrc
+  pendingSrc = 0
 
   if (attrs) {
     spanAttrs.set(index, attrs)
@@ -548,6 +706,8 @@ export interface ExportSpan {
   /** Parent's serial, or 0 for none. */
   parent: number
   serial: number
+  /** Module that raised the span, or '' when unattributed. */
+  src: string
   startMs: number
   trace: number
 }
@@ -566,6 +726,7 @@ function read(index: number): ExportSpan {
     name: names[spanName[index]],
     parent: spanParent[index],
     serial: spanSerial[index],
+    src: sources[spanSrc[index]],
     startMs: spanStart[index],
     trace: spanTrace[index]
   }
@@ -613,6 +774,7 @@ export function takeCompleted(): ExportSpan[] {
     spanStart[to] = spanStart[i]
     spanEnd[to] = spanEnd[i]
     spanStacked[to] = spanStacked[i]
+    spanSrc[to] = spanSrc[i]
 
     // Detached spans are open but never on the stack, hence the guard.
     const at = stack.indexOf(i)

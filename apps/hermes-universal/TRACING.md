@@ -171,6 +171,8 @@ Nothing in this list requires touching a call site. That is the whole design.
 | Layout work | `layout.tracks` — per frame: `splitRenders`, `distinctSplits`, `paneVisits` | `auto/layout-counters.ts` |
 | Layout mutations | `layout.commit` (with `reason` + tree shape), `layout.adopt`, `layout.persist` (with `bytes`), `layout.tiles.sync` | `tree/store.ts`, `chat/pane-mirror.ts` |
 | Opening a chat | `chat.open` — the gesture to the first paint that shows the tile | `store/session-states.ts` |
+| Consolidating a chat | `chat.consolidate` — the tile's first paint to the moment the transcript is revealed, with `frames`, `grewPx`, `budget`, and on a `deadline: 1` reveal what it gave up waiting for (`rowsPending`, `pendingMedia`) | `assistant-ui/thread/list.tsx` |
+| Media | `media.resolve` — a transcript image's fetch, which is a pending height change | `lib/media.ts` |
 | The exporter itself | `exporter.drain` — the tracer's own main-thread cost, inside the frames it is measuring | `exporter.ts` |
 | Store writes | Every nanostores write, named. A vite alias points `nanostores` at a wrapper so all ~34 direct importers are covered without edits; a build transform recovers the variable name so spans read `$paneStates` rather than `atom#7`. | `auto/stores.ts` |
 | HTTP | Every request through the Rust transport | `auto/http.ts` |
@@ -178,6 +180,44 @@ Nothing in this list requires touching a call site. That is the whole design.
 | Markdown / Shiki / KaTeX / stream flush | The chat rendering pipeline, stage by stage | hand-placed, semantic |
 | All ~50 Tauri commands | Correct timing, including the 41 async ones | `tauri/tracing` feature |
 | IPC trace context | A `traceparent` on every `invoke`, so the command spans above join the frontend's trace | `auto/tauri-core.ts` |
+
+### Where a span came from: `code.namespace` and `cause`
+
+Every span carries `code.namespace` — the module that raised it, `src/`-relative
+(`components/chat/code-fence.tsx`, `observability/auto/frames.ts`). Jaeger shows
+it as a tag and filters on it, so "what else does this module emit" is a query
+rather than a memory exercise.
+
+Nothing at a call site produces it. A build transform (`auto/span-sources.ts`,
+registered beside the store transform in `vite.config.ts`) rewrites the IMPORT —
+not the call — into a `withSource('<module>')` facade, so a module is attributed
+once and every span it raises inherits it. Storage is an interned integer column
+beside the name (`spanSrc` in `span.ts`), not an attribute: `{ ...attrs, src }`
+per span is an allocation on the hottest path in the tracer, which is the exact
+cost the typed-array storage exists to avoid.
+
+Two things follow from the transform working on text:
+
+- **A multi-line import goes unattributed.** Collapsing it would shift every line
+  number below it, and `map: null` promises it does not. Write the import on one
+  line if you want the module named.
+- **It only binds span-raising helpers** — `span`, `spanAsync`, `recordSpan`,
+  `beginSpan`, `beginDetached`, `openSpan`. A module importing only
+  `isRecording` is left alone; there is nothing to attribute.
+
+`cause` is the other half, and it is opt-in. For an autocapture the module is
+constant and uninteresting — `react.commit` always comes from
+`auto/layout-counters.ts` — while the interesting question is who scheduled the
+update. Only the scheduler knows, so it says: `noteCommitCause('…')` immediately
+before the state write, read once by the next commit. The transcript backfill, a
+media resolve and "Show earlier" all claim one.
+
+It is deliberately best-effort. A claim is consumed by the NEXT commit, so an
+update that batches with an unrelated one labels whichever lands first — and an
+unclaimed commit stays UNLABELLED rather than inheriting the last cause, because
+an attribution that is sometimes stale is indistinguishable from one that is
+right. A heavy commit with no `cause` is itself a finding: something is
+scheduling work that nobody claims.
 
 ### Frames, and the four numbers on a `frame` span
 

@@ -17,10 +17,13 @@ import { useStickToBottom } from 'use-stick-to-bottom'
 
 import { MessageRenderBoundary } from '@/components/assistant-ui/message-render-boundary'
 import { resolveShowEarlierAction, useTranscriptWindow } from '@/components/assistant-ui/thread/transcript-window'
+import { PageLoader } from '@/components/page-loader'
 import { usePaneVisible } from '@/components/pane-shell/pane-visibility'
 import { useI18n } from '@/i18n'
+import { pendingMediaCount } from '@/lib/media'
 import { messagePaintWeight } from '@/lib/render-weight'
 import { cn } from '@/lib/utils'
+import { beginDetached, endSpan, noteCommitCause } from '@/observability'
 import { atom, useStore } from '@/store/atom'
 import {
   onScrollToBottomRequest,
@@ -93,6 +96,86 @@ const FIRST_PAINT_BUDGET = 20
 // ordinary turns or 1-2 tool-heavy ones per frame — big enough to fill a page
 // in ~10 frames, small enough that no single commit approaches a frame budget.
 const BACKFILL_STEP = 60
+
+/**
+ * The ceiling on one consolidation, and the stall that ends it early.
+ *
+ * CONSOLIDATE, THEN REVEAL — the point of the gate below. Opening a long chat
+ * used to show the transcript assembling itself: the backfill grows the mounted
+ * tree in ~8 steps and each step lays out and PAINTS, so the user watched eight
+ * versions of their chat arrive, each shifting under the last. A trace of one
+ * open (ALLR-32) counted eight `layout.forced` commits of 44–184ms, every one
+ * `styleMs: 0` — pure layout — spread over 2.5 seconds, with a dozen image
+ * resolves landing in the middle of it.
+ *
+ * None of that work goes away by hiding it. What goes away is the user watching
+ * it happen, which is the actual complaint: a placeholder for a moment reads as
+ * loading, while a transcript that reflows eight times reads as broken.
+ *
+ * WHY TWO NUMBERS AND NOT ONE DEADLINE. The first version capped the whole
+ * consolidation at 900ms, and a capture said what is wrong with that: a
+ * code-heavy chat with a dozen images reported `deadline: 1`, `grewPx: 8822`,
+ * and a render budget still at 380 of 600 — revealed 40% assembled, with 545ms
+ * of forced layout still to come. The flicker moved rather than went away.
+ *
+ * The mistake was measuring the wrong thing. Elapsed time says nothing about
+ * whether a transcript is arriving: a chat that needs 2s of honest work and one
+ * whose media fetch has hung look identical at t+900ms. PROGRESS distinguishes
+ * them — height changing, rows mounting, groups arriving. So:
+ *
+ *   STALL   nothing has changed for this long → whatever we are waiting for is
+ *           not coming. Reveal.
+ *   CAP     an absolute ceiling, so a transcript that genuinely never stops
+ *           growing (a live stream resumed into view) cannot hold the
+ *           placeholder indefinitely.
+ *
+ * Both are escape hatches, not the normal path: `chat.consolidate`'s `deadline`
+ * attribute marks the captures where one fired, which is what makes "these
+ * numbers are wrong" a measurement rather than a hunch.
+ */
+const CONSOLIDATE_STALL_MS = 700
+const CONSOLIDATE_CAP_MS = 3_500
+
+/** What the gate knows about the transcript at the end of one frame. */
+export interface ConsolidationState {
+  /** Milliseconds since the gate armed. */
+  elapsedMs: number
+  /** Media resolves still in flight — every one is a pending height change. */
+  pendingMedia: number
+  /** Transcript still waiting to be mounted (budget below target, rows hidden). */
+  rowsPending: boolean
+  /** Milliseconds since anything last changed: height, mounted rows, groups. */
+  sinceProgressMs: number
+  /** Consecutive frames the scroll height has not moved. */
+  stableFrames: number
+}
+
+/**
+ * Whether the transcript can be shown, and why.
+ *
+ * Extracted from the rAF loop because it is the part that is easy to get subtly
+ * wrong and impossible to see when it is: every wrong version still reveals a
+ * transcript, just at the wrong moment, which looks like the bug it was meant to
+ * fix. `list.test.ts` pins each condition.
+ *
+ * All three matter. A transcript's height holds steady for a frame or two
+ * BETWEEN backfill steps, and holds steady again while a dozen images are still
+ * in flight — so height alone reveals early, twice.
+ */
+export function consolidationVerdict(state: ConsolidationState): 'reveal' | 'timeout' | 'wait' {
+  if (!state.rowsPending && state.stableFrames >= 2 && state.pendingMedia === 0) {
+    return 'reveal'
+  }
+
+  // The escape hatches, not conditions: a transcript that stopped arriving, or
+  // one that never stops. Either reveals and behaves as it did before the gate
+  // existed. Work still ARRIVING is never cut off, however long it takes —
+  // that was the first version's bug.
+  const stalled = state.sinceProgressMs >= CONSOLIDATE_STALL_MS
+  const capped = state.elapsedMs >= CONSOLIDATE_CAP_MS
+
+  return stalled || capped ? 'timeout' : 'wait'
+}
 
 interface ThreadMessageListProps {
   clampToComposer: boolean
@@ -279,6 +362,30 @@ const TurnRow = memo(function TurnRow({ components, group, resetKey, virtualized
   )
 })
 
+/**
+ * What is on screen while the transcript consolidates.
+ *
+ * `PageLoader` — the same rose-curve the artifacts view shows while it indexes,
+ * so "this surface is assembling itself" looks the same wherever it happens.
+ *
+ * TRANSPARENT, not an opaque sheet. The chat surface is the app background and
+ * a user's Backdrop decoration may be painted behind it, so a cover in
+ * `--ui-chat-surface-background` would blank out their wallpaper for a second on
+ * every chat open — a second visual glitch traded for the first.
+ *
+ * `contain: strict` because this thing animates in the frames the transcript is
+ * being consolidated in. The loader drives an SVG path and its particles from
+ * its own rAF loop (raw attribute writes, no React), and containment is what
+ * stops those mutations dirtying style or layout past its own 40px box. It still
+ * costs main-thread time per frame — `chat.consolidate`'s duration is where that
+ * shows up, so it is measurable rather than a matter of opinion.
+ */
+const ConsolidatingPlaceholder: FC<{ label: string }> = ({ label }) => (
+  <div className="pointer-events-none absolute inset-0 contain-strict" data-slot="aui_thread-consolidating">
+    <PageLoader label={label} />
+  </div>
+)
+
 const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
   clampToComposer,
   components,
@@ -353,16 +460,33 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
   const hasGroups = groups.length > 0
   const [budgetSessionKey, setBudgetSessionKey] = useState(sessionKey)
   const [hadGroups, setHadGroups] = useState(hasGroups)
+  // Whether the transcript is still assembling, and a counter that re-arms the
+  // gate. Both move with the budget cut because they answer the same question
+  // from two sides: the cut says "start again from a small tree", this says
+  // "and do not show it until the tree is finished".
+  const [consolidating, setConsolidating] = useState(true)
+  const [consolidateArm, setConsolidateArm] = useState(0)
+
+  const armConsolidation = () => {
+    setConsolidating(true)
+    // A counter, not a boolean: the gate's effect keys off it, and a COLD switch
+    // arms twice (empty key, then the hydrated transcript under the same key).
+    // Without a fresh key the second arm would reuse the first one's deadline,
+    // which was spent waiting for messages that had not arrived yet.
+    setConsolidateArm(arm => arm + 1)
+  }
 
   if (budgetSessionKey !== sessionKey) {
     setBudgetSessionKey(sessionKey)
     setHadGroups(hasGroups)
     setRenderBudget(FIRST_PAINT_BUDGET)
+    armConsolidation()
   } else if (hadGroups !== hasGroups) {
     setHadGroups(hasGroups)
 
     if (hasGroups) {
       setRenderBudget(FIRST_PAINT_BUDGET)
+      armConsolidation()
     }
   }
 
@@ -384,15 +508,34 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
       return
     }
 
-    const rafId = requestAnimationFrame(() => {
+    const step = () => {
       // Functional max, not a plain set: an urgent "Show earlier" click can
       // land between scheduling and committing this transition, and a plain
       // set would rebase over it and shrink the budget back down.
+      noteCommitCause(`backfill:${renderBudget}→${Math.min(renderBudget + BACKFILL_STEP, paneBudget)}`)
       startTransition(() => setRenderBudget(budget => Math.max(budget, Math.min(budget + BACKFILL_STEP, paneBudget))))
-    })
+    }
+
+    // While the transcript is still behind its placeholder there is no frame to
+    // keep smooth, so the rAF wait between steps is pure latency — it is what
+    // stretched an open across ~2.5 seconds of wall clock. Step as soon as the
+    // previous one commits instead.
+    //
+    // Still a TRANSITION, and still in BACKFILL_STEP-sized pieces. Interruptible
+    // rendering is not about the frame rate here, it is about the composer
+    // staying typeable while the transcript assembles — and one 20→600 jump was
+    // measured upstream as a 780ms uninterruptible commit, which is a frozen
+    // keyboard whether or not anything is on screen.
+    if (consolidating) {
+      step()
+
+      return
+    }
+
+    const rafId = requestAnimationFrame(step)
 
     return () => cancelAnimationFrame(rafId)
-  }, [paneBudget, renderBudget])
+  }, [consolidating, paneBudget, renderBudget])
 
   // Weights fold into the BUDGET only. Group identity stays structural, so a
   // streaming append re-runs this cheap sum — not the row JSX. Settled content
@@ -419,6 +562,27 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
     renderBudget >= paneBudget ? MIN_VISIBLE_GROUPS : 0
   )
 
+  // Is there still transcript waiting to be mounted? A ref because the gate
+  // below runs one rAF loop across many commits, and re-keying that effect on
+  // the budget would restart its deadline on every backfill step.
+  //
+  // `hiddenCount > 0` is the half that matters for a SHORT chat: an empty or
+  // one-turn transcript never reaches `paneBudget`, so a budget-only test would
+  // hold every such chat behind the placeholder for the full deadline. Nothing
+  // is hidden, so nothing is pending, whatever the budget says.
+  const backfillPendingRef = useRef(false)
+
+  backfillPendingRef.current = renderBudget < paneBudget && hiddenCount > 0
+
+  // The other two signals the gate reads as PROGRESS. Height alone misses both:
+  // a backfill step that mounts rows above the fold moves the budget without
+  // moving the scroll height by much, and a transcript still hydrating grows its
+  // group count while the DOM has not caught up yet. Missing either reads as a
+  // stall, and a stall reveals.
+  const progressRef = useRef({ budget: renderBudget, groups: groups.length })
+
+  progressRef.current = { budget: renderBudget, groups: groups.length }
+
   // Memoized for IDENTITY, not to save the slice: `rows` below keys off this
   // array, and an inline slice handed it a fresh array every render — so the
   // moment a transcript outgrew the render budget (hiddenCount > 0), every
@@ -436,6 +600,14 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
   )
 
   const restoreFromBottomRef = useRef<number | null>(null)
+
+  // A ref, not the value: `isAtBottom` flips from a ResizeObserver, so putting
+  // it in the deps of the layout effect below would re-run that effect — and
+  // re-pin the scroller — on every flip, including the ones a user's own scroll
+  // causes. The effect only needs to know where the lock stands when it runs.
+  const followingRef = useRef(isAtBottom)
+
+  followingRef.current = isAtBottom
 
   // Mirrored out under THIS transcript's session key, not globally: a tile's
   // composer/status stack/jump button must follow its own thread, and the key
@@ -475,13 +647,25 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
   // New run → snap to the latest turn.
   useAuiEvent('thread.runStart', () => void scrollToBottom())
 
-  // Pin to bottom on mount + every session switch (messages swap in place on a
-  // long-lived runtime, so sessionKey is the only signal). The swap is
-  // multi-step and lays out over many frames; letting the library follow re-pins
-  // every frame to a moving target — visible as ~10 scroll jumps. Instead:
-  // quiet it, glue to the true bottom until the height holds steady, then hand
-  // back locked. Live streaming afterward uses the normal resize follow. (The
-  // render budget is cut during render above, not here — an effect-time cut
+  // THE REVEAL GATE. Pin to bottom on mount + every session switch (messages
+  // swap in place on a long-lived runtime, so sessionKey is the only signal),
+  // and keep the transcript behind its placeholder until it has finished
+  // assembling — see CONSOLIDATE_DEADLINE_MS.
+  //
+  // The swap is multi-step and lays out over many frames; letting the library
+  // follow re-pins every frame to a moving target — visible as ~10 scroll jumps.
+  // So: quiet it, glue to the true bottom until the transcript settles, then
+  // reveal and hand back locked. Live streaming afterward uses the normal resize
+  // follow.
+  //
+  // This loop used to run too, and give up too early: it stopped after 15 frames
+  // (~250ms) while the backfill it was waiting on ran for ~2.5 seconds, so it
+  // handed a still-growing tree back to `use-stick-to-bottom` and the user
+  // watched the rest. Settling is now a real condition rather than a frame
+  // count — nothing left to mount, height holding, no media in flight — with the
+  // deadline as the only escape.
+  //
+  // (The render budget is cut during render above, not here — an effect-time cut
   // would commit the full tree first.)
   useLayoutEffect(() => {
     const el = scrollRef.current
@@ -493,9 +677,17 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
     stopScroll()
     el.scrollTop = el.scrollHeight
 
-    let frame = 0
+    const startedAt = performance.now()
+    const openedAt = el.scrollHeight
+    // Detached: it spans many frames, and a stack-pushed span held that long
+    // would sweep every unrelated span opened meanwhile underneath it.
+    const consolidateSpan = beginDetached('chat.consolidate', { groups: groups.length })
+    let frames = 0
     let stableFrames = 0
     let lastHeight = el.scrollHeight
+    let lastProgress = { ...progressRef.current }
+    let progressedAt = startedAt
+    let rafId = 0
 
     const settle = () => {
       const node = scrollRef.current
@@ -504,16 +696,46 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
         return
       }
 
+      frames += 1
+
       const height = node.scrollHeight
+      const now = performance.now()
+      const progress = progressRef.current
 
       stableFrames = height === lastHeight ? stableFrames + 1 : 0
+
+      if (height !== lastHeight || progress.budget !== lastProgress.budget || progress.groups !== lastProgress.groups) {
+        progressedAt = now
+      }
+
       lastHeight = height
+      lastProgress = { ...progress }
       node.scrollTop = height
 
-      // Most session switches are synchronous and stabilize within 2 frames;
-      // a 90-frame ceiling only matters for slow async image loads. Cap at 15
-      // frames to minimize the settle loop racing markdown paint on every switch.
-      if (stableFrames >= 2 || ++frame > 15) {
+      const pendingMedia = pendingMediaCount()
+
+      const verdict = consolidationVerdict({
+        elapsedMs: now - startedAt,
+        pendingMedia,
+        rowsPending: backfillPendingRef.current,
+        sinceProgressMs: now - progressedAt,
+        stableFrames
+      })
+
+      if (verdict !== 'wait') {
+        endSpan(consolidateSpan, {
+          budget: progress.budget,
+          deadline: verdict === 'timeout' ? 1 : 0,
+          frames,
+          grewPx: Math.round(height - openedAt),
+          // What we gave up waiting for, when we gave up. A `deadline: 1` span
+          // with `rowsPending: 1` is the backfill outrunning the cap; with
+          // `pendingMedia: 3` it is a gateway that stopped answering. Different
+          // problems, and the first version's span could not tell them apart.
+          pendingMedia,
+          rowsPending: backfillPendingRef.current ? 1 : 0
+        })
+        setConsolidating(false)
         void scrollToBottom('instant')
 
         return
@@ -522,10 +744,19 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
       rafId = requestAnimationFrame(settle)
     }
 
-    let rafId = requestAnimationFrame(settle)
+    rafId = requestAnimationFrame(settle)
 
-    return () => cancelAnimationFrame(rafId)
-  }, [scrollRef, scrollToBottom, sessionKey, stopScroll])
+    return () => {
+      cancelAnimationFrame(rafId)
+      // Abandoned rather than settled — the pane unmounted or a new transcript
+      // armed underneath this one. Closing it either way keeps the span out of
+      // the "still open at export" pile, where it would read as a hang.
+      endSpan(consolidateSpan, { abandoned: 1 })
+    }
+    // `groups.length` is read once for an attribute, not depended on: re-keying
+    // this effect per message would restart the deadline mid-consolidation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- see above
+  }, [consolidateArm, scrollRef, scrollToBottom, sessionKey, stopScroll])
 
   // Prepend an older page while preserving the on-screen position. The user is
   // scrolled up (reading history) so the stick-to-bottom lock is escaped and
@@ -541,25 +772,51 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
     restoreFromBottomRef.current = el ? el.scrollHeight - el.scrollTop : null
 
     if (action === 'dom') {
+      noteCommitCause('show-earlier:dom')
       setRenderBudget(budget => budget + paneBudget)
 
       return
     }
 
+    noteCommitCause('show-earlier:window')
     expandWindow()
   }, [expandWindow, hiddenCount, olderAvailable, paneBudget, scrollRef])
 
   useLayoutEffect(() => {
     const el = scrollRef.current
 
-    if (el && restoreFromBottomRef.current != null) {
+    if (!el) {
+      return
+    }
+
+    if (restoreFromBottomRef.current != null) {
       el.scrollTop = el.scrollHeight - restoreFromBottomRef.current
       restoreFromBottomRef.current = null
+
+      return
+    }
+
+    // A backfill step mounts OLDER turns, which is growth ABOVE the viewport:
+    // the visible content only stays put if scrollTop grows by exactly as much
+    // as the tree did. Doing that here — in a layout effect, after the commit
+    // and BEFORE the paint — is what makes the growth invisible.
+    //
+    // `use-stick-to-bottom` corrects the same thing from a ResizeObserver, which
+    // is a frame late by construction, and the settle loop's per-rAF pin is too:
+    // both run after the browser has already painted the shifted view. One paint
+    // is all a flicker is. This is the same reasoning as the anchor restore
+    // above, aimed at the opposite end of the scroller.
+    //
+    // Only while FOLLOWING. A user who scrolled up during a backfill is reading
+    // history, and yanking them to the bottom would be a far worse bug than the
+    // one this fixes.
+    if (followingRef.current && renderBudget < paneBudget) {
+      el.scrollTop = el.scrollHeight
     }
     // `messageSignature` is in the deps because a WINDOW expansion prepends
     // messages without changing the DOM budget — the anchor has to be re-applied
     // in the commit the taller tree lands in either way.
-  }, [messageSignature, renderBudget, scrollRef])
+  }, [messageSignature, paneBudget, renderBudget, scrollRef])
 
   // The row array is memoized on the inputs the rows actually read. This
   // component re-renders on every isAtBottom flip — and use-stick-to-bottom
@@ -584,11 +841,25 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
 
   return (
     <div
+      aria-busy={consolidating || undefined}
       className="relative min-h-0 max-w-full overflow-hidden contain-[layout_paint]"
       style={{ height: clampToComposer ? 'var(--thread-viewport-height)' : '100%' } as CSSProperties}
     >
+      {consolidating && <ConsolidatingPlaceholder label={t.assistant.thread.loadingSession} />}
       <div
-        className="size-full overflow-x-hidden overflow-y-auto overscroll-contain"
+        className={cn(
+          'size-full overflow-x-hidden overflow-y-auto overscroll-contain',
+          // OPACITY, not `visibility: hidden` and not `display: none`. Turn rows
+          // carry `content-visibility: auto` (see TurnRow), which skips content
+          // the engine judges not relevant to the user — and `visibility` is one
+          // of the things that judgement reads, while opacity is not. Hiding the
+          // scroller the other two ways risks every off-screen row collapsing to
+          // its `contain-intrinsic-size` ESTIMATE, so the gate above would settle
+          // on estimated heights and the reveal would jump: the exact bug this
+          // is here to remove, arriving by a different door.
+          consolidating && 'pointer-events-none opacity-0'
+        )}
+        data-consolidating={consolidating ? 'true' : undefined}
         data-following={isAtBottom ? 'true' : 'false'}
         data-slot="aui_thread-viewport"
         ref={scrollRef as React.RefCallback<HTMLDivElement>}

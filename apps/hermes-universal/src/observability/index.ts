@@ -37,7 +37,7 @@
 export { toOtlp, toOtlpBatch, traceparentFor } from './otlp'
 export { getRun, setRun } from './run'
 
-export type { CaptureRoot, ExportSpan, SpanAttrs, TraceSpan } from './span'
+export type { CaptureRoot, ExportSpan, SourcedSpanApi, SpanAttrs, TraceSpan } from './span'
 export {
   beginDetached,
   beginSpan,
@@ -46,6 +46,7 @@ export {
   endSpan,
   isRecording,
   NO_SPAN,
+  noteCommitCause,
   openSpan,
   openSpanCount,
   peekAll,
@@ -55,5 +56,7 @@ export {
   spanAsync,
   spanCount,
   spans,
-  takeCompleted
+  takeCommitCause,
+  takeCompleted,
+  withSource
 } from './span'
