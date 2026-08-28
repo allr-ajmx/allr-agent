@@ -2689,42 +2689,31 @@ body.guest-pointer-lock iframe {
   inherits: true;
 }
 
-/* Shiki source/diff row metrics (desktop styles.css ~1336). */
+/* Shiki row metrics for the inline diff (desktop styles.css ~1336).
+
+   The `.preview-source-code` half of this block is GONE: it supplied the file
+   preview's row metrics, no component ever set that class, and the preview now
+   carries those metrics as inline styles on elements it owns
+   (`app/right-pane/preview/preview-source.tsx`). What is left targets `.shiki`,
+   which is a third-party class — the diff's own renderer emits our elements, so
+   these rules only reach the react-shiki path. */
 [data-slot='file-diff-panel'] .shiki,
-[data-slot='file-diff-panel'] .shiki code,
-.preview-source-code .shiki,
-.preview-source-code .shiki code {
+[data-slot='file-diff-panel'] .shiki code {
   margin: 0;
   background: transparent !important;
 }
 
-[data-slot='file-diff-panel'] .shiki code,
-.preview-source-code .shiki code {
+[data-slot='file-diff-panel'] .shiki code {
   display: grid;
 }
 
-[data-slot='file-diff-panel'] .shiki code .line:empty::before,
-.preview-source-code .shiki code .line:empty::before {
+[data-slot='file-diff-panel'] .shiki code .line:empty::before {
   content: '\00a0';
 }
 
 /* Inline diff rows keep their utility-class padding; just floor the height. */
 [data-slot='file-diff-panel'] .shiki code .line {
   min-height: 1.25rem;
-  white-space: pre;
-}
-
-/* Source rows are a fixed editor-height box so source⇄diff toggling never
-   shifts and the gutter stays aligned. */
-.preview-source-code .shiki code {
-  min-width: max-content;
-}
-
-.preview-source-code .shiki code .line {
-  display: block;
-  height: 1.25rem;
-  padding: 0 0.625rem;
-  line-height: 1.25rem;
   white-space: pre;
 }
 

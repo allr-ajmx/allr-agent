@@ -1,11 +1,10 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Streamdown } from 'streamdown'
 
 import { CodeEditor, type CodeEditorApi } from '@/components/ui/code-editor'
 import { Codicon } from '@/components/ui/codicon'
 import { getFileDiff, getGitRoot, readFileDataUrl, readFileText, writeFileText } from '@/hermes'
 import { useI18n } from '@/i18n'
-import { exceedsHighlightBudget } from '@/lib/code-budget'
 import { IS_MOBILE } from '@/lib/platform'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
@@ -15,17 +14,20 @@ import { $previewReloadNonce, type PreviewTarget, requestPreviewReload } from '@
 import { setPreviewDirty } from '@/store/preview-edit'
 import { $previewModes, setPreviewCaps, setPreviewMode } from '@/store/preview-view'
 import { $workspaceCwd, notifyWorkspaceChanged } from '@/store/workspace-events'
-import { useTheme } from '@/themes/context'
 
 import { MobileKeyRow } from './mobile-key-row'
-
-const PreviewShikiBlock = lazy(() => import('@/app/right-pane/preview/preview-shiki-block'))
+import { PreviewSource } from './preview-source'
 
 // Right-pane file viewer/editor. Adapted from desktop's chat/right-rail/
-// preview-file.tsx: read text/image, switch source (Shiki) / rendered (markdown)
-// / diff views, and spot-edit text with a stale-on-disk save guard. Desktop's
+// preview-file.tsx: read text/image, switch source / rendered (markdown) / diff
+// views, and spot-edit text with a stale-on-disk save guard. Desktop's
 // Electron <webview> HTML-preview + virtualized source list + drag-to-composer
 // are dropped (Electron-only / not needed).
+//
+// The SOURCE view is `preview-source.tsx` — this app's own renderer, imported
+// eagerly. It used to be a `lazy()` around `react-shiki`, which is the chain
+// ALLR-30 removed from the chat fence; here it left the pane empty until the
+// user tapped Edit. No chunk and no engine means no async state to be stuck in.
 //
 // The view MODE lives in `store/preview-view`, not here: as a layout-tree tile
 // the switch is rendered by the zone's tab strip (preview-strip-tools.tsx), and
@@ -110,7 +112,6 @@ interface Loaded {
 export function PreviewFile({ target, variant = 'rail' }: { target: PreviewTarget; variant?: 'rail' | 'tile' }) {
   const { t } = useI18n()
   const copy = t.preview
-  const { resolvedMode } = useTheme()
   const reloadNonce = useStore($previewReloadNonce)
   const workspaceCwd = useStore($workspaceCwd)
 
@@ -258,8 +259,6 @@ export function PreviewFile({ target, variant = 'rail' }: { target: PreviewTarge
     [copy, path, saving]
   )
 
-  const shikiTheme = resolvedMode === 'dark' ? 'github-dark-default' : 'github-light-default'
-
   // A TILE's tab already names the file and its strip already carries the mode
   // switch, so the pane keeps only what is genuinely pane state: the edit
   // actions. The RAIL (the phone's Editor tab, the narrow AppShell drawer) has
@@ -406,35 +405,7 @@ export function PreviewFile({ target, variant = 'rail' }: { target: PreviewTarge
         ) : mode === 'diff' ? (
           <DiffView cwd={workspaceCwd} path={path} />
         ) : (
-          <div
-            className={cn(
-              'h-full overflow-auto [&_pre]:!bg-transparent [&_pre]:!p-2',
-              // Read mode is where most phone time is spent — 0.7rem of mono is
-              // not a reading size on a handset.
-              IS_MOBILE ? 'text-[0.8rem]' : 'text-[0.7rem]'
-            )}
-          >
-            {exceedsHighlightBudget(loaded.text) ? (
-              // Plain text past the budget. Shiki tokenises the whole file in one
-              // synchronous pass, so a big file froze the entire UI — not the
-              // pane, the app — for as long as that took, and this view happily
-              // loaded half a megabyte. Every other code surface in the app
-              // (tool cards, diffs) already asks this question; the file viewer
-              // was the one that didn't, which is why it was the one that hung.
-              <pre className="p-2 font-mono whitespace-pre">{loaded.text}</pre>
-            ) : (
-              // Lazy for the same reason the transcript's fence is: this was
-              // the third static path into `react-shiki`, and one static
-              // importer anywhere is enough to keep the engine in the entry
-              // chunk (MJXHRM-380). The plain <pre> above is the fallback, so
-              // the file is readable while the engine loads.
-              <Suspense fallback={<pre className="p-2 font-mono whitespace-pre">{loaded.text}</pre>}>
-                <PreviewShikiBlock language={loaded.language} theme={shikiTheme}>
-                  {loaded.text}
-                </PreviewShikiBlock>
-              </Suspense>
-            )}
-          </div>
+          <PreviewSource language={loaded.language} text={loaded.text} />
         )}
       </div>
 
