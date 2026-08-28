@@ -126,7 +126,13 @@ describe('downloadGatewayMediaFile', () => {
     const created: string[] = []
     const clicks: string[] = []
 
-    vi.stubGlobal('fetch', async (url: string) => new Response(new Blob([url])))
+    // A minimal `fetch` double rather than a real `Response`: the global
+    // `Response` here is undici's, whose constructor calls `.stream()` on a
+    // Blob body, and jsdom's `Blob` has no `.stream()` — so
+    // `new Response(new Blob([…]))` throws `object.stream is not a function`
+    // before the code under test is ever reached. `browserDownloadFallback`
+    // only ever calls `response.blob()`, so that is all this double stands up.
+    vi.stubGlobal('fetch', async (url: string) => ({ blob: async () => new Blob([url]) }))
     URL.createObjectURL = vi.fn(() => {
       created.push('blob:made')
 
