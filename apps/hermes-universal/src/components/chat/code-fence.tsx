@@ -1,10 +1,11 @@
-import { type CSSProperties, type FC, Fragment, type RefObject, useEffect, useMemo, useRef } from 'react'
+import { type CSSProperties, type RefObject, useEffect, useMemo, useRef } from 'react'
 
 import { CodeCard } from '@/components/chat/code-card'
+import { CodeTokenBody, TOKEN_COLOR } from '@/components/ui/code-token-body'
 import { CopyButton } from '@/components/ui/copy-button'
 import { useI18n } from '@/i18n'
 import { exceedsHighlightBudget } from '@/lib/code-budget'
-import { canTokenize, type Token, tokenizeCode, type TokenKind } from '@/lib/code-tokens'
+import { canTokenize, tokenizeCode } from '@/lib/code-tokens'
 import { isLikelyProseCodeBlock, sanitizeLanguageTag } from '@/lib/markdown-code'
 import { isRecording, recordSpan } from '@/observability'
 
@@ -90,27 +91,6 @@ const FENCE_CODE_STYLE: CSSProperties = {
   wordBreak: 'normal'
 }
 
-/**
- * Custom properties rather than literal hex, so a theme flip repaints with no
- * JS and no re-tokenizing. The `currentColor` fallback is the point: if a
- * property is ever missing the declaration still resolves, and the token renders
- * in the surrounding text colour instead of disappearing.
- *
- * `plain` has no entry on purpose — a plain token renders as a bare text node,
- * exactly as in the un-tokenized path, which is both fewer DOM nodes and one
- * less way for the two paths to differ.
- */
-const TOKEN_COLOR: Partial<Record<TokenKind, string>> = {
-  attr: 'var(--code-attr, currentColor)',
-  comment: 'var(--code-com, currentColor)',
-  function: 'var(--code-fn, currentColor)',
-  keyword: 'var(--code-kw, currentColor)',
-  number: 'var(--code-num, currentColor)',
-  string: 'var(--code-str, currentColor)',
-  tag: 'var(--code-tag, currentColor)',
-  type: 'var(--code-type, currentColor)'
-}
-
 export interface CodeFenceProps {
   className?: string
   code: string
@@ -165,22 +145,6 @@ function useGeometryProbe(ref: RefObject<HTMLElement | null>, lines: number): vo
     })
   }, [lines, ref])
 }
-
-const TokenBody: FC<{ tokens: Token[] }> = ({ tokens }) => (
-  <>
-    {tokens.map((token, index) => {
-      const color = TOKEN_COLOR[token.kind]
-
-      return color ? (
-        <span key={index} style={{ color }}>
-          {token.text}
-        </span>
-      ) : (
-        <Fragment key={index}>{token.text}</Fragment>
-      )
-    })}
-  </>
-)
 
 export function CodeFence({
   className,
@@ -296,7 +260,7 @@ export function CodeFence({
           style={FENCE_PRE_STYLE}
         >
           <code data-lines={lines} data-slot="code-fence-code" style={FENCE_CODE_STYLE}>
-            {tokens ? <TokenBody tokens={tokens} /> : trimmed}
+            {tokens ? <CodeTokenBody tokens={tokens} /> : trimmed}
           </code>
         </pre>
       </div>
