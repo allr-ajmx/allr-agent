@@ -37,7 +37,7 @@ _LOGIN_HTML_TEMPLATE = """\
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Sign in — Allr</title>
 <style>
   /* Brand fonts shipped by @nous-research/ui — same files the SPA loads. */
@@ -110,11 +110,29 @@ _LOGIN_HTML_TEMPLATE = """\
     background-attachment: fixed;
   }}
 
-  /* Layout: vertically center on tall screens, top-anchor on short. */
+  /* Layout: vertically center on tall screens, top-anchor on short.
+
+     Safe area, four sides. On Android the app's MainActivity calls
+     `enableEdgeToEdge()`, and mobile sign-in navigates the CALLING webview
+     here (see `src-tauri/src/oauth.rs`) rather than opening a system
+     browser — so this page draws under the status bar and the gesture
+     strip unless it pads itself. `viewport-fit=cover` above is what makes
+     `env(safe-area-inset-*)` report non-zero at all.
+
+     Raw `env()` on purpose. The universal app reads
+     `var(--safe-area-inset-*)` (published by `lib/safe-area.ts`) because
+     the webviews resolve `env()` a few frames late — but this document is
+     server-rendered OUTSIDE the React SPA, so those vars do not exist
+     here and `var()` would compute to nothing. The late resolve costs at
+     most one frame of under-padding on a static page with no chrome to
+     jump. Do NOT "fix" this into the var form. */
   body {{
     display: grid;
     place-items: center;
-    padding: clamp(1.5rem, 6vh, 6rem) 1.25rem;
+    padding-top: max(clamp(1.5rem, 6vh, 6rem), env(safe-area-inset-top));
+    padding-bottom: max(clamp(1.5rem, 6vh, 6rem), env(safe-area-inset-bottom));
+    padding-left: max(1.25rem, env(safe-area-inset-left));
+    padding-right: max(1.25rem, env(safe-area-inset-right));
   }}
 
   main {{
@@ -324,7 +342,7 @@ _EMPTY_HTML = """\
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Sign-in unavailable — Allr</title>
 <style>
   @font-face {
@@ -356,9 +374,15 @@ _EMPTY_HTML = """\
     font-size: 16px; line-height: 1.5;
     -webkit-font-smoothing: antialiased;
   }
+  /* Safe area, four sides — same contract as _LOGIN_HTML_TEMPLATE above,
+     and raw `env()` for the same reason: this document is outside the SPA
+     that publishes `--safe-area-inset-*`. */
   body {
     display: grid; place-items: center;
-    padding: clamp(1.5rem, 6vh, 6rem) 1.25rem;
+    padding-top: max(clamp(1.5rem, 6vh, 6rem), env(safe-area-inset-top));
+    padding-bottom: max(clamp(1.5rem, 6vh, 6rem), env(safe-area-inset-bottom));
+    padding-left: max(1.25rem, env(safe-area-inset-left));
+    padding-right: max(1.25rem, env(safe-area-inset-right));
   }
   main {
     width: 100%; max-width: 32rem;
