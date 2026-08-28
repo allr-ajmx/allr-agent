@@ -66,6 +66,9 @@
         }
       },
       "rpm": {
+        "depends": [
+          "alsa-lib"
+        ],
         "files": {
           "/usr/share/polkit-1/actions/com.jaxmatrix.hermes.policy": "polkit/com.jaxmatrix.hermes.policy"
         }
