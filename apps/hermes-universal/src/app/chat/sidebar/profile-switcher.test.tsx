@@ -1,3 +1,7 @@
+import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -288,5 +292,79 @@ describe('ProfileRail — all-profiles toggle', () => {
     fireEvent.click(square('research'))
     expect($showAllProfiles.get()).toBe(false)
     expect($activeProfile.get()).toBe('research')
+  })
+})
+
+/**
+ * One size for the whole strip.
+ *
+ * The rail mixes two button implementations: `Button` (the home/Manage pills)
+ * and raw `<button>` (the squares, "+", "⌄"). The app's coarse-pointer touch
+ * floor keys on `data-slot` / `data-variant`, which only `Button` writes — and
+ * the squares' nested Radix `asChild` triggers overwrite `data-slot` anyway — so
+ * on a phone the pills stood at 48px beside ~22px squares. The fix is a shared
+ * `profile-rail-control` class that styles.css sizes to `--touch-target-compact`.
+ *
+ * What this holds is the wiring, in both halves: every control in the rail
+ * carries the marker (a NEW button added without it is the regression), and the
+ * stylesheet still sizes that marker. Neither half is worth anything alone, and
+ * jsdom cannot answer the pixel question — it never sets `html.is-mobile` and
+ * does not resolve the token — so this is the assertion that fits.
+ */
+describe('ProfileRail — one size for the whole strip', () => {
+  const seed = (count: number) =>
+    $profiles.set([profile('default', true), ...Array.from({ length: count }, (_, i) => profile(`p${i}`))])
+
+  const railControls = (root: HTMLElement) => [
+    ...(root.querySelector('[data-slot="profile-rail"]')?.querySelectorAll('button') ?? [])
+  ]
+
+  it('marks every control on the strip — pills, squares, "+" and "⌄" alike', () => {
+    seed(RAIL_VISIBLE_LIMIT + 2)
+    const { container } = renderRail()
+
+    const controls = railControls(container)
+
+    // The home pill, one square per inline profile, "+", "⌄", the Manage pill.
+    expect(controls).toHaveLength(RAIL_VISIBLE_LIMIT + 4)
+
+    for (const control of controls) {
+      expect(control).toHaveClass('profile-rail-control')
+    }
+  })
+
+  it('marks the hoisted square, which is a stand-in rather than a reorder cell', () => {
+    seed(RAIL_VISIBLE_LIMIT + 2)
+    $activeProfile.set(`p${RAIL_VISIBLE_LIMIT}`)
+    const { container } = renderRail()
+
+    expect(square(`p${RAIL_VISIBLE_LIMIT}`)).toHaveClass('profile-rail-control')
+    expect(railControls(container)).toHaveLength(RAIL_VISIBLE_LIMIT + 5)
+  })
+
+  it('marks the spilled squares too — they portal out of the rail, not out of the rule', () => {
+    seed(RAIL_VISIBLE_LIMIT + 2)
+    renderRail()
+
+    fireEvent.click(screen.getByRole('button', { name: 'More profiles' }))
+
+    const grid = within(screen.getByRole('dialog', { name: 'More profiles' }))
+
+    for (const name of [`p${RAIL_VISIBLE_LIMIT}`, `p${RAIL_VISIBLE_LIMIT + 1}`]) {
+      expect(grid.getByRole('button', { name })).toHaveClass('profile-rail-control')
+    }
+  })
+
+  it('sizes that marker to the compact touch target, not the 48px floor', () => {
+    const css = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '../../../styles.css'), 'utf8')
+
+    // Both axes, so the strip is square, and off `--touch-target-compact` so it
+    // tracks the one token dense chrome already uses.
+    expect(css).toMatch(
+      /html\.is-mobile button\.profile-rail-control \{\s*min-block-size: var\(--touch-target-compact\);\s*min-inline-size: var\(--touch-target-compact\);/
+    )
+    // The shared corner rides on the same class, so the strip cannot end up
+    // one size with two radii.
+    expect(css).toMatch(/@utility profile-rail-control \{\s*border-radius: 4px;/)
   })
 })
