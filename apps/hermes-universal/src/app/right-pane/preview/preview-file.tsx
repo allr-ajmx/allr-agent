@@ -12,7 +12,7 @@ import { useDisplayPath } from '@/store/display-home'
 import { notifyError } from '@/store/notifications'
 import { $previewReloadNonce, type PreviewTarget, requestPreviewReload } from '@/store/preview'
 import { setPreviewDirty } from '@/store/preview-edit'
-import { $previewModes, setPreviewCaps, setPreviewMode } from '@/store/preview-view'
+import { $previewModes, seedPreviewMode, setPreviewCaps, setPreviewMode } from '@/store/preview-view'
 import { $workspaceCwd, notifyWorkspaceChanged } from '@/store/workspace-events'
 
 import { MobileKeyRow } from './mobile-key-row'
@@ -176,7 +176,10 @@ export function PreviewFile({ target, variant = 'rail' }: { target: PreviewTarge
         // Publish what this file can be shown as BEFORE picking a mode, so the
         // strip's glyphs are already truthful by the time one lights up.
         setPreviewCaps(path, { rendered: isMarkdown && !binary, source: !image })
-        setPreviewMode(path, isMarkdown && !binary ? 'rendered' : 'source')
+        // SEED, not set: this effect re-runs on every `reloadNonce` bump, and a
+        // save bumps it. Forcing the mode here threw away the view the user had
+        // chosen — a `.md` snapped back to `rendered` every time it was saved.
+        seedPreviewMode(path, isMarkdown && !binary ? 'rendered' : 'source')
       })
       .catch(err => {
         if (!cancelled) {
