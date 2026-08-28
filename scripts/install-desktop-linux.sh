@@ -190,6 +190,31 @@ unpacked="$(find "$tmp" -maxdepth 1 -type d -name 'Allr_*' -print -quit)"
 [ -n "$unpacked" ] || die "unexpected tarball layout"
 [ -x "$unpacked/install.sh" ] || die "tarball has no install.sh"
 
+# --- refuse a build this machine's glibc cannot start -------------------------
+# Checked BEFORE installing, because this is the one failure that otherwise
+# completes silently: glibc is forward- but not backward-compatible, so a binary
+# built against a newer one installs perfectly, puts an icon in the menu, and
+# then does nothing at all when clicked. It is not a missing package and no
+# amount of `apt install` fixes it, so it must not be reported as one.
+glibc_need="$(ldd "$unpacked/bin/allr" 2>&1 \
+  | sed -n "s/.*version \`GLIBC_\([0-9][0-9.]*\)' not found.*/\1/p" \
+  | sort -V | tail -1)"
+if [ -n "$glibc_need" ]; then
+  # sed rather than `head -1 | grep`: under `set -o pipefail`, head closing the
+  # pipe early kills ldd with SIGPIPE, the pipeline reports failure, and the
+  # fallback appends "unknown" to the version it just read successfully.
+  have="$(ldd --version 2>/dev/null | sed -n '1s/.*[^0-9.]\([0-9][0-9]*\.[0-9][0-9]*\)$/\1/p')"
+  [ -n "$have" ] || have="unknown"
+  die "this build of Allr needs glibc $glibc_need, and this machine has $have.
+
+Nothing installed. glibc cannot be upgraded independently of the distribution,
+so the fix is a newer release of it -- Ubuntu 24.04+, Debian 13+, Fedora 39+,
+RHEL/Rocky/Alma 10+, or Linux Mint 22+.
+
+If you are on a supported distribution and still see this, the release was
+built on the wrong host; please report it at https://github.com/$REPO/issues"
+fi
+
 # The tarball's own installer decides the layout; this script only gets it here.
 "$unpacked/install.sh" --prefix="$prefix"
 
@@ -197,7 +222,12 @@ unpacked="$(find "$tmp" -maxdepth 1 -type d -name 'Allr_*' -print -quit)"
 # The tarball links the system's libraries by design, which is exactly why it
 # works where a self-contained bundle does not -- but it means an incomplete
 # host shows up as a silent failure to start. Name the missing libraries now.
-missing="$(ldd "$prefix/bin/allr" 2>/dev/null | awk '/not found/ {print "    " $1}' || true)"
+# `=> not found` and not merely `not found`: the loader also emits
+# `<binary>: <lib>: version ... not found` for a symbol-version mismatch, and
+# matching that line prints the BINARY's own path as though it were a missing
+# library -- sending the reader off to install a package that does not exist.
+# The glibc preflight above already refused that case outright.
+missing="$(ldd "$prefix/bin/allr" 2>/dev/null | awk '/=> not found/ {print "    " $1}' || true)"
 if [ -n "$missing" ]; then
   warn "these shared libraries are missing on this machine:"
   printf '%s\n' "$missing" >&2
