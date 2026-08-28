@@ -14,6 +14,7 @@ import { clearWakeIndicator, syncWakeIndicatorWithVoice } from '@/store/wake-ind
 import { armWakeWord, setWakeConversationStarter } from '@/store/wake-word'
 import type { ConversationBinding } from '@/voice/conversation-controller'
 
+import { LIVE_CONVERSATION_ENABLED } from '../controls'
 import type { ComposerTarget } from '../focus'
 import { onComposerVoiceToggleRequest } from '../focus'
 import type { ChatBarProps } from '../types'
@@ -153,7 +154,29 @@ export function useComposerVoice({
     // reads `PRIMARY_SESSION_VIEW`, whose atoms are the ACTIVE session's, so it
     // picks up the chat the routing just landed on rather than the one that was
     // there when the phrase was spoken.
+    //
+    // ALLR-35 — this starter is the live conversation's SECOND entry point: a
+    // detection opens the very loop the composer's waveform button is now hidden
+    // behind, without that button existing. So it is gated on the SAME constant.
+    // The ear button is untouched — arming, the toggle, the chime and the routing
+    // code all stay; only the conversation a detection used to open is refused.
+    //
+    // Gated INSIDE the starter rather than by not registering one: the detection
+    // handler in `store/wake-word.ts` drops client capture, chimes and LIGHTS the
+    // wake indicator BEFORE it calls the starter, so a missing (or no-op) starter
+    // leaves the light breathing with nothing behind it — `syncWakeIndicatorWithVoice`
+    // only clears an indicator whose conversation actually opened — and, on a
+    // client-capture backend, leaves the detector unfed until something re-arms
+    // it. The gated branch runs the two recoveries the conversation's own end
+    // would have run, so the wake word survives a detection intact.
     setWakeConversationStarter(detection => {
+      if (!LIVE_CONVERSATION_ENABLED) {
+        clearWakeIndicator()
+        void armWakeWord()
+
+        return
+      }
+
       routeWakeDetection(detection)
       startRef.current()
     })

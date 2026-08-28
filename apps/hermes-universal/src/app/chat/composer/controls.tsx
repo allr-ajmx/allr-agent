@@ -43,12 +43,20 @@ export const PRIMARY_ICON_BTN = cn(
 )
 
 // ALLR-35 — TEMPORARY. The live (voice) conversation does not work properly, so
-// its entry point — the waveform primary that takes the send slot on an empty,
-// idle composer — is hidden. Nothing is removed: `ConversationPill` and the
-// whole start/end wiring below stay intact, so re-enabling once the feature is
-// fixed is flipping this one constant back to `true`. Dictation, wake word and
-// auto-speak are separate controls and are deliberately untouched.
-const LIVE_CONVERSATION_ENABLED = false
+// both of its entry points are closed by this one constant:
+//
+//  * the waveform primary that takes the send slot on an empty, idle composer,
+//    hidden by `showVoicePrimary` below;
+//  * the WAKE WORD's conversation starter, which opens the same loop with no
+//    button ever pressed — `hooks/use-composer-voice.ts` imports this constant
+//    for exactly that reason. One flag, both doors: two separate switches would
+//    drift and leave the hands-free path live while the button reads as off.
+//
+// Nothing is removed: `ConversationPill`, the whole start/end wiring below and
+// the wake routing all stay intact, so re-enabling once the feature is fixed is
+// flipping this one constant back to `true`. Dictation, the wake-word ear button
+// itself and auto-speak are separate controls and are deliberately untouched.
+export const LIVE_CONVERSATION_ENABLED = false
 
 interface ConversationProps {
   active: boolean
