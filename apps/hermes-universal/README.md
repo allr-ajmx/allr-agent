@@ -295,6 +295,19 @@ and uploaded by the release workflow. It ships our binary, an `install.sh` that
 targets `~/.local` (or `--system`), icons and a generated `.desktop` entry, and
 links the system's WebKitGTK exactly as the packages do.
 
+`scripts/install-desktop-linux.sh` is the one-liner wrapper around it:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/allr-ajmx/allr-agent/main/scripts/install-desktop-linux.sh | bash
+```
+
+It resolves the version from the `desktop-updater` pointer — deliberately *not*
+`/releases/latest`, which resolves to the Python CalVer release and has no
+desktop assets — verifies the download against the release's `SHA256SUMS.txt`,
+then delegates to the tarball's own `install.sh` so there is one definition of
+where files land. `ALLR_RELEASE_BASE_URL` points it at a mirror or a local
+server.
+
 macOS is built **universal** (`--target universal-apple-darwin`, needs
 `rustup target add x86_64-apple-darwin`). That is not just convenience:
 `updates.rs` picks a release asset with

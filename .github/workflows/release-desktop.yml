@@ -133,7 +133,7 @@ jobs:
               -f tag_name="$TAG" \
               -F draft=true \
               -f name="Allr Desktop v$VERSION" \
-              -f body="Desktop builds of Allr. See the assets below." \
+              -f body="Desktop builds of Allr. See the assets below. On Linux, \`curl -fsSL https://raw.githubusercontent.com/allr-ajmx/allr-agent/main/scripts/install-desktop-linux.sh | bash\` installs into ~/.local with no root." \
               --jq '.id')"
           fi
 
