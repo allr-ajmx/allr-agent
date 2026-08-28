@@ -29,7 +29,7 @@ export function OnboardingScreen() {
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-background">
-      <div className="mx-auto flex w-full max-w-md flex-1 flex-col px-5 py-[max(2rem,env(safe-area-inset-top))]">
+      <div className="mx-auto flex w-full max-w-md flex-1 flex-col px-5 py-[max(2rem,var(--safe-area-inset-top))]">
         <h1 className="text-xl font-semibold text-foreground">{t.onboarding.headerTitle}</h1>
         <p className="mt-1 mb-6 text-sm text-muted-foreground">{t.onboarding.headerDesc}</p>
 

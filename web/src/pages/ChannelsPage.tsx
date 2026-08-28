@@ -359,6 +359,10 @@ export default function ChannelsPage() {
           ref={editModalRef}
           className={cn(
             "fixed inset-0 z-[100] flex min-h-dvh items-start justify-center overflow-y-auto bg-background/85 px-4",
+            // Raw `env()`, deliberately — see the note in App.tsx. This dashboard
+            // is a separate SPA from the universal app and does not declare the
+            // `--safe-area-inset-*` custom properties that `lib/safe-area.ts`
+            // publishes there, so `var()` would compute to nothing here.
             "pb-[calc(1rem+env(safe-area-inset-bottom))] pt-[calc(1rem+env(safe-area-inset-top))]",
             "sm:items-center sm:p-4",
           )}

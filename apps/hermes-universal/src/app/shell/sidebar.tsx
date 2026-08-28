@@ -142,7 +142,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   if (!wide) {
     return (
       <div className="flex h-full min-h-0">
-        <main className="flex min-h-0 min-w-0 flex-1 flex-col pt-[env(safe-area-inset-top)]">{children}</main>
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col pt-[var(--safe-area-inset-top)]">{children}</main>
 
         <Sheet onOpenChange={setOpenMobile} open={openMobile}>
           <SheetContent className="w-[19rem] gap-0 p-0" side="left">
