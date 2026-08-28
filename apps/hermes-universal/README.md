@@ -13,8 +13,33 @@ sudo apt install \
   librsvg2-dev patchelf
 ```
 
-Two of those are easy to miss because **nothing fails until the very last bundling step**, long after the app
-itself has compiled and the `.deb` and `.rpm` have been produced:
+On Arch/Manjaro the same set is named differently:
+
+```sh
+sudo pacman -S --needed \
+  webkit2gtk-4.1 base-devel curl wget file \
+  xdotool openssl libayatana-appindicator \
+  librsvg patchelf
+```
+
+The appindicator package is the one to get right:
+
+- **`libayatana-appindicator`** — Tauri's `tray-icon` feature `dlopen`s
+  `libayatana-appindicator3.so.1` at *runtime*, so everything compiles and links and then
+  `tauri dev` panics the moment it launches:
+
+  ```
+  thread 'main' panicked at libappindicator-sys-0.9.0/src/lib.rs:41:5:
+  Failed to load ayatana-appindicator3 or appindicator3 dynamic library
+  ```
+
+  Arch ships no separate `-dev` package, and `libappindicator` is the wrong one — that is the
+  older Unity-era library and does not provide the `.so.1` the loader asks for.
+
+Two of those only ever mattered to the AppImage, which **is no longer built** (see "No AppImage, and why"
+below). They are documented because they are still in the CI package list, and because the failure they cause
+is unrecognisable: nothing goes wrong until the very last bundling step, long after the app itself has compiled
+and the `.deb` and `.rpm` have been produced.
 
 - **`librsvg2-dev`** — the AppImage bundler runs `linuxdeploy-plugin-gtk`, which reads `librsvg-2.0.pc` via
   `pkg-config` to find the SVG loader. The runtime `librsvg2-2` package does **not** ship that `.pc` file. Without
@@ -30,7 +55,37 @@ itself has compiled and the `.deb` and `.rpm` have been produced:
 
 - **`patchelf`** — linuxdeploy uses it to rewrite `RPATH` on every bundled `.so`.
 
-If you only need to run or package for local use, `npm run tauri build --bundles deb` skips AppImage entirely.
+If you only need to run or package for local use, `npm run tauri build --bundles deb` is the quickest path.
+
+### Running under Wayland
+
+Two things look like failures and are not.
+
+**The clipboard warning is expected.** Every Wayland session logs this at startup:
+
+```
+[WARN arboard::platform::linux] Tried to initialize the wayland data control protocol clipboard,
+but failed. Falling back to the X11 clipboard protocol.
+```
+
+`ext-data-control` and `wlr-data-control` are wlroots-family protocols; GNOME's Mutter and KDE's
+KWin implement neither. arboard falls back to X11 through XWayland and the clipboard works. Don't
+chase this one.
+
+**The tray needs a StatusNotifier host.** Wayland has no XEmbed tray, so `libayatana-appindicator`
+gets the icon *published* but something still has to *display* it:
+
+| session | what to enable |
+| --- | --- |
+| GNOME | `gnome-shell-extension-appindicator`, switched on in Extensions |
+| KDE Plasma | built in, nothing to do |
+| sway / wlroots | waybar with the `tray` module, or another SNI host |
+
+With no host, `tray::install` returns `false`, the tray is skipped, and **the background-mode
+switch in Settings stays disabled**. That is deliberate — see the comment above the `tray::install`
+call in `src-tauri/src/lib.rs`: background mode hides the window, so with no icon to bring it back
+you would be left with a live process and no way to reach it. The app itself runs fine; it just
+cannot run hidden.
 
 ## Scripts
 
@@ -41,7 +96,7 @@ If you only need to run or package for local use, `npm run tauri build --bundles
 | `npm run dev:prodweb` | Tauri dev shell against the **minified production** frontend (see below). |
 | `npm run check` | typecheck → lint → test → build. What CI runs. |
 | `npm run fix` | `eslint --fix` then Prettier. Run before pushing. |
-| `npm run tauri build` | Full release bundle (deb + rpm + AppImage). |
+| `npm run tauri build` | Full release bundle (deb + rpm; no AppImage — see below). |
 
 ### `dev:ext:*` — desktop and mobile side by side
 
@@ -80,6 +135,37 @@ alone cannot make and `tauri build` makes too slowly to iterate on.
 
 It builds with `--mode benchmark` so `.env.benchmark` sets `VITE_ENABLE_BENCH=true`, keeping the
 `/dev/markdown-bench` route in the bundle. `npm run build` (mode `production`) never includes it.
+
+### The JDK Gradle runs on
+
+The Android project's Gradle wrapper is pinned to **8.14.3** by Tauri's template
+(`src-tauri/gen/android/gradle/wrapper/gradle-wrapper.properties`), and Gradle 8.14 runs on **Java 17 through
+21**. Use JDK 21:
+
+```sh
+sudo pacman -S --needed jdk21-openjdk   # Arch/Manjaro
+export JAVA_HOME=/usr/lib/jvm/java-21-openjdk
+```
+
+Leave the *system* default alone — `archlinux-java set` is not needed and JDK 26 is fine for everything else.
+Only `JAVA_HOME` for this build has to move.
+
+The footgun is pointing `JAVA_HOME` at Android Studio's bundled runtime, `/opt/android-studio/jbr`. That used
+to be JDK 21 and is now JDK 25, so an IDE update silently breaks the command line with an error that names no
+JDK at all and reads like a repo bug:
+
+```
+BUG! exception in phase 'semantic analysis' in source unit '_BuildScript_'
+Unsupported class file major version 69
+```
+
+It fails while parsing `build.gradle.kts` itself, before a line of app code is compiled. The number is the only
+clue, and it is a class-file version, not a Java one — **69 is Java 25, 70 is Java 26**. Subtract 44.
+
+Raising the wrapper instead is a dead end for now: `build.gradle.kts` pins AGP 8.11.0 and the Kotlin Gradle
+plugin 1.9.25, neither of which supports Gradle 9, and both lines are written by Tauri's template, so
+`npm run android:init` would undo the change. Android Studio itself keeps working either way — the IDE builds
+with its own "Gradle JDK" setting and ignores `JAVA_HOME`.
 
 ### The Android dev loop
 
@@ -150,7 +236,19 @@ before building. `jarsigner -verify <aab>` confirms the signature.
 
 Desktop releases are cut by CI, not by hand: push a `desktop-v*` tag and
 `.github/workflows/release-desktop.yml` builds, signs, notarizes and publishes
-both apps (Allr and Allr Setup) for macOS, Linux and Windows.
+Allr for macOS, Linux and Windows.
+
+`apps/bootstrap-installer` ("Allr Setup") used to ship on the same tag and no
+longer does. It drives `scripts/install.ps1` through PowerShell, so its Linux
+and macOS bundles had no install script to run, and on Windows its NSIS output
+sat one character away from the product app's own `Allr_<ver>_x64-setup.exe`.
+It is still built and tested by CI — it is just not a release asset.
+
+Every leg now **launches what it built** before the draft is published — see
+the smoke-test steps in the workflow and `scripts/smoke-test-linux-bundle.sh`.
+That is not belt-and-braces: `desktop-v0.0.7` shipped an AppImage that opened a
+window and never painted a pixel, and a build-and-upload pipeline had no way to
+notice.
 
 ```
 python scripts/bump-desktop-version.py 0.1.1   # all 11 version sites, both apps
@@ -173,8 +271,29 @@ invisible to it.
 | Platform | Installer | Updater artifact |
 | --- | --- | --- |
 | macOS | `universal-apple-darwin/release/bundle/dmg/Allr_0.1.1_universal.dmg` | `.../bundle/macos/Allr.app.tar.gz` + `.sig` |
-| Linux | `release/bundle/appimage/Allr_0.1.1_amd64.AppImage`, plus `.deb` and `.rpm` | `.../Allr_0.1.1_amd64.AppImage.tar.gz` + `.sig` |
+| Linux | `release/bundle/deb/*.deb` and `release/bundle/rpm/*.rpm` | `.../Allr_0.1.1_amd64.deb.tar.gz` + `.sig` |
 | Windows | `release/bundle/nsis/Allr_0.1.1_x64-setup.exe`, plus `.msi` | `.../Allr_0.1.1_x64-setup.nsis.zip` + `.sig` |
+
+### No AppImage, and why
+
+`bundle.targets` deliberately omits `appimage`. An AppImage carries its own copy
+of WebKitGTK, taken from whichever runner built it, and ubuntu-22.04's WebKitGTK
+cannot initialise EGL against a modern host graphics stack:
+
+```
+Could not create default EGL display: EGL_BAD_PARAMETER. Aborting...
+```
+
+That is what `desktop-v0.0.7` shipped — a window that mapped and never painted.
+The *same* binary linked against the host's WebKitGTK renders fine, which is why
+the `.deb` and `.rpm` were never affected. Nothing can be set at runtime to fix
+it; the bundled library is simply the wrong vintage for the host.
+
+The distro-agnostic download is a plain tarball instead —
+`Allr_<ver>_linux_x86_64.tar.gz`, built by `scripts/package-linux-tarball.sh`
+and uploaded by the release workflow. It ships our binary, an `install.sh` that
+targets `~/.local` (or `--system`), icons and a generated `.desktop` entry, and
+links the system's WebKitGTK exactly as the packages do.
 
 macOS is built **universal** (`--target universal-apple-darwin`, needs
 `rustup target add x86_64-apple-darwin`). That is not just convenience:

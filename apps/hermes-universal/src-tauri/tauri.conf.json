@@ -31,7 +31,14 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": [
+      "app",
+      "dmg",
+      "deb",
+      "rpm",
+      "nsis",
+      "msi"
+    ],
     "category": "DeveloperTool",
     "publisher": "Allr",
     "copyright": "Copyright © 2026 Nous Research",
