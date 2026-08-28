@@ -80,13 +80,17 @@ describe('fileEntryMenuItems', () => {
   })
 
   it('offers reveal, copy, rename and delete on a local filesystem', () => {
-    expect(itemLabels(CONTEXT_KIT)).toEqual([
-      COPY.revealFileManager,
-      COPY.copyPath,
-      COPY.copyRelativePath,
-      COPY.rename,
-      COPY.delete
-    ])
+    // The reveal row's LABEL is platform-picked (Finder / Explorer / generic)
+    // and jsdom does not give it a stable answer: `navigator.platform` is '',
+    // so the picker falls through to the user agent — which on a macOS host is
+    // "Mozilla/5.0 (darwin) …", and `/win/i` matches the "win" in "darwin".
+    // The same test on Linux CI sees "(linux)" and gets the generic label. What
+    // this test is actually about is WHICH ACTIONS the builder offers and in
+    // what order, so pin that and accept any of the three reveal wordings.
+    const [reveal, ...rest] = itemLabels(CONTEXT_KIT)
+
+    expect([COPY.revealFinder, COPY.revealExplorer, COPY.revealFileManager]).toContain(reveal)
+    expect(rest).toEqual([COPY.copyPath, COPY.copyRelativePath, COPY.rename, COPY.delete])
   })
 
   it('drops the filesystem actions on a remote backend, keeping copy', () => {
