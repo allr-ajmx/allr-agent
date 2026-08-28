@@ -21,6 +21,16 @@ import type { MenuItemProps, MenuKit, MenuSectionProps } from './actions-menu'
  */
 
 interface DrawerPage {
+  /** The submenu's `SubContent` className, carried through to the page.
+   *
+   *  A caller declares it once — `contentClassName: 'p-2'` on the Appearance
+   *  spec, `className="p-2"` on the project menu's swatch submenu — and the two
+   *  Radix kits put it on the floating panel. Here there is no second panel: the
+   *  submenu IS the page, so the class belongs to it. Dropping it left the
+   *  swatch grid with no side padding at all (drawer rows carry their own
+   *  `px-4`; a custom body carries none), flush against both edges of the phone
+   *  inside a panel that clips rather than scrolls sideways. */
+  className?: string
   content: ReactNode
   title: string
 }
@@ -108,14 +118,16 @@ function DrawerSub({ children }: MenuSectionProps) {
   )
 
   const content = parts.find(
-    (part): part is { props: { children?: ReactNode }; type: unknown } =>
+    (part): part is { props: { children?: ReactNode; className?: string }; type: unknown } =>
       !!part && typeof part === 'object' && 'type' in part && part.type === DrawerSubContent
   )
 
   const label = textOf(trigger?.props?.children)
 
   return (
-    <TopDrawerRow onSelect={() => push({ content: content?.props?.children, title: label })}>
+    <TopDrawerRow
+      onSelect={() => push({ className: content?.props?.className, content: content?.props?.children, title: label })}
+    >
       <span className="flex min-w-0 flex-1 items-center gap-3">{trigger?.props?.children}</span>
       <Codicon className="shrink-0 opacity-60 rtl:-scale-x-100" name="chevron-right" size="0.875rem" />
     </TopDrawerRow>
@@ -182,7 +194,10 @@ export function MenuDrawer({
         open={open}
         title={page ? page.title : title}
       >
-        {page ? page.content : render(DRAWER_KIT)}
+        {/* The page is where a submenu's `SubContent` class lands — the one
+            element that stands for that submenu's body on this flavour. The
+            markers stay markers; they never reach the DOM. */}
+        {page ? <div className={page.className}>{page.content}</div> : render(DRAWER_KIT)}
       </TopDrawer>
     </Ctx.Provider>
   )
