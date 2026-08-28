@@ -42,6 +42,14 @@ export const PRIMARY_ICON_BTN = cn(
   'disabled:bg-foreground/30 disabled:text-background disabled:opacity-100'
 )
 
+// ALLR-35 — TEMPORARY. The live (voice) conversation does not work properly, so
+// its entry point — the waveform primary that takes the send slot on an empty,
+// idle composer — is hidden. Nothing is removed: `ConversationPill` and the
+// whole start/end wiring below stay intact, so re-enabling once the feature is
+// fixed is flipping this one constant back to `true`. Dictation, wake word and
+// auto-speak are separate controls and are deliberately untouched.
+const LIVE_CONVERSATION_ENABLED = false
+
 interface ConversationProps {
   active: boolean
   level: number
@@ -115,7 +123,7 @@ export function ComposerControls({
     return <ConversationPill {...conversation} disabled={disabled} />
   }
 
-  const showVoicePrimary = !busy && !hasComposerPayload
+  const showVoicePrimary = LIVE_CONVERSATION_ENABLED && !busy && !hasComposerPayload
 
   return (
     /* `min-w-0` + shrinkable, NOT `shrink-0`. The row is a fixed set of icon

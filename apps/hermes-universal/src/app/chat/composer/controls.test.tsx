@@ -74,4 +74,15 @@ describe('the primary composer button', () => {
 
     expect(screen.getByLabelText('Steer the current run')).toBeTruthy()
   })
+
+  // ALLR-35 — the live conversation is broken, so `LIVE_CONVERSATION_ENABLED`
+  // keeps its waveform button out of the slot it used to take on an empty, idle
+  // composer. Send owns the slot instead. Flip that constant back and this
+  // expectation inverts with it.
+  it('keeps Send in the slot on an empty, idle composer while live conversation is gated off', () => {
+    renderControls({ hasComposerPayload: false })
+
+    expect(screen.queryByLabelText('Start voice conversation')).toBeNull()
+    expect(screen.getByLabelText('Send')).toBeTruthy()
+  })
 })
