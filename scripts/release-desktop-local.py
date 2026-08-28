@@ -671,13 +671,34 @@ def cmd_publish(args):
     # this release, and a draft's asset URLs 404 -- so publishing the pointer
     # before the release is visible would advertise a version nobody can
     # download.
-    exists = (
-        subprocess.run(
-            ["gh", "release", "view", tag, "-R", REPO_SLUG],
-            capture_output=True,
-        ).returncode
-        == 0
+    # A tag that already exists is either a draft from an interrupted attempt --
+    # fine to resume -- or a PUBLISHED release, which must never be touched.
+    # `gh release upload --clobber` does exactly what it says: pointed at a live
+    # release it replaces the assets users are downloading, and pointed at the
+    # current tree (0.0.7 at the time of writing, already published) that is a
+    # very easy mistake to make. Ask which kind it is before writing anything.
+    probe = subprocess.run(
+        ["gh", "release", "view", tag, "-R", REPO_SLUG, "--json", "isDraft,url"],
+        capture_output=True, text=True,
     )
+    exists = probe.returncode == 0
+    if exists:
+        try:
+            already_published = not json.loads(probe.stdout)["isDraft"]
+        except (ValueError, KeyError):
+            already_published = True  # unparseable: assume the dangerous case
+        if already_published:
+            die(
+                f"{tag} is already PUBLISHED.\n\n"
+                f"       Uploading would replace the assets people are "
+                f"downloading right now.\n"
+                f"       If this is meant to be a new release, bump the version "
+                f"first:\n"
+                f"           python scripts/bump-desktop-version.py <next>\n"
+                f"       and rebuild on every platform, because the artifacts in "
+                f"dist/ carry\n       the old version in their names."
+            )
+
     if not exists:
         print(f"==> creating draft release {tag}")
         run(
