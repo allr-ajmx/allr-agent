@@ -274,6 +274,21 @@ invisible to it.
 | Linux | `release/bundle/deb/*.deb` and `release/bundle/rpm/*.rpm` | `.../Allr_0.1.1_amd64.deb.tar.gz` + `.sig` |
 | Windows | `release/bundle/nsis/Allr_0.1.1_x64-setup.exe`, plus `.msi` | `.../Allr_0.1.1_x64-setup.nsis.zip` + `.sig` |
 
+### Local Linux builds are not distributable
+
+`npm run tauri build` on your own machine links your own glibc, and glibc is
+forward- but not backward-compatible. A package built on Arch (glibc 2.44)
+requires `GLIBC_2.39` and will not start on Ubuntu 22.04:
+
+```
+/usr/bin/hermes-universal: /lib/x86_64-linux-gnu/libc.so.6:
+version `GLIBC_2.39' not found
+```
+
+The CI build on `ubuntu-22.04` requires at most `GLIBC_2.34`, which is why the
+runner is pinned rather than tracking `ubuntu-latest`. Build locally to test;
+ship only what CI produced.
+
 ### No AppImage, and why
 
 `bundle.targets` deliberately omits `appimage`. An AppImage carries its own copy

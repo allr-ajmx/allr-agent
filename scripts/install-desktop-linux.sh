@@ -179,7 +179,13 @@ else
 fi
 
 # --- install ------------------------------------------------------------------
-tar -xzf "$tmp/$asset" -C "$tmp"
+# A truncated or corrupt archive that nonetheless matched its checksum means the
+# published checksum is wrong, not that the download broke -- say which, because
+# the two have very different fixes.
+tar -xzf "$tmp/$asset" -C "$tmp" 2>/dev/null || die \
+  "$asset downloaded and matched its checksum but will not extract.
+That points at a bad published artifact rather than a bad download. Please
+report it at https://github.com/$REPO/issues"
 unpacked="$(find "$tmp" -maxdepth 1 -type d -name 'Allr_*' -print -quit)"
 [ -n "$unpacked" ] || die "unexpected tarball layout"
 [ -x "$unpacked/install.sh" ] || die "tarball has no install.sh"

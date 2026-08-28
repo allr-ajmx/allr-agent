@@ -42,7 +42,7 @@
     "category": "DeveloperTool",
     "publisher": "Allr",
     "copyright": "Copyright © 2026 Nous Research",
-    "shortDescription": "Allr",
+    "shortDescription": "AI agent client",
     "longDescription": "Allr — an AI agent client for desktop and mobile.",
     "createUpdaterArtifacts": true,
     "iOS": {
@@ -61,6 +61,11 @@
         "depends": [
           "libasound2"
         ],
+        "files": {
+          "/usr/share/polkit-1/actions/com.jaxmatrix.hermes.policy": "polkit/com.jaxmatrix.hermes.policy"
+        }
+      },
+      "rpm": {
         "files": {
           "/usr/share/polkit-1/actions/com.jaxmatrix.hermes.policy": "polkit/com.jaxmatrix.hermes.policy"
         }
