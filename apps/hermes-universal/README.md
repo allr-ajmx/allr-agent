@@ -324,11 +324,13 @@ where files land. `ALLR_RELEASE_BASE_URL` points it at a mirror or a local
 server.
 
 macOS is built **universal** (`--target universal-apple-darwin`, needs
-`rustup target add x86_64-apple-darwin`). That is not just convenience:
-`updates.rs` picks a release asset with
-`name.contains(std::env::consts::ARCH)`, and Tauri names Intel bundles `_x64`,
-which does not contain `x86_64` — a per-arch release would hand Intel users the
-aarch64 build. One universal artifact makes that impossible.
+`rustup target add x86_64-apple-darwin`). That is not just convenience: one
+artifact is correct for every `darwin-*` key in `latest.json`, so the manifest
+cannot point an Intel user at an aarch64 build however the keys are written.
+(An older note here claimed `updates.rs` matched assets by
+`std::env::consts::ARCH`; that code is gone — asset selection now happens
+inside `tauri-plugin-updater`. Universal is still the right call, and Tauri's
+`_x64` naming for Intel bundles makes a per-arch split easy to get wrong.)
 
 arm64 Linux is not built; those users build from source with the prerequisites
 at the top of this file.
@@ -340,8 +342,8 @@ with none of them set the build still succeeds and simply produces unsigned
 artifacts:
 
 ```
-export TAURI_SIGNING_PRIVATE_KEY="$(cat ~/.tauri/allr-updater.key)"
-export TAURI_SIGNING_PRIVATE_KEY_PASSWORD='<password set at generation>'
+export TAURI_SIGNING_PRIVATE_KEY="$(cat ~/.tauri/allr-updater-2026-08.key)"
+export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$(cat ~/.tauri/allr-updater-2026-08.password)"
 
 export APPLE_SIGNING_IDENTITY='Developer ID Application: Jai Shukla (6M43WS4436)'
 export APPLE_API_ISSUER='<App Store Connect issuer UUID>'
@@ -412,10 +414,26 @@ in `tauri.conf.json`: the failure mode is silent, surfacing to users as
 "You're on the latest version" forever.
 
 Bundles are verified against the public key compiled into the binary
-(`plugins.updater.pubkey`). **Losing `~/.tauri/allr-updater.key` or its password
-is unrecoverable** — every installed copy is pinned to that key, so a new keypair
+(`plugins.updater.pubkey`). **Losing the private key or its password is
+unrecoverable** — every installed copy is pinned to that key, so a new keypair
 orphans the entire installed base and the only remedy is asking every user to
-reinstall by hand. Back it up before the first release.
+reinstall by hand.
+
+**The key was rotated on 2026-08-28**, from `816282699942485B` to
+`8303E31C6867BE36`, while the installed base was still single digits. The
+current keypair is `~/.tauri/allr-updater-2026-08.key`, with its password
+beside it, and the repo secrets `TAURI_SIGNING_PRIVATE_KEY` /
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD` were set from those files. The superseded
+`~/.tauri/allr-updater.key` is kept, not deleted: it is the only thing that can
+sign an update a pre-0.0.8 install would accept.
+
+That rotation is exactly the event described above, so it has a cost:
+**installs of 0.0.6 and 0.0.7 will never self-update again.** They report
+"you're on the latest version" indefinitely rather than erroring, because a
+signature from an untrusted key is indistinguishable to them from no update.
+Those users have to download 0.0.8 by hand. This was accepted deliberately —
+v0.0.7's assets had 3-5 downloads each — but it is not repeatable, and any
+future rotation needs a real migration story instead.
 
 `.deb` and `.rpm` installs are not self-updating; those update through the
 package manager or a fresh download.

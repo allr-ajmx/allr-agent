@@ -29,6 +29,21 @@ name: Release Desktop
 # gen/android/keystore.properties follows: with no signing secrets the jobs
 # still succeed and produce UNSIGNED artifacts. Windows is unsigned today by
 # design -- see the "Windows code signing" step.
+#
+# KNOWN BREAKAGE, 2026-08-28: this workflow cannot currently ship macOS.
+# `notarytool submit --wait` does not return on a hosted macOS runner. Runs
+# 33143417933 and 33147522451 each sat silent for ~54 minutes on a 16MB bundle
+# and were killed by the 60-minute timeout, while Apple's status feed reported
+# no notary incident and submission ce9e3a96 from the first of them came back
+# ACCEPTED. So the credentials, key role, entitlements and Developer ID
+# signature are all good -- Apple certified them -- and the failure is on the
+# client side of the wait. Notarization DOES complete on a developer Mac.
+#
+# Until that is solved, releases are cut by hand with
+# scripts/release-desktop-local.py, which builds natively on one machine per
+# platform and runs the same shared verifier this workflow runs. Do not push a
+# `desktop-v*` tag while doing that: it would start this workflow and race the
+# manual release for the same assets.
 
 on:
   push:
@@ -78,7 +93,7 @@ jobs:
           python3 scripts/bump-desktop-version.py --check "$version"
 
   # ---------------------------------------------------------------------------
-  # One draft release up front, so the six matrix legs upload into the same
+  # One draft release up front, so the three matrix legs upload into the same
   # place and a failed leg never leaves a half-populated public release.
   # ---------------------------------------------------------------------------
   create-draft:
@@ -138,7 +153,7 @@ jobs:
           fi
 
           # Never hand an empty releaseId to the matrix: tauri-action would treat
-          # it as "no release" and the six legs would build for 40 minutes and
+          # it as "no release" and the three legs would build for 40 minutes and
           # upload nowhere.
           if [ -z "$id" ]; then
             echo "::error::could not resolve a release id for $TAG"
@@ -159,10 +174,14 @@ jobs:
       matrix:
         include:
           # macOS is built UNIVERSAL, not per-arch, and that is deliberate.
-          # Tauri names per-arch DMGs `_x64.dmg`, but `updates.rs` matches an
-          # asset by `contains(std::env::consts::ARCH)` -- i.e. "x86_64", which
-          # "x64" does not contain. A split build would hand Intel users the
-          # aarch64 DMG. One universal artifact makes the ambiguity impossible.
+          # The reason long given here -- that `updates.rs` matches an asset by
+          # `contains(std::env::consts::ARCH)`, which "x64" does not satisfy --
+          # no longer holds: that code is gone, and asset selection happens
+          # inside tauri-plugin-updater against latest.json's platform keys.
+          # Universal is still right, for a simpler reason. One artifact is
+          # correct for every darwin key, so the manifest cannot point an Intel
+          # user at an aarch64 build however the keys are written -- and Tauri's
+          # `_x64.dmg` naming makes a per-arch split easy to get wrong.
           - { os: macos-14, target: universal-apple-darwin, label: macOS }
           # ubuntu-22.04, NOT ubuntu-latest: ubuntu-latest is 24.04 (glibc 2.39)
           # and glibc is forward- but not backward-compatible, so a binary built
@@ -288,11 +307,11 @@ jobs:
       # rather than random because the values are base64/identifiers and cannot
       # contain it. Values stay masked; they came from `secrets`.
       #
-      # ALLR-33 tracks turning this on. Today NONE of these secrets are set, so
-      # every macOS release ships ad-hoc signed: Gatekeeper blocks the download
-      # and the keychain re-prompts on every credential read. The fix is not a
-      # change here -- it is populating the secrets from the Mac that holds the
-      # certificates, then proving it with macos-signing-check.yml.
+      # ALL SEVEN of these are set: the four signing secrets landed 2026-08-22,
+      # the three App Store Connect secrets on 2026-08-28. macOS releases from
+      # here are Developer ID signed AND submitted for notarization -- see the
+      # header for why that submission cannot currently be waited on from a
+      # hosted runner.
       - name: Apple signing environment (optional)
         if: runner.os == 'macOS' && env.HAS_APPLE_CERT == 'true'
         env:
@@ -476,17 +495,22 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-      # Every macOS release so far shipped ad-hoc signed, and nothing said so.
-      # The signing steps above are optional-by-presence, which is right for a
-      # fork with no certificate -- but it also meant a repo that MEANT to sign
+      # Releases through desktop-v0.0.3 shipped ad-hoc signed, and nothing said
+      # so. The signing steps above are optional-by-presence, which is right for
+      # a fork with no certificate -- but it also meant a repo that MEANT to sign
       # and had a broken secret produced a silently unsigned build that looked
-      # like a success.
+      # like a success. This check is what closed that.
       #
-      # This is not why users complain about Gatekeeper. It is why they complain
-      # that the app asks for their keychain password four or five times on every
-      # launch: macOS binds a keychain item's ACL to the requesting code's
-      # designated requirement, and an ad-hoc bundle has none, so every credential
-      # read and write re-prompts and "Always Allow" cannot stick.
+      # Two distinct complaints, and conflating them cost a diagnosis:
+      #
+      #   ad-hoc signing -> KEYCHAIN prompts. macOS binds a keychain item's ACL
+      #   to the requesting code's designated requirement, and an ad-hoc bundle
+      #   has none, so every credential read and write re-prompts and "Always
+      #   Allow" cannot stick. Fixed by the certificate, from v0.0.6 on.
+      #
+      #   no notarization -> GATEKEEPER refusal on a DOWNLOADED copy, and the
+      #   admin password that "Open Anyway" asks for. Signing does not help;
+      #   only notarization does. This is what v0.0.7 still shipped with.
       #
       # `always()` so this still reports on a leg whose upload was retried, and
       # `continue-on-error` is deliberately NOT set: shipping an unsigned bundle

@@ -91,7 +91,7 @@
       "endpoints": [
         "https://github.com/allr-ajmx/allr-agent/releases/download/desktop-updater/latest.json"
       ],
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDgxNjI4MjY5OTk0MjQ4NUIKUldSYlNFS1phWUppZ2RsNXNOa0pYdGhURnJVSWRnOGswRy9VbFc2a1h2QWg3d0N6NmZjbUxhYk4K",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDgzMDNFMzFDNjg2N0JFMzYKUldRMnZtZG9IT01EZy9HSFVCMVVWRUNpMHdiYzl1NFIvV0M4R1lkUUJEM3hRZnlXOGdXMWNJQlUK",
       "windows": {
         "installMode": "passive"
       }
