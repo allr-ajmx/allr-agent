@@ -23,6 +23,13 @@
 #   Gatekeeper (spctl)   Whether a DOWNLOADED copy would open. Fatal only with
 #                        --expect-notarized, because signing alone is always
 #                        rejected here and that is not a signing failure.
+#   stapled ticket       Only under --expect-notarized. spctl can be satisfied
+#                        by an ONLINE ticket lookup, so a notarized-but-
+#                        unstapled bundle passes it on a networked CI runner
+#                        and then fails on a user's machine that is offline or
+#                        behind a proxy. `stapler validate` reads the ticket
+#                        out of the bundle itself, and is the only one of these
+#                        that can tell those two apart.
 #
 # Usage:
 #   verify-macos-signing.sh --require-signed    [--expect-notarized] <bundle.app>
@@ -121,6 +128,21 @@ else
   # most likely thing to be misread as "the certificate did not work".
   echo "    (expected: signed but not notarized. Notarization is what fixes this,"
   echo "     and it is NOT what causes the keychain prompts.)"
+fi
+
+# Deliberately not run without --expect-notarized: an un-notarized bundle has no
+# ticket to staple, and reporting that as a finding would bury the one line that
+# matters in noise every fork build produces.
+if [ "$expect_notarized" = 1 ]; then
+  echo
+  echo "==> stapled ticket"
+  if staple="$(xcrun stapler validate "$bundle" 2>&1)"; then
+    echo "$staple" | sed 's/^/    /'
+  else
+    echo "$staple" | sed 's/^/    /'
+    err "$bundle carries no stapled notarization ticket. Gatekeeper accepted it here only by looking the ticket up online - on a user's machine that is offline or behind a proxy this bundle is REFUSED."
+    fail=1
+  fi
 fi
 
 exit "$fail"

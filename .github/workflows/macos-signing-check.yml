@@ -1,22 +1,37 @@
-# Prove the macOS signing setup works, WITHOUT cutting a release.
+# Prove the macOS signing AND notarization setup works, WITHOUT cutting a
+# release.
 #
-# release-desktop.yml already verifies signing, but it only fires on a
-# `desktop-v*` tag push -- so until now the only way to find out whether the
-# Apple secrets were right was to publish a real release and look. The last tag
-# is desktop-v0.0.3; the app is well past it. That gap is what let every macOS
-# build so far ship ad-hoc signed without anyone noticing.
+# release-desktop.yml already verifies both, but it only fires on a
+# `desktop-v*` tag push -- so without this the only way to find out whether the
+# Apple secrets were right is to publish a real release and look. That gap is
+# what let desktop-v0.0.7 ship a correctly signed but UNNOTARIZED bundle, which
+# Gatekeeper refuses on every downloaded copy.
 #
 # This builds ONE architecture of the product app, runs the same shared
 # verifier release-desktop.yml runs, and stops. No draft release, no tag, no
 # publish, no updater manifest.
 #
-# Why the keychain prompts, in one paragraph, since that is what this exists to
-# rule out: macOS binds a keychain item's ACL to the requesting code's
-# designated requirement. An ad-hoc bundle has none, so nothing can be bound and
-# "Always Allow" has nothing to stick to. The app keeps ONE keychain item and
-# seals the rest into a file (apps/hermes-universal/src-tauri/src/secrets/), so
-# an unsigned build costs one password dialog per launch rather than one per
-# credential -- but a signed build costs none, and that is the target.
+# The two failures this rules out are different, and conflating them is what
+# sent the last diagnosis at the wrong fix:
+#
+#   ad-hoc signed   -> KEYCHAIN prompts. macOS binds a keychain item's ACL to
+#                      the requesting code's designated requirement; an ad-hoc
+#                      bundle has none, so nothing can be bound and "Always
+#                      Allow" has nothing to stick to. The app keeps ONE
+#                      keychain item and seals the rest into a file
+#                      (apps/hermes-universal/src-tauri/src/secrets/), so an
+#                      unsigned build cost one password dialog per launch
+#                      rather than one per credential. Real through
+#                      desktop-v0.0.3; fixed when the four signing secrets
+#                      landed on 2026-08-22.
+#
+#   not notarized   -> GATEKEEPER refusal, and the admin-password prompt that
+#                      System Settings -> Privacy & Security -> "Open Anyway"
+#                      asks for. Only ever visible on a DOWNLOADED build: a
+#                      locally built .app carries no com.apple.quarantine, so
+#                      the requirement is never evaluated and the bug hides.
+#                      Real through desktop-v0.0.7; the three App Store Connect
+#                      API secrets landed on 2026-08-28.
 name: macOS signing check
 
 on:
@@ -52,6 +67,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       signing: ${{ steps.check.outputs.signing }}
+      notarization: ${{ steps.check.outputs.notarization }}
     env:
       # Booleans, never the values. An absent secret still DEFINES its variable
       # as the empty string, so `!= ''` is the only honest test -- and comparing
@@ -77,6 +93,19 @@ jobs:
           fi
           echo "signing=$signing" >> "$GITHUB_OUTPUT"
 
+          # All THREE, not any: the bundler needs the key id, the issuer and the
+          # .p8 on disk together, and with any one missing it prints a `Warn
+          # skipping app notarization` line and exits 0. That warning scrolls
+          # past in a 6-minute log, which is precisely how v0.0.7 shipped
+          # unnotarized -- so the decision is made here, once, and turned into
+          # the assertion below rather than left to a reader.
+          notarization=false
+          if [ "$HAS_API_KEY" = 'true' ] && [ "$HAS_API_ISSUER" = 'true' ] \
+             && [ "$HAS_API_P8" = 'true' ]; then
+            notarization=true
+          fi
+          echo "notarization=$notarization" >> "$GITHUB_OUTPUT"
+
           # One grouped redirect rather than a dozen appends -- the summary is
           # one document, and writing it as one keeps the pieces in step.
           {
@@ -101,12 +130,29 @@ jobs:
             else
               echo 'No signing secrets. The build below will be UNSIGNED, and reports that rather than failing.'
             fi
+            echo
+
+            if [ "$notarization" = 'true' ]; then
+              echo 'All three notarization secrets are present, so the build below must produce a bundle Gatekeeper ACCEPTS or fail.'
+            elif [ "$HAS_API_KEY" = 'true' ] || [ "$HAS_API_ISSUER" = 'true' ] || [ "$HAS_API_P8" = 'true' ]; then
+              echo '> **Partial set.** Notarization needs all three together. With any one missing the bundler prints `skipping app notarization` and SUCCEEDS, so the build below is checked as un-notarized and a downloaded copy would still be refused by Gatekeeper. Set all three or none.'
+            else
+              echo 'No notarization secrets. The build below will be signed but NOT notarized, and reports that rather than failing - a downloaded copy would be refused by Gatekeeper.'
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
           # Also as an annotation, because a summary is only read by someone who
           # already went looking. This is the half-state that fails a release.
           if [ "$signing" != 'true' ] && [ "$HAS_CERT" = 'true' ]; then
             echo '::warning::APPLE_CERTIFICATE is set but at least one companion secret is not. Signing turns on by the presence of the certificate, so a partial set FAILS the build rather than skipping signing. Set all four or none.'
+          fi
+
+          # The quieter half-state, and the more dangerous one: this does not
+          # fail anything. It produces a green run over a bundle that no user
+          # can open.
+          if [ "$notarization" != 'true' ] \
+             && { [ "$HAS_API_KEY" = 'true' ] || [ "$HAS_API_ISSUER" = 'true' ] || [ "$HAS_API_P8" = 'true' ]; }; then
+            echo '::warning::Some but not all of APPLE_API_KEY / APPLE_API_ISSUER / APPLE_API_KEY_P8_BASE64 are set. Notarization needs all three, and silently SKIPS when any is missing. Set all three or none.'
           fi
 
   # ---------------------------------------------------------------------------
@@ -207,20 +253,37 @@ jobs:
       # No releaseId and no tagName, which is what keeps this a build rather
       # than a release.
       #
-      # `--bundles app` is load-bearing, not an optimization. tauri.conf.json
-      # carries an updater public key, so the bundler signs an updater tarball
-      # and needs TAURI_SIGNING_PRIVATE_KEY to do it -- and a dependabot push or
-      # a fork PR receives NO repository secrets, so that arrives empty and the
-      # build dies on `failed to decode secret key` after ten minutes of
-      # compiling. That would break the same "a branch without secrets must
-      # still build" contract that --warn-if-unsigned exists to keep.
+      # The two `args` additions do different jobs, and the difference is what
+      # broke this workflow on every run from 2026-08-23 to 2026-08-28:
       #
-      # Only the .app is needed to inspect a signature, and release-desktop.yml
-      # still covers the dmg and updater paths where the keys actually exist.
+      #   --bundles app   halves the build. An .app is all you need to inspect a
+      #                   signature, and release-desktop.yml still covers the
+      #                   dmg. An optimization, nothing more.
+      #
+      #   --config ...    suppresses the updater tarball, and is load-bearing.
+      #                   `createUpdaterArtifacts` is a CONFIG setting, not a
+      #                   bundle target, so --bundles does not gate it: the
+      #                   bundler emitted `Allr.app.tar.gz (updater)` even under
+      #                   `--bundles app`, then died on `A public key has been
+      #                   found, but no private key`. A config override is the
+      #                   only thing that turns it off.
+      #
+      # Overriding the config rather than plumbing TAURI_SIGNING_PRIVATE_KEY in
+      # is deliberate: a dependabot push or a fork PR receives NO repository
+      # secrets, so the key would arrive empty and the build would die anyway,
+      # ten minutes into compiling -- breaking the same "a branch without
+      # secrets must still build" contract that --warn-if-unsigned exists to
+      # keep. Nothing here needs a signed updater artifact.
+      #
+      # Notarization is NOT lost by this. The bundler notarizes the .app while
+      # bundling it -- the `skipping app notarization` warning in the 2026-08-28
+      # log is printed several steps BEFORE the updater tarball this suppresses.
       - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # action-v1.0.0
         with:
           projectPath: apps/hermes-universal
-          args: --target aarch64-apple-darwin --bundles app --verbose
+          args: >-
+            --target aarch64-apple-darwin --bundles app --verbose
+            --config {"bundle":{"createUpdaterArtifacts":false}}
 
       # The whole point. Same script release-desktop.yml calls, so this cannot
       # pass while a release fails.
@@ -245,8 +308,16 @@ jobs:
           # A signed-but-unnotarized bundle is ALWAYS rejected by spctl, and
           # treating that as a signing failure is the bug this shared script was
           # extracted to remove.
+          #
+          # Gated on preflight's all-three answer rather than on
+          # APPLE_API_KEY_PATH, which is what release-desktop.yml still tests.
+          # The path is written by the materialize step, which needs only the
+          # .p8 -- so with the issuer missing the path exists, the bundler
+          # skips notarization with a warning, and a path-gated check would
+          # pass a bundle no user can open. Asserting on the same three secrets
+          # that decide the bundler's behaviour closes that hole.
           notarized=""
-          if [ -n "${APPLE_API_KEY_PATH:-}" ]; then
+          if [ "${{ needs.preflight.outputs.notarization }}" = 'true' ]; then
             notarized=--expect-notarized
           fi
 
