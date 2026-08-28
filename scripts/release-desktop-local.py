@@ -29,6 +29,17 @@ point: the reason this release is being cut by hand is that a green CI run
 turned out not to mean what everyone assumed, so a hand-cut release that skips
 the assertions would be strictly worse than the thing it replaces.
 
+Credentials
+-----------
+Pass them in a file rather than exporting them, because the same release is
+built on three machines running three different shells and the credential block
+is the step people get wrong:
+
+    python scripts/release-desktop-local.py build --env-file ~/.allr-release.env
+
+`--check-only` runs every credential assertion and stops, so a bad value costs
+seconds rather than a completed build nobody can install.
+
 What every platform needs
 -------------------------
     TAURI_SIGNING_PRIVATE_KEY           updater signing key (the minisign secret)
@@ -107,6 +118,69 @@ def tag_for(v):
     return f"desktop-v{v}"
 
 
+def load_env_file(path):
+    """Populate os.environ from a KEY=VALUE file.
+
+    This exists because the same release is built on three machines running
+    three different shells, and the credential block is the step people get
+    wrong. `export FOO=bar` is bash; fish needs `set -x FOO bar` and splits
+    command substitutions on newlines; PowerShell needs `$env:FOO = 'bar'`.
+    One file that all three read identically removes that whole class of
+    mistake -- and a mistake here does not fail cleanly, it produces an
+    unsigned or un-notarized artifact that looks like a success.
+
+    Values are taken literally: no shell expansion, no interpolation. A value
+    may be wrapped in matching quotes, which are stripped, so a signing
+    identity with spaces needs no escaping.
+
+    `NAME_FILE=<path>` sets NAME to that file's contents instead, so the
+    updater private key can stay in one place with one set of permissions
+    rather than being copied into this file as a second plaintext original.
+    """
+    path = Path(path).expanduser()
+    if not path.is_file():
+        die(f"no env file at {path}")
+
+    mode = path.stat().st_mode & 0o077
+    if mode:
+        print(
+            f"warning: {path} is readable by others (mode "
+            f"{oct(path.stat().st_mode & 0o777)}). It holds signing "
+            f"credentials; chmod 600 it.",
+            file=sys.stderr,
+        )
+
+    loaded = []
+    for n, raw in enumerate(path.read_text().splitlines(), 1):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        # Tolerate a leading `export ` so a bash-style file works unchanged.
+        line = re.sub(r"^export\s+", "", line)
+        if "=" not in line:
+            die(f"{path}:{n}: not a KEY=VALUE line: {raw!r}")
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+
+        if key.endswith("_FILE"):
+            key = key[: -len("_FILE")]
+            src = Path(value).expanduser()
+            if not src.is_file():
+                die(f"{path}:{n}: {key}_FILE points at nothing: {src}")
+            # rstrip only: a trailing newline from the generator is noise, but
+            # the key body's own structure has to survive untouched.
+            value = src.read_text().rstrip("\n")
+
+        os.environ[key] = value
+        loaded.append(key)
+
+    print(f"==> loaded {len(loaded)} variables from {path}")
+    return loaded
+
+
 def require_env(*names):
     missing = [n for n in names if not os.environ.get(n)]
     if missing:
@@ -144,7 +218,7 @@ def bundle_dir(target):
     return APP_DIR / "src-tauri" / "target" / target / "release" / "bundle"
 
 
-def build_macos(out, notarize=True):
+def check_macos_credentials():
     require_env(
         "APPLE_SIGNING_IDENTITY",
         "APPLE_API_KEY",
@@ -166,6 +240,28 @@ def build_macos(out, notarize=True):
             "'Apple Distribution',\nwhich is a Mac App Store identity and "
             "produces a bundle Gatekeeper rejects."
         )
+
+    # Not just non-empty: a key id is exactly 10 characters and an issuer is a
+    # UUID. Getting these two swapped is easy and the bundler's only complaint
+    # is the `skipping app notarization` warning it prints on its way to a
+    # successful, un-notarized build.
+    if len(os.environ["APPLE_API_KEY"]) != 10:
+        die(
+            "APPLE_API_KEY should be the 10-character key id, got "
+            f"{len(os.environ['APPLE_API_KEY'])} characters. Did it get the "
+            "issuer UUID instead?"
+        )
+    if not re.fullmatch(
+        r"[0-9a-fA-F-]{36}", os.environ["APPLE_API_ISSUER"]
+    ):
+        die("APPLE_API_ISSUER should be a UUID. Did it get the key id instead?")
+
+    print(f"    identity: {identity}")
+    print(f"    api key:  {os.environ['APPLE_API_KEY']} at {key_path}")
+
+
+def build_macos(out, notarize=True):
+    check_macos_credentials()
 
     target = TARGETS["Darwin"]
     print(f"==> building {target} (signed, notarized)")
@@ -291,11 +387,26 @@ def cmd_build(args):
     if system not in TARGETS:
         die(f"unsupported platform: {system}")
 
+    if args.env_file:
+        load_env_file(args.env_file)
+
     check_version_sites()
     out = Path(args.out).resolve()
     out.mkdir(parents=True, exist_ok=True)
 
     print(f"\n==> Allr {version()} on {system}\n")
+
+    if args.check_only:
+        # Every credential assertion, none of the 20-40 minutes of building.
+        # Worth having as its own mode: the failure this guards against is a
+        # build that runs to completion and produces an artifact nobody can
+        # install, which is expensive to discover at the end.
+        require_env("TAURI_SIGNING_PRIVATE_KEY", "TAURI_SIGNING_PRIVATE_KEY_PASSWORD")
+        if system == "Darwin":
+            check_macos_credentials()
+        print("\nCredentials look right. Re-run without --check-only to build.")
+        return
+
     if system == "Darwin":
         build_macos(out, notarize=not args.skip_notarization)
     elif system == "Linux":
@@ -551,6 +662,16 @@ def main():
 
     b = sub.add_parser("build", help="build this platform's assets")
     b.add_argument("--out", default="dist", help="staging directory (default: dist)")
+    b.add_argument(
+        "--env-file",
+        help="KEY=VALUE file holding the signing credentials. Read identically "
+        "by every shell, which `export` is not.",
+    )
+    b.add_argument(
+        "--check-only",
+        action="store_true",
+        help="validate credentials and version sites, then stop without building",
+    )
     b.add_argument(
         "--skip-notarization",
         action="store_true",

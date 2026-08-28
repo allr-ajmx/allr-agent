@@ -85,6 +85,13 @@ allr-updater*.key
 allr-updater*.key.pub
 allr-updater*.password
 *.tauri-key
+
+# Release credential files for scripts/release-desktop-local.py --env-file.
+# These normally live in $HOME, but one landing in a checkout would carry the
+# updater private key and the Apple key id in plaintext.
+*.release.env
+release.env
+.allr-release.env
 images/
 __pycache__/
 hermes_agent.egg-info/
