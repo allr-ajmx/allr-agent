@@ -289,6 +289,17 @@ The CI build on `ubuntu-22.04` requires at most `GLIBC_2.34`, which is why the
 runner is pinned rather than tracking `ubuntu-latest`. Build locally to test;
 ship only what CI produced.
 
+`scripts/release-desktop-local.py build` enforces this rather than leaving it to
+prose. It measures the floor out of the compiled binary and refuses to bundle
+anything above `SUPPORTED_GLIBC`; `--allow-unshippable-glibc` builds anyway for
+local testing. Either way the measured floor is declared in the packages —
+`libc6 (>= X.Y)` in the `.deb`, `libc.so.6(GLIBC_X.Y)(64bit)` in the `.rpm` (the
+symbol-version capability, because Tauri's rpm bundler writes each `depends`
+entry as a bare name and never parses `glibc >= X.Y` into a version constraint)
+— so apt and dnf refuse a package they cannot run instead of installing one that
+dies on launch. The tarball carries no metadata, so it states the number in its
+README and `scripts/install-desktop-linux.sh` checks it before installing.
+
 ### No AppImage, and why
 
 `bundle.targets` deliberately omits `appimage`. An AppImage carries its own copy

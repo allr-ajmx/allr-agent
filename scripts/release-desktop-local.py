@@ -92,6 +92,16 @@ TARGETS = {
     "Windows": "x86_64-pc-windows-msvc",
 }
 
+# The highest `GLIBC_x.y` a shippable Linux build may require. glibc is forward-
+# but not backward-compatible, so this is set by the OLDEST distro we support and
+# in practice by the build host: release-desktop.yml pins ubuntu-22.04 for this
+# reason and its binaries top out here. A build on Arch (glibc 2.44) instead
+# reaches GLIBC_2.39, because Rust's std picks up `pidfd_spawnp`/`pidfd_getpid`
+# when the host glibc has them -- and that package installs cleanly on Ubuntu
+# 22.04 and then dies on launch. See apps/hermes-universal/README.md,
+# "Local Linux builds are not distributable".
+SUPPORTED_GLIBC = (2, 34)
+
 
 def die(msg):
     print(f"\nerror: {msg}", file=sys.stderr)
@@ -410,10 +420,134 @@ def build_macos(out, notarize=True):
         print(f"    {src.name} -> {dst.name}")
 
 
-def build_linux(out):
+def glibc_floor(binary):
+    """The highest `GLIBC_x.y` an ELF executable needs, as a (major, minor) tuple.
+
+    Read out of `.gnu.version_r` -- the versioned-symbol references the dynamic
+    linker checks at startup -- rather than shelled out to `objdump`, which is
+    not guaranteed present on a machine whose Rust toolchain links with lld or
+    mold. Returns None if the file carries no version references at all, which
+    is not something a glibc-linked binary does but is not worth dying over.
+    """
+    data = Path(binary).read_bytes()
+    if data[:4] != b"\x7fELF" or data[4] != 2 or data[5] != 1:
+        die(f"not a 64-bit little-endian ELF file: {binary}")
+
+    u16 = lambda o: int.from_bytes(data[o : o + 2], "little")  # noqa: E731
+    u32 = lambda o: int.from_bytes(data[o : o + 4], "little")  # noqa: E731
+    u64 = lambda o: int.from_bytes(data[o : o + 8], "little")  # noqa: E731
+
+    shoff, shentsize, shnum = u64(0x28), u16(0x3A), u16(0x3C)
+    versions = []
+    for i in range(shnum):
+        sh = shoff + i * shentsize
+        if u32(sh + 4) != 0x6FFFFFFE:  # SHT_GNU_verneed
+            continue
+        offset, count = u64(sh + 0x18), u32(sh + 0x2C)  # sh_offset, sh_info
+        # sh_link names the string table the entries index into; resolving it
+        # rather than assuming .dynstr is what keeps this correct on a stripped
+        # or unusually ordered binary.
+        strtab = u64(shoff + u32(sh + 0x28) * shentsize + 0x18)
+
+        def name_at(off):
+            end = data.index(b"\0", strtab + off)
+            return data[strtab + off : end].decode()
+
+        vn = offset
+        for _ in range(count):
+            aux = vn + u32(vn + 8)  # vn_aux
+            for _ in range(u16(vn + 2)):  # vn_cnt
+                versions.append(name_at(u32(aux + 8)))  # vna_name
+                nxt = u32(aux + 12)  # vna_next
+                if not nxt:
+                    break
+                aux += nxt
+            nxt = u32(vn + 12)  # vn_next
+            if not nxt:
+                break
+            vn += nxt
+
+    floors = [
+        tuple(int(p) for p in m.group(1).split("."))
+        for v in versions
+        if (m := re.fullmatch(r"GLIBC_(\d+(?:\.\d+)+)", v))
+    ]
+    return max(floors) if floors else None
+
+
+def linux_depends(floor):
+    """The package dependency lists, with the measured glibc floor appended.
+
+    The floor is a property of the machine that ran the compiler, not of the
+    source, so it cannot live in tauri.conf.json: the pinned ubuntu-22.04 CI
+    build and a local build produce different numbers from identical code, and a
+    hardcoded one would either under-declare (a package that installs and then
+    dies) or over-declare (a CI package that locks out the Ubuntu 22.04 users it
+    actually supports). Measuring it per build is the only version that is right
+    for both. The rest of each list is read back from tauri.conf.json so this
+    stays a single source of truth -- `--config` replaces arrays wholesale
+    rather than merging into them.
+    """
+    linux = json.loads(TAURI_CONF.read_text())["bundle"]["linux"]
+    v = ".".join(str(p) for p in floor)
+    # The two package formats need different spellings, and only one of them
+    # tolerates the obvious one. Tauri's rpm bundler writes each `depends` entry
+    # as a dependency NAME and never parses a version constraint out of it, so
+    # `glibc >= 2.39` becomes a name containing spaces that nothing provides --
+    # dnf then refuses the package on every Fedora, including the ones that do
+    # satisfy it. glibc's own symbol-version capability is a single token with
+    # no spaces and says exactly the right thing, so use that. The deb bundler
+    # copies its entries into the control file verbatim, where Debian's own
+    # `pkg (>= ver)` syntax is what dpkg expects.
+    return {
+        "bundle": {
+            "linux": {
+                "deb": {"depends": linux["deb"]["depends"] + [f"libc6 (>= {v})"]},
+                "rpm": {
+                    "depends": linux["rpm"]["depends"]
+                    + [f"libc.so.6(GLIBC_{v})(64bit)"]
+                },
+            }
+        }
+    }
+
+
+def build_linux(out, allow_unshippable=False):
     target = TARGETS["Linux"]
     print(f"==> building {target}")
-    tauri_build(target)
+
+    # Compile first, bundle second, because the glibc floor is a property of the
+    # binary and has to be measured before it can be declared. Splitting the one
+    # `tauri build` into `--no-bundle` + `bundle` costs nothing: the second pass
+    # does no compilation.
+    tauri_build(target, no_bundle=True)
+
+    binary = APP_DIR / "src-tauri" / "target" / target / "release" / "hermes-universal"
+    if not binary.is_file():
+        die(f"no binary at {binary}")
+
+    floor = glibc_floor(binary)
+    if floor is None:
+        die(f"{binary} declares no versioned glibc symbols, which cannot be right")
+    print(f"\n==> this build requires GLIBC_{'.'.join(str(p) for p in floor)}")
+
+    if floor > SUPPORTED_GLIBC and not allow_unshippable:
+        supported = ".".join(str(p) for p in SUPPORTED_GLIBC)
+        die(
+            f"this build requires GLIBC_{'.'.join(str(p) for p in floor)}, but a "
+            f"shippable one may\n       require at most GLIBC_{supported}.\n\n"
+            "glibc is forward- but not backward-compatible, so this package "
+            "installs\ncleanly on Ubuntu 22.04 / Debian 12 / Mint 21 and then "
+            "dies on launch with\n`GLIBC_... not found` -- which users "
+            "experience as nothing happening when\nthey click the icon.\n\n"
+            "The Linux assets in a release must come from the pinned "
+            "ubuntu-22.04 CI\nbuild. To build here anyway for local testing, "
+            "pass --allow-unshippable-glibc;\nthe packages will declare this "
+            "floor honestly so apt and dnf refuse them\nrather than installing "
+            "something that cannot start."
+        )
+
+    tauri_bundle(target, linux_depends(floor))
 
     collect(out, bundle_dir(target) / "deb", "*.deb*")
     collect(out, bundle_dir(target) / "rpm", "*.rpm*")
@@ -451,13 +585,28 @@ def build_windows(out):
     collect(out, bundle_dir(target) / "msi", "*.msi*")
 
 
-def tauri_build(target):
-    require_env("TAURI_SIGNING_PRIVATE_KEY", "TAURI_SIGNING_PRIVATE_KEY_PASSWORD")
+def npm_tauri(*args):
     npm = "npm.cmd" if platform.system() == "Windows" else "npm"
-    run(
-        [npm, "run", "tauri", "--", "build", "--target", target, "--verbose"],
-        cwd=APP_DIR,
-    )
+    run([npm, "run", "tauri", "--", *args, "--verbose"], cwd=APP_DIR)
+
+
+def tauri_build(target, no_bundle=False):
+    require_env("TAURI_SIGNING_PRIVATE_KEY", "TAURI_SIGNING_PRIVATE_KEY_PASSWORD")
+    args = ["build", "--target", target]
+    if no_bundle:
+        args.append("--no-bundle")
+    npm_tauri(*args)
+
+
+def tauri_bundle(target, config):
+    """Package an already-compiled binary, overriding part of tauri.conf.json.
+
+    Signing happens here, not in the compile step, so the updater key has to be
+    in scope for this call too -- a `--no-bundle` build that succeeds proves
+    nothing about whether the `.sig` files will appear.
+    """
+    require_env("TAURI_SIGNING_PRIVATE_KEY", "TAURI_SIGNING_PRIVATE_KEY_PASSWORD")
+    npm_tauri("bundle", "--target", target, "--config", json.dumps(config))
 
 
 def find_one(directory, pattern, what):
@@ -507,7 +656,7 @@ def cmd_build(args):
     if system == "Darwin":
         build_macos(out, notarize=not args.skip_notarization)
     elif system == "Linux":
-        build_linux(out)
+        build_linux(out, allow_unshippable=args.allow_unshippable_glibc)
     else:
         build_windows(out)
 
@@ -789,6 +938,15 @@ def main():
         "--check-only",
         action="store_true",
         help="validate credentials and version sites, then stop without building",
+    )
+    b.add_argument(
+        "--allow-unshippable-glibc",
+        action="store_true",
+        help="Linux only, and NOT for a release: build even though this host's "
+        f"glibc pushes the requirement past GLIBC_"
+        f"{'.'.join(str(p) for p in SUPPORTED_GLIBC)}. The packages still "
+        "declare the real floor, so apt and dnf refuse them on distros that "
+        "cannot run them.",
     )
     b.add_argument(
         "--skip-notarization",
