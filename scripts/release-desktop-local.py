@@ -71,6 +71,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -260,6 +261,92 @@ def check_macos_credentials():
     print(f"    api key:  {os.environ['APPLE_API_KEY']} at {key_path}")
 
 
+def notarize_and_staple(path, what):
+    """Notarize a file and attach the ticket to it.
+
+    This exists because the Tauri bundler notarizes the .app and STOPS. It then
+    builds the DMG from the stapled app and signs it -- but never submits it.
+    The DMG is the artifact users download and therefore the one macOS puts
+    com.apple.quarantine on, so an unnotarized DMG is refused by Gatekeeper no
+    matter how thoroughly the app inside it was notarized. Verified on
+    2026-08-28 against a real build: the .app came back `accepted /
+    source=Notarized Developer ID` while its own DMG came back `rejected /
+    source=Unnotarized Developer ID`.
+
+    Stapling matters as much as notarizing. Without a stapled ticket Gatekeeper
+    has to ask Apple at open time, so the download works on a connected machine
+    and fails on a plane.
+    """
+    api = [
+        "--key", os.environ["APPLE_API_KEY_PATH"],
+        "--key-id", os.environ["APPLE_API_KEY"],
+        "--issuer", os.environ["APPLE_API_ISSUER"],
+    ]
+
+    print(f"\n==> notarizing the {what}")
+    print("    Apple's queue sets the pace here: 30 seconds when it is clear,")
+    print("    and hours when it is not. 2026-08-28 saw both.")
+    r = subprocess.run(
+        ["xcrun", "notarytool", "submit", str(path), "--wait", "--timeout", "30m"] + api,
+        capture_output=True, text=True,
+    )
+    print("\n".join("    " + l for l in r.stdout.splitlines()[-6:]))
+
+    if r.returncode != 0:
+        # `notarytool --wait` gives up the whole operation on ONE transient
+        # network error -- a single NSURLErrorTimedOut discarded a complete
+        # 30-minute build on 2026-08-28, even though Apple went on to ACCEPT
+        # that very submission. The submission id is the recovery: it outlives
+        # the client, so poll it ourselves rather than resubmitting, which would
+        # only add another job to the queue that starved us.
+        ids = re.findall(r"id: ([0-9a-f-]{36})", r.stdout or "")
+        if not ids:
+            print(r.stderr[-800:], file=sys.stderr)
+            die(f"could not submit the {what} for notarization")
+        sub_id = ids[0]
+        print(f"\n    the wait failed, but submission {sub_id} is live - polling it")
+        if not wait_for_submission(sub_id, api):
+            die(
+                f"the {what} was not accepted. Check it with:\n"
+                f"       xcrun notarytool log {sub_id} --key ... --key-id ... --issuer ..."
+            )
+
+    run(["xcrun", "stapler", "staple", str(path)])
+
+
+def wait_for_submission(sub_id, api, minutes=45):
+    """Poll one submission to a terminal state, tolerating transient errors.
+
+    Deliberately more patient than `notarytool --wait`: a failed poll is retried
+    rather than being treated as a failed notarization.
+    """
+    deadline = time.time() + minutes * 60
+    while time.time() < deadline:
+        try:
+            r = subprocess.run(
+                ["xcrun", "notarytool", "info", sub_id] + api,
+                capture_output=True, text=True, timeout=120,
+            )
+            status = next(
+                (l.split(":", 1)[1].strip() for l in r.stdout.splitlines()
+                 if l.strip().startswith("status:")),
+                None,
+            )
+        except subprocess.TimeoutExpired:
+            status = None
+
+        if status and status != "In Progress":
+            print(f"    submission {sub_id}: {status}")
+            return status == "Accepted"
+
+        # `None` means the poll itself failed, which is exactly the condition
+        # that must NOT end the wait. Say so, and try again.
+        print(f"    {status or 'poll failed, retrying'} ...", flush=True)
+        time.sleep(30)
+
+    die(f"submission {sub_id} did not resolve within {minutes} minutes")
+
+
 def build_macos(out, notarize=True):
     check_macos_credentials()
 
@@ -287,6 +374,16 @@ def build_macos(out, notarize=True):
         run(args)
     except subprocess.CalledProcessError:
         die("the macOS bundle failed verification; it will NOT be released")
+
+    if notarize:
+        dmg = find_one(bundle_dir(target) / "dmg", "*.dmg", "macOS .dmg")
+        notarize_and_staple(dmg, "DMG")
+        print("\n==> re-verifying the DMG as a download")
+        # -t open, not -t exec: a disk image is not executable code, and
+        # `-t exec` reports a confusing pass on something Gatekeeper would
+        # still refuse when opened.
+        run(["spctl", "-a", "-vvv", "-t", "open",
+             "--context", "context:primary-signature", str(dmg)])
 
     collect(out, bundle_dir(target) / "dmg", "*.dmg")
 

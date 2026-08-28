@@ -30,20 +30,22 @@ name: Release Desktop
 # still succeed and produce UNSIGNED artifacts. Windows is unsigned today by
 # design -- see the "Windows code signing" step.
 #
-# KNOWN BREAKAGE, 2026-08-28: this workflow cannot currently ship macOS.
-# `notarytool submit --wait` does not return on a hosted macOS runner. Runs
-# 33143417933 and 33147522451 each sat silent for ~54 minutes on a 16MB bundle
-# and were killed by the 60-minute timeout, while Apple's status feed reported
-# no notary incident and submission ce9e3a96 from the first of them came back
-# ACCEPTED. So the credentials, key role, entitlements and Developer ID
-# signature are all good -- Apple certified them -- and the failure is on the
-# client side of the wait. Notarization DOES complete on a developer Mac.
+# NOTARIZATION IS SLOW AND THE CLIENT IS IMPATIENT, learned 2026-08-28.
+# Apple's notary queue backed up for hours that day. Every submission was
+# eventually ACCEPTED -- including two that read `In Progress` for eleven hours
+# -- but no client waited that long: two runs here (33143417933, 33147522451)
+# were killed by the 60-minute job timeout, and a developer Mac aborted with
+# NSURLErrorTimedOut. Apple's status feed showed no incident throughout.
 #
-# Until that is solved, releases are cut by hand with
-# scripts/release-desktop-local.py, which builds natively on one machine per
-# platform and runs the same shared verifier this workflow runs. Do not push a
-# `desktop-v*` tag while doing that: it would start this workflow and race the
-# manual release for the same assets.
+# Two lessons are baked in below. First, `notarytool --wait` abandons the whole
+# operation on ONE transient network error, discarding a complete build over a
+# submission Apple then accepts -- so the submission id, not the build, is what
+# recovery hangs on. Second, a build must never be coupled to that wait: a
+# ticket can be stapled to an already-signed .app later, with no rebuild.
+#
+# scripts/release-desktop-local.py cuts a release from developer machines when
+# this workflow cannot. Do not push a `desktop-v*` tag while doing that: it
+# would start this workflow and race the manual release for the same assets.
 
 on:
   push:
@@ -351,6 +353,47 @@ jobs:
           retryAttempts: 2
 
       # -----------------------------------------------------------------------
+      # The DMG is a SEPARATE notarization, and nothing above does it.
+      #
+      # The Tauri bundler notarizes the .app, staples it, builds the DMG from
+      # the stapled app, signs the DMG -- and never submits it. Verified against
+      # a real 2026-08-28 build: the .app came back `accepted / source=Notarized
+      # Developer ID` while its own DMG came back `rejected / source=
+      # Unnotarized Developer ID`. The DMG is the file users download and the
+      # one macOS puts com.apple.quarantine on, so shipping it unnotarized
+      # reproduces the exact Gatekeeper wall this release exists to remove --
+      # however thoroughly the app inside it was notarized.
+      #
+      # Re-uploaded with --clobber because tauri-action already uploaded the
+      # unstapled DMG during the build, and stapling rewrites the file.
+      # -----------------------------------------------------------------------
+      - name: Notarize and staple the DMG
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Gated in shell rather than in `if:` -- APPLE_API_KEY_PATH is written
+          # to $GITHUB_ENV by an earlier step, and keeping the test here means
+          # one rule for "was notarization configured" instead of two.
+          if [ -z "${APPLE_API_KEY_PATH:-}" ]; then
+            echo "no App Store Connect key - the DMG stays un-notarized, as does the .app"
+            exit 0
+          fi
+
+          dmg_dir="apps/hermes-universal/src-tauri/target/${{ matrix.target }}/release/bundle/dmg"
+          dmg="$(find "$dmg_dir" -maxdepth 1 -name '*.dmg' -print -quit 2>/dev/null || true)"
+          [ -n "$dmg" ] || { echo "::error::no .dmg under $dmg_dir"; exit 1; }
+
+          xcrun notarytool submit "$dmg" --wait --timeout 30m \
+            --key "$APPLE_API_KEY_PATH" \
+            --key-id "$APPLE_API_KEY" \
+            --issuer "$APPLE_API_ISSUER"
+
+          xcrun stapler staple "$dmg"
+          gh release upload "$TAG" "$dmg" --clobber
+
+      # -----------------------------------------------------------------------
       # The AppImage's replacement.
       #
       # `bundle.targets` no longer lists `appimage`. An AppImage carries its own
@@ -547,7 +590,15 @@ jobs:
             notarized=--expect-notarized
           fi
 
-          ./scripts/verify-macos-signing.sh $mode $notarized "$bundle"
+          # --dmg as well as the bundle: the disk image is a separate
+          # signature AND a separate notarization, and it is the artifact users
+          # actually download.
+          dmg_dir="apps/hermes-universal/src-tauri/target/${{ matrix.target }}/release/bundle/dmg"
+          dmg="$(find "$dmg_dir" -maxdepth 1 -name '*.dmg' -print -quit 2>/dev/null || true)"
+          dmg_arg=""
+          [ -n "$dmg" ] && dmg_arg="--dmg $dmg"
+
+          ./scripts/verify-macos-signing.sh $mode $notarized $dmg_arg "$bundle"
 
   # ---------------------------------------------------------------------------
   # Publish. Order matters: the updater pointer must only be moved once every
