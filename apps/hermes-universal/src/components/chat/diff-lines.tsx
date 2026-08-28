@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import type { BundledLanguage, ShikiTransformer, ThemedToken } from 'shiki'
+import type { BundledLanguage, ThemedToken } from 'shiki'
 
 import { chunkLines, type LineChunk, useFixedRowWindow } from '@/components/chat/fixed-row-window'
 import { SHIKI_THEME } from '@/components/chat/shiki-theme'
@@ -11,12 +11,21 @@ import { cn } from '@/lib/utils'
 
 /**
  * Renders a unified diff for a tool's file edit. Two paths share one parse:
- *  - `SyntaxDiff` highlights the change *content* in the file's language via
- *    Shiki, then a per-line transformer paints the add/remove tint on top.
+ *  - `TokenizedDiffBody` asks Shiki for TOKENS and renders them into rows this
+ *    file owns, tinting each row by its add/remove kind.
  *  - `DiffLines` is the color-only fallback (no language, over budget, or while
- *    Shiki loads).
+ *    the tokens are in flight).
  * Both drop git file-headers + `@@` hunk noise and the `+/-` gutter so changes
  * read by color + a 2px gutter accent, the way Cursor does.
+ *
+ * There used to be a third: `SyntaxDiff`, which rendered `react-shiki`'s own
+ * `<pre>`/`<code>`/`span.line` DOM and painted the tints onto it with a Shiki
+ * transformer. That is the library chain ALLR-30 removed from the chat fence
+ * and ALLR-40 removed from the file preview — DOM whose tags, classes and
+ * inline styles belong to a library, which collapsed a fence to one line on a
+ * signed iOS build and left the preview pane empty. It is gone here too, and
+ * `react-shiki` with it. `shiki` itself stays: `codeToTokens` returns DATA,
+ * behind a dynamic import, and every element around it is ours.
  */
 type DiffKind = 'add' | 'context' | 'remove'
 
@@ -369,6 +378,7 @@ function TokenizedDiffBody({
   chunked = false,
   chunks,
   language,
+  lineClassName = PREVIEW_DIFF_LINE_BASE,
   lines
 }: {
   afterLines?: number
@@ -376,6 +386,10 @@ function TokenizedDiffBody({
   chunked?: boolean
   chunks?: Array<LineChunk<DiffLine>>
   language: string
+  /** Row class for the UNCHUNKED path. The windowed/preview rows are fixed
+   *  height; a compact tool card keeps the auto-height row with the 2px gutter
+   *  accent it has always had. */
+  lineClassName?: string
   lines: DiffLine[]
 }) {
   const code = React.useMemo(() => lines.map(line => line.text).join('\n'), [lines])
@@ -437,7 +451,7 @@ function TokenizedDiffBody({
         const rowTokens = tokens[index] ?? []
 
         return (
-          <span className={cn(PREVIEW_DIFF_LINE_BASE, DIFF_KIND_TINT[line.kind])} key={`${index}-${line.text}`}>
+          <span className={cn(lineClassName, DIFF_KIND_TINT[line.kind])} key={`${index}-${line.text}`}>
             {rowTokens.length > 0
               ? rowTokens.map((token, tokenIndex) => (
                   <span key={`${tokenIndex}-${token.offset}`} style={tokenStyle(token)}>
@@ -449,43 +463,6 @@ function TokenizedDiffBody({
         )
       })}
     </>
-  )
-}
-
-// Shiki transformer: tag each `.line` with the diff tint for its kind, so the
-// syntax-highlighted output keeps add/remove backgrounds + the gutter accent.
-function diffLineTransformer(kinds: DiffKind[]): ShikiTransformer {
-  return {
-    line(node, line) {
-      const kind = kinds[line - 1] ?? 'context'
-
-      const existing = Array.isArray(node.properties.className)
-        ? (node.properties.className as string[])
-        : node.properties.className
-          ? [String(node.properties.className)]
-          : []
-
-      node.properties.className = [...existing, DIFF_LINE_BASE, DIFF_KIND_TINT[kind]]
-    }
-  }
-}
-
-/** `useShikiHighlighter` is a hook, so it cannot be deferred at its call site
- *  the way `codeToTokens` can — it gets a module of its own instead. The plain
- *  coloured diff is BOTH the Suspense fallback (while the chunk loads) and the
- *  child's own fallback (while Shiki tokenizes), so the two waits look the same
- *  and neither flashes. */
-const LazySyntaxDiff = React.lazy(() => import('@/components/chat/diff-lines-shiki'))
-
-function SyntaxDiff({ language, lines }: { language: string; lines: DiffLine[] }) {
-  const code = React.useMemo(() => lines.map(line => line.text).join('\n'), [lines])
-  const transformers = React.useMemo(() => [diffLineTransformer(lines.map(line => line.kind))], [lines])
-  const plain = <DiffBody lines={lines} />
-
-  return (
-    <React.Suspense fallback={plain}>
-      <LazySyntaxDiff code={code} fallback={plain} language={language} transformers={transformers} />
-    </React.Suspense>
   )
 }
 
@@ -623,7 +600,7 @@ export function FileDiffPanel({
 
   // Windowed: we own fixed-height rows and render only the visible chunks, so a
   // large diff never mounts (or Shiki-highlights) every line. Compact tool cards
-  // are small/clamped, so they let Shiki own the rows (SyntaxDiff).
+  // are small/clamped, so they render every row.
   const windowedBody = canHighlight ? (
     <TokenizedDiffBody
       afterLines={afterRows}
@@ -637,12 +614,17 @@ export function FileDiffPanel({
     <PreviewDiffRows afterLines={afterRows} beforeLines={beforeRows} chunks={visibleLineChunks} />
   )
 
+  // One tokenized path for both. The compact tool card used to get `SyntaxDiff`
+  // (react-shiki's DOM) and keeps its own row class here so it still reads as
+  // an auto-height row with the 2px gutter accent.
   const compactBody = !canHighlight ? (
     <DiffBody lines={lines} />
-  ) : fullText != null ? (
-    <TokenizedDiffBody language={language} lines={lines} />
   ) : (
-    <SyntaxDiff language={language} lines={lines} />
+    <TokenizedDiffBody
+      language={language}
+      lineClassName={fullText != null ? undefined : DIFF_LINE_BASE}
+      lines={lines}
+    />
   )
 
   if (!windowed) {

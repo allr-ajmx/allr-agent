@@ -19,11 +19,14 @@ import { describe, expect, it } from 'vitest'
  * So the property worth asserting is reachability, not size — and it has to
  * cover node_modules, because that is where the defeat came from.
  *
- * Two of those four seams remain. The other two compute their own colours from
- * `lib/code-tokens` instead and so have no shiki to hide: the chat code fence
- * (ALLR-30) and the file preview's source view (ALLR-40, which is the same bug
- * seen from the other side — an EMPTY pane rather than a collapsed fence). The
- * assertions at the bottom of this file hold both to that.
+ * One of those four seams remains — `codeToTokens` in the diff renderer, which
+ * asks shiki for DATA and renders rows this app owns. The other three are gone
+ * rather than deferred: the chat code fence (ALLR-30) and the file preview's
+ * source view (ALLR-40, the same bug seen from the other side — an EMPTY pane
+ * rather than a collapsed fence) compute their colours from `lib/code-tokens`,
+ * and the diff's `react-shiki` path was folded into the `codeToTokens` one, so
+ * `react-shiki` is no longer a dependency at all. The assertions at the bottom
+ * of this file hold all three to that.
  *
  * How it works: parse every module reachable from `src/main.tsx` following
  * static edges only (import declarations, side-effect imports, `export … from`
@@ -426,14 +429,24 @@ describe('entry import graph', () => {
   it('keeps the shiki entry points behind a dynamic boundary', () => {
     // The complement of the assertions above: the seams must still EXIST, or
     // "not statically reachable" would be satisfied by deleting highlighting.
-    const seams = [
-      ['components/chat/diff-lines.tsx', "React.lazy(() => import('@/components/chat/diff-lines-shiki'))"],
-      ['components/chat/diff-lines.tsx', "import('shiki')"]
-    ] as const
+    const seams = [['components/chat/diff-lines.tsx', "import('shiki')"]] as const
 
     for (const [file, seam] of seams) {
       expect(fs.readFileSync(path.join(SRC, file), 'utf8')).toContain(seam)
     }
+  })
+
+  it('has no `react-shiki` dependency left to reach', () => {
+    // The strongest form of the assertion, and the end of ALLR-40's part B: the
+    // library whose DOM caused both symptoms is not installed, so no future
+    // import can quietly bring it back. `shiki` itself stays — `codeToTokens`
+    // returns data, and the elements around it are ours.
+    const pkg = JSON.parse(fs.readFileSync(path.join(APP_DIR, 'package.json'), 'utf8')) as {
+      dependencies?: Record<string, string>
+      devDependencies?: Record<string, string>
+    }
+
+    expect({ ...pkg.dependencies, ...pkg.devDependencies }).not.toHaveProperty('react-shiki')
   })
 
   it('keeps shiki out of the code fence and the preview source view entirely', () => {
