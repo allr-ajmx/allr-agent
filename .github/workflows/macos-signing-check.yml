@@ -34,17 +34,31 @@
 #                      API secrets landed on 2026-08-28.
 name: macOS signing check
 
+# MANUAL ONLY, and the push trigger is not coming back without a reason.
+#
+# It used to fire on any push touching the paths below. That cost a full
+# macos-14 job -- billed at 10x the Linux rate -- for every such push, and once
+# notarization was switched on each of those jobs ran the full 60 minutes and
+# was killed by the timeout, because notarytool never returns on a hosted
+# runner (2026-08-28: two consecutive runs, 33143417933 and 33147522451, both
+# silent for ~54 minutes on a 16MB bundle while Apple reported no incident and
+# had already ACCEPTED an earlier submission). Two runs, two hours of macOS
+# runner time, to learn one fact twice.
+#
+# Each run also costs an App Store Connect submission, and cancel-in-progress
+# killed notarytool mid-upload -- leaving submissions wedged at `In Progress`
+# on the team forever. Apple throttles per team, so an automatic trigger here
+# actively degrades the thing it is trying to test.
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - '.github/workflows/macos-signing-check.yml'
-      - '.github/workflows/release-desktop.yml'
-      - 'scripts/verify-macos-signing.sh'
-      - 'scripts/build-signed-macos.sh'
-      - 'apps/hermes-universal/src-tauri/entitlements.plist'
-      - 'apps/hermes-universal/src-tauri/tauri.conf.json'
-      - 'apps/hermes-universal/src-tauri/src/secrets/**'
+    inputs:
+      notarize:
+        description: >-
+          Also notarize. OFF by default: notarytool does not return on GitHub's
+          macOS runners, so this currently guarantees a 60-minute timeout. Turn
+          it on only to re-test that, and watch the run.
+        type: boolean
+        default: false
 
 # A signing check that raced itself would fight over nothing useful; the newest
 # push is the only one whose answer anyone wants.
@@ -80,6 +94,9 @@ jobs:
       HAS_API_KEY: ${{ secrets.APPLE_API_KEY != '' }}
       HAS_API_ISSUER: ${{ secrets.APPLE_API_ISSUER != '' }}
       HAS_API_P8: ${{ secrets.APPLE_API_KEY_P8_BASE64 != '' }}
+      # Secrets being present is necessary but no longer sufficient: asking for
+      # notarization is now a deliberate act, for the reasons at the top.
+      WANT_NOTARIZE: ${{ inputs.notarize }}
     steps:
       - id: check
         shell: bash
@@ -99,9 +116,14 @@ jobs:
           # past in a 6-minute log, which is precisely how v0.0.7 shipped
           # unnotarized -- so the decision is made here, once, and turned into
           # the assertion below rather than left to a reader.
-          notarization=false
+          have_api=false
           if [ "$HAS_API_KEY" = 'true' ] && [ "$HAS_API_ISSUER" = 'true' ] \
              && [ "$HAS_API_P8" = 'true' ]; then
+            have_api=true
+          fi
+
+          notarization=false
+          if [ "$have_api" = 'true' ] && [ "$WANT_NOTARIZE" = 'true' ]; then
             notarization=true
           fi
           echo "notarization=$notarization" >> "$GITHUB_OUTPUT"
@@ -133,7 +155,11 @@ jobs:
             echo
 
             if [ "$notarization" = 'true' ]; then
-              echo 'All three notarization secrets are present, so the build below must produce a bundle Gatekeeper ACCEPTS or fail.'
+              echo 'Notarization was REQUESTED and all three secrets are present, so the build below must produce a bundle Gatekeeper ACCEPTS or fail.'
+              echo
+              echo '> Expect this to time out. notarytool has not returned on a hosted runner since 2026-08-28; the bundle is signed either way.'
+            elif [ "$have_api" = 'true' ]; then
+              echo 'All three notarization secrets are present but notarization was not requested, so the build below is signed only and checked as such. Re-run with `notarize` ticked to exercise it.'
             elif [ "$HAS_API_KEY" = 'true' ] || [ "$HAS_API_ISSUER" = 'true' ] || [ "$HAS_API_P8" = 'true' ]; then
               echo '> **Partial set.** Notarization needs all three together. With any one missing the bundler prints `skipping app notarization` and SUCCEEDS, so the build below is checked as un-notarized and a downloaded copy would still be refused by Gatekeeper. Set all three or none.'
             else
@@ -212,8 +238,11 @@ jobs:
           cargo test --manifest-path apps/hermes-universal/src-tauri/Cargo.toml \
             --all-features secrets::
 
+      # Gated on the preflight decision, not merely on the secret existing:
+      # writing this path is what makes Tauri attempt notarization at all, so
+      # a signing-only run must not create it.
       - name: Materialize App Store Connect API key
-        if: env.APPLE_API_KEY_P8_BASE64 != ''
+        if: needs.preflight.outputs.notarization == 'true'
         run: |
           mkdir -p "$RUNNER_TEMP/asc"
           key_path="$RUNNER_TEMP/asc/AuthKey_${APPLE_API_KEY}.p8"
@@ -236,7 +265,7 @@ jobs:
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
         run: |
           for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD \
-                      APPLE_SIGNING_IDENTITY KEYCHAIN_PASSWORD APPLE_API_ISSUER; do
+                      APPLE_SIGNING_IDENTITY KEYCHAIN_PASSWORD; do
             value="${!name}"
             [ -n "$value" ] || continue
             {
@@ -246,8 +275,15 @@ jobs:
             } >> "$GITHUB_ENV"
           done
 
+          # The issuer moved OUT of the loop above and behind the same guard as
+          # the key id. Tauri notarizes when the API trio is complete, so
+          # exporting the issuer on a signing-only run would leave a partial
+          # trio -- which is not harmless: it is the exact half-state that makes
+          # the bundler print `skipping app notarization` and carry on, the
+          # thing preflight warns about. Both names appear together or neither.
           if [ -n "${APPLE_API_KEY_PATH:-}" ]; then
             echo "APPLE_API_KEY=$APPLE_API_KEY" >> "$GITHUB_ENV"
+            echo "APPLE_API_ISSUER=$APPLE_API_ISSUER" >> "$GITHUB_ENV"
           fi
 
       # No releaseId and no tagName, which is what keeps this a build rather
