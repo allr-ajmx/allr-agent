@@ -13,7 +13,7 @@
  * order, DISABLED rather than dropped when they would close nothing.
  */
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // The drawer half of this menu only exists on a phone, and the suite runs in
@@ -29,11 +29,12 @@ vi.mock('@/lib/platform', async importOriginal => ({
 }))
 
 import type { PaneTabCloseItemsOptions } from '@/components/ui/pane-tab'
+import { LONG_PRESS_MS } from '@/lib/long-press'
 import { IS_MOBILE } from '@/lib/platform'
 import { $activeStoredSessionId, $sessions } from '@/store/session'
 import type { SessionInfo } from '@/types/hermes'
 
-import { SessionActionsMenu, SessionContextMenu } from './session-actions-menu'
+import { SessionActionsMenu, SessionContextMenu, sessionMenuClaimedPress } from './session-actions-menu'
 
 afterEach(cleanup)
 
@@ -210,5 +211,92 @@ describe('the session menu as a mobile DRAWER', () => {
     // The grid itself is unpadded — the padding is the SUBMENU's, declared by
     // the spec, and on this flavour the page is what stands for the submenu.
     expect(document.querySelector('.grid-cols-6')?.closest('.p-2')).not.toBeNull()
+  })
+})
+
+/**
+ * ALLR-39 — a LONG PRESS opens the drawer, not the desktop menu.
+ *
+ * `SessionContextMenu` had no `IS_MOBILE` branch at all, so on touch Radix's own
+ * `ContextMenuTrigger` armed a ~700ms press and popped the floating `w-40` panel
+ * — a menu whose submenus open on a hover a finger does not have.
+ *
+ * The trap is the DOUBLE WRAP: a row is inside both wrappers, so the naive fix
+ * gives it two drawers with two open states. The outer one owns the drawer and
+ * the kebab defers to it, which is what these hold.
+ */
+describe('a long press on a session row', () => {
+  beforeEach(() => {
+    mobile.value = true
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    mobile.value = false
+  })
+
+  // The row as it is actually assembled: the context menu wraps everything, the
+  // kebab's own menu wraps the button inside it (session-row.tsx:151/180).
+  const renderRow = () => {
+    const actions = {
+      onArchive: () => {},
+      onDelete: () => {},
+      onPin: () => {},
+      sessionId: 'sess-1',
+      title: 'Some chat'
+    }
+
+    render(
+      <SessionContextMenu {...actions}>
+        <div>
+          <span>row</span>
+          <SessionActionsMenu {...actions}>
+            <button type="button">kebab</button>
+          </SessionActionsMenu>
+        </div>
+      </SessionContextMenu>
+    )
+  }
+
+  const holdRow = () => {
+    const target = screen.getByText('row')
+
+    fireEvent.pointerDown(target, { button: 0, clientX: 5, clientY: 5, pointerType: 'touch' })
+    act(() => void vi.advanceTimersByTime(LONG_PRESS_MS))
+    fireEvent.pointerUp(target, { button: 0, clientX: 5, clientY: 5, pointerType: 'touch' })
+  }
+
+  const drawers = () => document.querySelectorAll('[data-top-drawer]')
+
+  it('opens the drawer, not the floating desktop menu', () => {
+    renderRow()
+    holdRow()
+
+    expect(drawers()).toHaveLength(1)
+    expect(screen.getByText('Rename')).toBeTruthy()
+  })
+
+  it('opens the SAME drawer the kebab does — one panel, never two', () => {
+    renderRow()
+    holdRow()
+    // The other gesture, on the same row, while the first drawer is up.
+    fireEvent.click(screen.getByText('kebab'))
+
+    expect(drawers()).toHaveLength(1)
+    // One item list, not two stacked copies of it.
+    expect(screen.getAllByText('Rename')).toHaveLength(1)
+  })
+
+  it('claims the press, so the row does not also resume the session', () => {
+    renderRow()
+
+    // A press that never reaches the threshold is an ordinary tap and stays the
+    // row's — this is the flag session-row.tsx reads from `onTap` and `onClick`.
+    fireEvent.pointerDown(screen.getByText('row'), { button: 0, clientX: 5, clientY: 5, pointerType: 'touch' })
+    expect(sessionMenuClaimedPress()).toBe(false)
+
+    act(() => void vi.advanceTimersByTime(LONG_PRESS_MS))
+    expect(sessionMenuClaimedPress()).toBe(true)
   })
 })

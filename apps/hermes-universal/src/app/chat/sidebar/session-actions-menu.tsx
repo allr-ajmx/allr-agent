@@ -1,5 +1,5 @@
 import type * as React from 'react'
-import { useEffect, useRef, useState } from 'react'
+import { createContext, useContext, useEffect, useRef, useState } from 'react'
 
 import {
   type ActionItemSpec,
@@ -28,6 +28,7 @@ import { topBarBottom } from '@/components/ui/top-drawer'
 import { useI18n } from '@/i18n'
 import { writeClipboardText } from '@/lib/clipboard'
 import { triggerHaptic } from '@/lib/haptics'
+import { createLongPress } from '@/lib/long-press'
 import { IS_MOBILE } from '@/lib/platform'
 import { PROFILE_SWATCHES } from '@/lib/profile-color'
 import { useStore } from '@/store/atom'
@@ -355,6 +356,38 @@ function useSessionActions({
   return { renameDialog, renderItems }
 }
 
+/**
+ * ONE touch drawer per session, published by whichever wrapper is OUTERMOST.
+ *
+ * On a phone a session is wrapped by BOTH menus — `SessionContextMenu` around
+ * the whole row (and around the top bar's title pill), `SessionActionsMenu`
+ * around the kebab inside it. Give each its own `MenuDrawer` and the row carries
+ * two panels over the same item list with two independent open states: long
+ * press then kebab stacks them, and closing one leaves the other orphaned.
+ *
+ * So the outer wrapper OWNS the drawer and publishes the handle here; the kebab,
+ * finding one already provided, opens THAT rather than mounting a second. One
+ * `open` boolean exists, so two drawers cannot.
+ */
+interface SessionDrawerHandle {
+  /** Open the shared drawer, anchored under the bar `trigger` sits in. */
+  open: (trigger: HTMLElement | null) => void
+}
+
+const SessionDrawerContext = createContext<SessionDrawerHandle | null>(null)
+
+/** True from the long press that opened the drawer until the next press begins.
+ *
+ *  A row's own gestures live in `session-row.tsx` (`startSessionDrag`'s `onTap`,
+ *  and the click the engine synthesizes behind it), and they run from window
+ *  listeners this tree cannot intercept — so without this the press that opens
+ *  the menu ALSO resumes the session behind it. A module singleton because there
+ *  is only ever one pointer gesture in flight, and the row that started the
+ *  press is the row that reads it. */
+let claimedPress = false
+
+export const sessionMenuClaimedPress = (): boolean => claimedPress
+
 interface SessionActionsMenuProps extends SessionActions {
   children: React.ReactNode
 }
@@ -365,6 +398,8 @@ export function SessionActionsMenu({ children, ...actions }: SessionActionsMenuP
   const [drawerOpen, setDrawerOpen] = useState(false)
   const triggerRef = useRef<HTMLSpanElement>(null)
   const [offsetTop, setOffsetTop] = useState(0)
+  // The drawer the wrapper around this one already owns, when there is one.
+  const shared = useContext(SessionDrawerContext)
 
   // TOUCH: the same menu as a drawer down from the top, submenus as pages.
   // `renderItems` is unchanged — it is handed a different kit, which is the
@@ -378,6 +413,16 @@ export function SessionActionsMenu({ children, ...actions }: SessionActionsMenuP
         <span
           className="inline-flex min-w-0 flex-1 self-stretch"
           onClick={() => {
+            // Wrapped by a `SessionContextMenu` (a sidebar row, the title pill):
+            // open ITS drawer. Mounting a second one here would put two panels
+            // and two open states on the same session — see
+            // `SessionDrawerContext`.
+            if (shared) {
+              shared.open(triggerRef.current)
+
+              return
+            }
+
             setOffsetTop(topBarBottom(triggerRef.current))
             setDrawerOpen(true)
           }}
@@ -385,14 +430,20 @@ export function SessionActionsMenu({ children, ...actions }: SessionActionsMenuP
         >
           {children}
         </span>
-        <MenuDrawer
-          offsetTop={offsetTop}
-          onOpenChange={setDrawerOpen}
-          open={drawerOpen}
-          render={renderItems}
-          title={t.sidebar.row.actionsFor(actions.title)}
-        />
-        {renameDialog}
+        {/* Only where this menu stands alone. Where it defers, the rename dialog
+            belongs to the wrapper that owns the rows that open it. */}
+        {!shared && (
+          <>
+            <MenuDrawer
+              offsetTop={offsetTop}
+              onOpenChange={setDrawerOpen}
+              open={drawerOpen}
+              render={renderItems}
+              title={t.sidebar.row.actionsFor(actions.title)}
+            />
+            {renameDialog}
+          </>
+        )}
       </>
     )
   }
@@ -417,6 +468,70 @@ interface SessionContextMenuProps extends SessionActions {
 export function SessionContextMenu({ children, ...actions }: SessionContextMenuProps) {
   const { t } = useI18n()
   const { renameDialog, renderItems } = useSessionActions(actions)
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [offsetTop, setOffsetTop] = useState(0)
+  const wrapRef = useRef<HTMLSpanElement>(null)
+
+  // Stable for the life of the wrapper — the two setters are, and the trigger
+  // arrives as an argument rather than being closed over.
+  const drawer = useRef<SessionDrawerHandle>({
+    open: trigger => {
+      setOffsetTop(topBarBottom(trigger))
+      setDrawerOpen(true)
+    }
+  }).current
+
+  // The touch stand-in for the right-click below. `createLongPress` rather than
+  // Radix's own: `ContextMenuTrigger` arms a ~700ms press that opens the FLOATING
+  // desktop menu, which is the bug — a finger has no hover, so its submenus are
+  // unreachable and its rows are sized by their text (ALLR-39).
+  const press = useRef(
+    createLongPress({
+      onFire: () => {
+        claimedPress = true
+        void triggerHaptic('selection')
+        drawer.open(wrapRef.current)
+      }
+    })
+  ).current
+
+  useEffect(() => () => press.cancel(), [press])
+
+  if (IS_MOBILE) {
+    return (
+      <SessionDrawerContext.Provider value={drawer}>
+        {/* `contents`, unlike the kebab's wrapper: this one wraps a laid-out row
+            (and, in the top bar, a pill), so a box here would change both. Events
+            travel the DOM tree, not the box tree, so the handlers still see every
+            press inside — and `topBarBottom` walks ancestors, not geometry. */}
+        <span
+          className="contents"
+          onPointerCancel={() => press.cancel()}
+          onPointerDown={event => {
+            if (event.button !== 0) {
+              return
+            }
+
+            claimedPress = false
+            press.down(event.clientX, event.clientY)
+          }}
+          onPointerMove={event => press.move(event.clientX, event.clientY)}
+          onPointerUp={() => press.up()}
+          ref={wrapRef}
+        >
+          {children}
+        </span>
+        <MenuDrawer
+          offsetTop={offsetTop}
+          onOpenChange={setDrawerOpen}
+          open={drawerOpen}
+          render={renderItems}
+          title={t.sidebar.row.actionsFor(actions.title)}
+        />
+        {renameDialog}
+      </SessionDrawerContext.Provider>
+    )
+  }
 
   return (
     <>

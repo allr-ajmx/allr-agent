@@ -26,7 +26,7 @@ import { startSessionDrag } from '../session-drag'
 import { SessionStatusDot } from '../session-status-dot'
 
 import { SidebarRowBody, SidebarRowGrab, SidebarRowLabel, SidebarRowLead, SidebarRowShell } from './chrome'
-import { SessionActionsMenu, SessionContextMenu } from './session-actions-menu'
+import { SessionActionsMenu, SessionContextMenu, sessionMenuClaimedPress } from './session-actions-menu'
 import { sessionShowsRunningArc } from './session-row-state'
 
 // Ported/adapted from desktop `app/chat/sidebar/session-row.tsx`. ⇧⌘-click pops
@@ -219,7 +219,11 @@ function SidebarSessionRowImpl({
           onClick={event => {
             // A finger already resumed this row from `onTap` below; whether the
             // engine also synthesizes a click is its business, not ours.
-            if (tapped.current) {
+            //
+            // Or the press was a HOLD, which opened the row's menu instead
+            // (ALLR-39) — the trailing click must not resume the session behind
+            // the drawer that just opened over it.
+            if (tapped.current || sessionMenuClaimedPress()) {
               return
             }
 
@@ -290,7 +294,18 @@ function SidebarSessionRowImpl({
                 ? undefined
                 : {
                     onTap: () => {
+                      // Latched either way, so the click the engine may still
+                      // synthesize is swallowed by the guard above.
                       tapped.current = true
+
+                      // A hold that opened the row's menu is not a tap. The
+                      // drag session's own cap (TAP_MAX_MS, 700ms) sits ABOVE
+                      // the long-press threshold (500ms), so a release in
+                      // between reaches here with the drawer already open.
+                      if (sessionMenuClaimedPress()) {
+                        return
+                      }
+
                       onResume()
                     }
                   }
