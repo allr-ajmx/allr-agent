@@ -133,6 +133,31 @@ esac
 INSTALLER
 chmod 755 "$root/install.sh"
 
+# The glibc floor, measured rather than asserted. The tarball is the one Linux
+# artifact with no dependency metadata behind it -- apt and dnf refuse a package
+# their libc cannot run, but nothing stops a user unpacking this on a distro too
+# old for it, where the only symptom is an app that never starts. Naming the
+# number here is the only warning this format can carry. Measured, because the
+# floor is set by whichever machine ran the compiler, not by the source.
+glibc_min=""
+if command -v objdump >/dev/null 2>&1; then
+  glibc_min="$(objdump -T "$binary" 2>/dev/null | grep -oE 'GLIBC_[0-9]+\.[0-9]+' \
+    | sed 's/GLIBC_//' | sort -V | tail -1)"
+elif command -v readelf >/dev/null 2>&1; then
+  glibc_min="$(readelf -V "$binary" 2>/dev/null | grep -oE 'GLIBC_[0-9]+\.[0-9]+' \
+    | sed 's/GLIBC_//' | sort -V | tail -1)"
+fi
+if [ -n "$glibc_min" ]; then
+  glibc_line="
+This build needs **glibc $glibc_min or newer**. glibc cannot be upgraded on its own,
+so an older distribution needs a newer release of itself rather than a package:
+check yours with \`ldd --version\`. The \`.deb\` and \`.rpm\` declare this, so your
+package manager refuses them rather than installing something that cannot start.
+"
+else
+  glibc_line=""
+fi
+
 cat > "$root/README.md" <<README
 # Allr $version — Linux
 
@@ -156,6 +181,7 @@ not. Install these first if they are missing:
 
 Prefer the \`.deb\` or \`.rpm\` if your distribution uses one: they declare these
 dependencies so your package manager pulls them in for you.
+$glibc_line
 
 ## What you do not get here
 
