@@ -112,7 +112,7 @@ export function StatusbarControls({ className, leftItems = [], items = [], ...pr
       <ContextMenuTrigger asChild>
         <footer
           className={cn(
-            'flex h-8 shrink-0 items-stretch justify-between gap-2 border-t border-(--ui-stroke-tertiary) bg-(--ui-sidebar-surface-background) px-1 pb-[env(safe-area-inset-bottom)] text-(--ui-text-tertiary) md:h-5 md:pb-0',
+            'flex h-8 shrink-0 items-stretch justify-between gap-2 border-t border-(--ui-stroke-tertiary) bg-(--ui-sidebar-surface-background) px-1 pb-[var(--safe-area-inset-bottom)] text-(--ui-text-tertiary) md:h-5 md:pb-0',
             className
           )}
           data-slot="statusbar"
