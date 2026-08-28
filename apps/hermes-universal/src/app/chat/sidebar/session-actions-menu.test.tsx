@@ -14,14 +14,26 @@
  */
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+// The drawer half of this menu only exists on a phone, and the suite runs in
+// jsdom — so the flag is a getter the mobile block can flip. It stays FALSE for
+// every test above, which is the desktop menu those tests are about.
+const { mobile } = vi.hoisted(() => ({ mobile: { value: false } }))
+
+vi.mock('@/lib/platform', async importOriginal => ({
+  ...((await importOriginal()) as Record<string, unknown>),
+  get IS_MOBILE() {
+    return mobile.value
+  }
+}))
 
 import type { PaneTabCloseItemsOptions } from '@/components/ui/pane-tab'
 import { IS_MOBILE } from '@/lib/platform'
 import { $activeStoredSessionId, $sessions } from '@/store/session'
 import type { SessionInfo } from '@/types/hermes'
 
-import { SessionContextMenu } from './session-actions-menu'
+import { SessionActionsMenu, SessionContextMenu } from './session-actions-menu'
 
 afterEach(cleanup)
 
@@ -145,5 +157,58 @@ describe('the session menu on the chat already in main', () => {
     openMenu(undefined, 'root')
 
     expect(items()).not.toContain(OPEN_HERE)
+  })
+})
+
+/**
+ * ALLR-37 — a submenu's `contentClassName` has to survive the DRAWER.
+ *
+ * On touch this menu is rendered with a third kit: submenus become pages in a
+ * top drawer rather than hover panels. The Appearance spec declares the padding
+ * its swatch grid needs (`contentClassName: 'p-2'`) and both Radix kits put it
+ * on the floating panel — but the drawer kit used to push only the content's
+ * CHILDREN, so the class was dropped. Drawer rows carry their own `px-4` and a
+ * custom body carries none, which left the grid flush against both edges of a
+ * panel that clips rather than scrolls.
+ */
+describe('the session menu as a mobile DRAWER', () => {
+  beforeEach(() => {
+    mobile.value = true
+  })
+
+  afterEach(() => {
+    mobile.value = false
+  })
+
+  const openAppearance = () => {
+    render(
+      <SessionActionsMenu
+        onArchive={() => {}}
+        onDelete={() => {}}
+        onPin={() => {}}
+        sessionId="sess-1"
+        title="Some chat"
+      >
+        <button type="button">kebab</button>
+      </SessionActionsMenu>
+    )
+
+    fireEvent.click(screen.getByText('kebab'))
+    fireEvent.click(screen.getByText('Appearance'))
+  }
+
+  it('renders the submenu as a page rather than a nested panel', () => {
+    openAppearance()
+
+    expect(document.querySelector('[data-top-drawer]')).not.toBeNull()
+    expect(document.querySelector('.grid-cols-6')).not.toBeNull()
+  })
+
+  it('carries the spec’s contentClassName onto the page it pushes', () => {
+    openAppearance()
+
+    // The grid itself is unpadded — the padding is the SUBMENU's, declared by
+    // the spec, and on this flavour the page is what stands for the submenu.
+    expect(document.querySelector('.grid-cols-6')?.closest('.p-2')).not.toBeNull()
   })
 })
