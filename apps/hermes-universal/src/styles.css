@@ -1235,6 +1235,25 @@
   }
 }
 
+/* Every control in the profile rail — the home/Manage pills, the colored
+   profile squares, the "+" and the overflow "⌄" — so the strip reads as ONE row
+   of controls rather than four different buttons that happen to sit together.
+   It carries the shared corner here; its SIZE is set beside the other
+   `--touch-target-compact` exceptions below (a `@utility` lands in Tailwind's
+   utilities layer, and the coarse-pointer floor it has to beat is unlayered).
+
+   A CLASS, deliberately, and not `data-slot` / `data-variant` like the rest of
+   the touch rules: the squares sit under three nested Radix `asChild` triggers
+   (PopoverAnchor → ContextMenuTrigger → TooltipTrigger) that REPLACE `data-slot`
+   with their own — exactly the trap documented at the coarse-pointer rule, and
+   exactly why the squares were never caught by it. `Slot` MERGES `className`
+   instead of replacing it, so this survives any wrapper a future trigger adds.
+   It also travels with a square into the overflow popover's portal, where a
+   selector scoped to the rail container could not follow it. */
+@utility profile-rail-control {
+  border-radius: 4px;
+}
+
 @keyframes arc-border {
   0% {
     background-position: 15% 15%;
@@ -1688,7 +1707,17 @@ html.is-mobile [data-slot='composer-root'] button[data-variant]:not([class*='h-a
 /* Sidebar/session rows: the kebab lives in a 22px cell inside a ~28px row, so
    the 48px floor overflowed it in both axes and the control was clipped against
    the row it belongs to. */
-html.is-mobile .row-hover button[data-variant]:not([class*='h-auto']) {
+html.is-mobile .row-hover button[data-variant]:not([class*='h-auto']),
+/* The profile rail, both directions at once — this is the ONE size for the whole
+   strip. Its two pills are `Button`s and were the only controls the floor could
+   see, so they stood at 48px next to ~22px squares; the squares, the "+" and the
+   "⌄" are raw `<button>`s under `asChild` triggers and matched nothing (see
+   `profile-rail-control`). `min-*-size` beats the utility `size-*` on both, so
+   the same declaration raises the raw buttons AND brings the pills down.
+   DOWN, not the squares up: seven profiles (RAIL_VISIBLE_LIMIT on a phone) plus
+   the "+" and the "⌄" and the two pills do not fit a phone's rail at 48px, and
+   this is dense chrome, which is what the compact token is for. */
+html.is-mobile button.profile-rail-control {
   min-block-size: var(--touch-target-compact);
   min-inline-size: var(--touch-target-compact);
 }
