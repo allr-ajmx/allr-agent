@@ -9,7 +9,6 @@
     "assistant.clarify.gatewayDisconnected",
     "assistant.thread.attachingFile",
     "assistant.thread.expandMessage",
-    "assistant.thread.loadingSession",
     "assistant.thread.moreActions",
     "assistant.thread.resumeWhenBackgroundDone",
     "assistant.tool.copyActivity",
