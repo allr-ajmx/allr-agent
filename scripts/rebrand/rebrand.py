@@ -344,7 +344,11 @@ SKIP_SUFFIXES = (".lock", "-lock.json")
 # only the root LICENSE was ever skipped and vendored plugins/*/LICENSE and
 # NOTICE files had their third-party copyright holders renamed.
 SKIP_NAMES = {"LICENSE", "LICENSE.md", "LICENSE.txt", "NOTICE", "NOTICE.txt",
-              "COPYING", ".mailmap", ".git-blame-ignore-revs"}
+              "COPYING", ".mailmap", ".git-blame-ignore-revs",
+              # Documents ABOUT the rename, so they quote pre-rename strings
+              # verbatim and must not be swept — the same reason
+              # scripts/rebrand/ is in SKIP_PREFIXES.
+              "TESTING-CHECKLIST.md", "REBRAND-REVIEW.md", "DOCS-REVIEW.md"}
 # No `dist/`/`build/` skip: the only tracked ones are the dashboard plugins'
 # hand-written IIFE bundles (no build step), and skipping them left them calling
 # `window.__HERMES_PLUGIN_SDK__` after the host renamed the global.
