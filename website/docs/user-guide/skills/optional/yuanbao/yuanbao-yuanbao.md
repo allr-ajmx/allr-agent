@@ -17,7 +17,7 @@ Yuanbao (元宝) groups: @mention users, query info/members.
 | Source | Optional — install with `allr skills install official/yuanbao/yuanbao` |
 | Path | `optional-skills/yuanbao` |
 | Version | `1.0.0` |
-| Author | Teknium (teknium1), Allr |
+| Author | Teknium (teknium1), Hermes Agent |
 | License | MIT |
 | Platforms | linux, macos, windows |
 | Tags | `yuanbao`, `mention`, `at`, `group`, `members`, `元宝`, `派`, `艾特` |

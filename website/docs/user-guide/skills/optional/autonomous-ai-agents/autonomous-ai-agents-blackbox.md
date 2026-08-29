@@ -17,7 +17,7 @@ Delegate coding tasks to the Blackbox AI multi-model CLI.
 | Source | Optional — install with `allr skills install official/autonomous-ai-agents/blackbox` |
 | Path | `optional-skills/autonomous-ai-agents/blackbox` |
 | Version | `1.0.1` |
-| Author | Allr (Nous Research) |
+| Author | Hermes Agent (Nous Research) |
 | License | MIT |
 | Platforms | linux, macos, windows |
 | Tags | `Coding-Agent`, `Blackbox`, `Multi-Agent`, `Judge`, `Multi-Model` |

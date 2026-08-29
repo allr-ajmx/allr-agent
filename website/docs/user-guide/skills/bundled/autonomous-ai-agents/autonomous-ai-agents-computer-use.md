@@ -17,7 +17,7 @@ Drive the desktop in the background without stealing focus.
 | Source | Bundled (installed by default) |
 | Path | `skills/autonomous-ai-agents/computer-use` |
 | Version | `2.0.0` |
-| Author | Francesco Bonacci (f-trycua), Allr |
+| Author | Francesco Bonacci (f-trycua), Hermes Agent |
 | License | MIT |
 | Platforms | macos, windows, linux |
 | Tags | `computer-use`, `desktop`, `automation`, `gui`, `cross-platform` |

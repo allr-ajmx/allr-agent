@@ -17,7 +17,7 @@ Query Polymarket: markets, prices, orderbooks, history.
 | Source | Optional — install with `allr skills install official/finance/polymarket` |
 | Path | `optional-skills/finance/polymarket` |
 | Version | `1.0.0` |
-| Author | Allr + Teknium |
+| Author | Hermes Agent + Teknium |
 | License | MIT |
 | Platforms | linux, macos, windows |
 

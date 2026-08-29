@@ -2,7 +2,7 @@
 name: gitnexus-explorer
 description: Serve an interactive codebase knowledge graph web UI.
 version: 1.0.0
-author: Allr + Teknium
+author: Hermes Agent + Teknium
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
