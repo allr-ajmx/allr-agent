@@ -21,7 +21,7 @@ import androidx.activity.enableEdgeToEdge
 // `handleBackNavigation` stays false below), because WryActivity's version — plain
 // `canGoBack()` / `goBack()` — is wrong for this Activity once a sign-in has run.
 //
-// Android cannot open a second webview window, so a gateway or Hermes Cloud sign-in
+// Android cannot open a second webview window, so a gateway or Nous Cloud sign-in
 // started from Settings navigates THIS WebView to the provider's login page and then
 // back to the app (`src-tauri/src/oauth.rs`, `src-tauri/src/cloud.rs`). Both legs go
 // through `loadUrl`, so both PUSH history: after one sign-in the back-forward list
