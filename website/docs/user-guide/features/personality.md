@@ -47,7 +47,7 @@ This keeps personality predictable.
 If Allr loaded `SOUL.md` from whatever directory you happened to launch it in, your personality could change unexpectedly between projects. By loading only from `ALLR_HOME`, the personality belongs to the Allr instance itself.
 
 That also makes it easier to teach users:
-- "Edit `~/.allr/SOUL.md` to change Allr' default personality."
+- "Edit `~/.allr/SOUL.md` to change Allr's default personality."
 
 ## Where to edit it
 
@@ -124,7 +124,7 @@ The content goes through:
 - prompt-injection scanning
 - truncation if it is too large
 
-If the file is empty, whitespace-only, or cannot be read, Allr falls back to a built-in default identity ("You are Allr, an intelligent AI assistant created by Nous Research..."). This fallback also applies when `skip_context_files` is set (e.g., in subagent/delegation contexts).
+If the file is empty, whitespace-only, or cannot be read, Allr falls back to a built-in default identity ("You are Allr, built on Hermes Agent by Nous Research. You are an intelligent AI assistant..."). This fallback also applies when `skip_context_files` is set (e.g., in subagent/delegation contexts).
 
 ## Security scanning
 
@@ -277,7 +277,7 @@ At a high level, the prompt stack includes:
 - [Context Files](/user-guide/features/context-files)
 - [Configuration](/user-guide/configuration)
 - [Tips & Best Practices](/guides/tips)
-- [SOUL.md Guide](/guides/use-soul-with-hermes)
+- [SOUL.md Guide](/guides/use-soul-with-allr)
 
 ## CLI appearance vs conversational personality
 
