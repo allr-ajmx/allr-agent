@@ -1,5 +1,5 @@
 {
-  description = "Allr - AI agent framework by Nous Research";
+  description = "Allr — one AI workspace that makes finished work. Built on Hermes Agent by Nous Research.";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";

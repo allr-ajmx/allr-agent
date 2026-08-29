@@ -118,9 +118,9 @@ SECTIONS: list[tuple[str, list[tuple[str, str, str | None]]]] = [
         ("guides/daily-briefing-bot", "Daily Briefing Bot", None),
         ("guides/team-telegram-assistant", "Team Telegram Assistant", None),
         ("guides/python-library", "Use Allr as a Python Library", None),
-        ("guides/use-mcp-with-hermes", "Use MCP with Allr", None),
-        ("guides/use-voice-mode-with-hermes", "Use Voice Mode with Allr", None),
-        ("guides/use-soul-with-hermes", "Use SOUL.md with Allr", None),
+        ("guides/use-mcp-with-allr", "Use MCP with Allr", None),
+        ("guides/use-voice-mode-with-allr", "Use Voice Mode with Allr", None),
+        ("guides/use-soul-with-allr", "Use SOUL.md with Allr", None),
         ("guides/build-a-hermes-plugin", "Build an Allr Plugin", None),
         ("guides/automate-with-cron", "Automate with Cron", None),
         ("guides/work-with-skills", "Work with Skills", None),
@@ -200,7 +200,8 @@ def emit_llms_index() -> str:
     lines.append("# Allr")
     lines.append("")
     lines.append(
-        "> The self-improving AI agent built by Nous Research. A terminal-native "
+        "> The self-improving AI agent, built on Hermes Agent by Nous Research. "
+        "A terminal-native "
         "autonomous coding and task agent with persistent memory, agent-created skills, "
         "and a messaging gateway that lives on 21+ messaging platforms — 19 native to "
         "the gateway plus IRC and Microsoft Teams via plugins (Telegram, Discord, Slack, "

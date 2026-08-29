@@ -253,6 +253,6 @@ scripts/run_tests.sh
 
 MIT — تفصیلات کے لیے [LICENSE](LICENSE) دیکھیں۔
 
-[نوس ریسرچ (Nous Research)](https://nousresearch.com) کی جانب سے تیار کردہ۔
+Allr، [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent) کا ایک فورک ہے، جو [نوس ریسرچ (Nous Research)](https://nousresearch.com) کی جانب سے تیار کردہ ہے۔
 
 </div>

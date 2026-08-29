@@ -37,7 +37,7 @@
     "shortDescription": "Allr",
     "longDescription": "Installs Allr on your machine. Drives scripts/install.ps1 (Windows) and scripts/install.sh (macOS/Linux).",
     "publisher": "Allr",
-    "copyright": "Copyright © 2026 Nous Research",
+    "copyright": "Copyright © 2026 Allr. Built on Hermes Agent by Nous Research (MIT).",
     "targets": [
       "app",
       "dmg",
