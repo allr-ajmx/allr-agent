@@ -2228,7 +2228,7 @@ def compress_context(
         pass
 
     # Codex app-server sessions: the codex agent owns the real thread context;
-    # Allr' summarizer would only rewrite a local mirror without shrinking
+    # Allr's summarizer would only rewrite a local mirror without shrinking
     # the actual thread (#36801). Route compaction to the app server's own
     # thread/compact mechanism. Behavior is controlled by
     # ``compression.codex_app_server_auto`` (native|hermes|off).
@@ -3701,9 +3701,9 @@ def _compress_context_via_codex_app_server(
 ) -> Tuple[list, str]:
     """Route compaction to Codex app-server for Codex-owned threads.
 
-    Allr' normal compressor rewrites the local OpenAI-style transcript.
+    Allr's normal compressor rewrites the local OpenAI-style transcript.
     That does not shrink the actual Codex app-server thread context. For this
-    runtime, ask Codex to compact its own thread and keep Allr' transcript
+    runtime, ask Codex to compact its own thread and keep Allr's transcript
     unchanged.
     """
     auto_mode = str(

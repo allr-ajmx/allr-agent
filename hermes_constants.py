@@ -944,7 +944,7 @@ def get_subprocess_home(env: dict[str, str] | None = None) -> str | None:
 
 
 def apply_subprocess_home_env(env: dict[str, str]) -> None:
-    """Apply Allr' subprocess HOME contract to *env* in-place."""
+    """Apply Allr's subprocess HOME contract to *env* in-place."""
     real_home = get_real_home(env)
     if real_home:
         env["ALLR_REAL_HOME"] = real_home

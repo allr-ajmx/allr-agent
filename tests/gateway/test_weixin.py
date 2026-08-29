@@ -649,7 +649,7 @@ class TestWeixinApiTimeout:
 class TestWeixinVoiceAlwaysDownloaded:
     """Regression tests for #27300: when WeChat (Weixin) returns a
     ``voice_item.text`` (Tencent Cloud's STT) we must still download
-    the raw audio and route it through Allr' own STT pipeline.
+    the raw audio and route it through Allr's own STT pipeline.
 
     Non-Chinese users currently see garbled transcriptions because the
     existing code short-circuits in two places: ``_download_voice``
@@ -677,7 +677,7 @@ class TestWeixinVoiceAlwaysDownloaded:
     @pytest.mark.asyncio
     async def test_download_voice_returns_path_when_tencent_text_set(self, tmp_path, monkeypatch):
         """#27300 PRIMARY: ``_download_voice`` must not short-circuit on
-        ``voice_item.text``. The audio is needed so Allr' own STT can
+        ``voice_item.text``. The audio is needed so Allr's own STT can
         re-transcribe when Tencent's text is in the wrong language.
         """
         adapter = _make_adapter()

@@ -306,7 +306,7 @@ class ResponsesApiTransport(ProviderTransport):
             # Actual Computer relays to SGLang/vLLM backends that accept only
             # none/low/medium/high/max for reasoning effort — a forwarded
             # xhigh/ultra fails with a wrapped HTTP 400 ("Expecting value:
-            # line 1 column 1"). Clamp Allr' wider set to the supported one.
+            # line 1 column 1"). Clamp Allr's wider set to the supported one.
             _effort_clamp.update({"xhigh": "high", "ultra": "max"})
         reasoning_effort = _effort_clamp.get(reasoning_effort, reasoning_effort)
 

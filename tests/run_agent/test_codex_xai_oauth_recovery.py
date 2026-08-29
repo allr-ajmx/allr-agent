@@ -536,7 +536,7 @@ def test_recover_with_credential_pool_rotates_on_xai_spending_limit_403():
 def test_grok_4_3_context_length_is_1m():
     """grok-4.3 ships with 1M context per docs.x.ai/developers/models/grok-4.3.
 
-    Allr' substring-match fallback used to return 256k (from the
+    Allr's substring-match fallback used to return 256k (from the
     "grok-4" catch-all) which under-reported the model's real capacity.
     """
     from agent.model_metadata import DEFAULT_CONTEXT_LENGTHS

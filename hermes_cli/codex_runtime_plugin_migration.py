@@ -29,7 +29,7 @@ What does NOT translate (warned + skipped):
   equivalent. Listed in the per-server skipped[] field of the report.
 
 What's NOT migrated (intentional):
-  AGENTS.md — codex respects this file natively in its cwd. Allr' own
+  AGENTS.md — codex respects this file natively in its cwd. Allr's own
   AGENTS.md (project-level) is already in the worktree, so codex picks
   it up without translation. No code needed.
 """
@@ -119,7 +119,7 @@ _KNOWN_ALLR_KEYS = {
 
 # Subset that have a direct codex equivalent.
 _KEYS_DROPPED_WITH_WARNING = {
-    # Allr' sampling subsection — codex MCP has no equivalent
+    # Allr's sampling subsection — codex MCP has no equivalent
     "sampling",
 }
 
@@ -164,7 +164,7 @@ def _translate_one_server(
         headers = hermes_cfg.get("headers") or {}
         if headers:
             out["http_headers"] = {str(k): str(v) for k, v in headers.items()}
-        # Allr' transport: sse hint is informational; codex auto-negotiates
+        # Allr's transport: sse hint is informational; codex auto-negotiates
         if hermes_cfg.get("transport") == "sse":
             skipped.append("transport=sse (codex auto-negotiates)")
     else:
@@ -305,7 +305,7 @@ def render_codex_toml_section(
 
 
 def _insert_managed_block_at_top_level(user_text: str, managed_block: str) -> str:
-    """Insert Allr' managed Codex TOML block while keeping root keys root-scoped.
+    """Insert Allr's managed Codex TOML block while keeping root keys root-scoped.
 
     TOML has no syntax to return to the document root after a table header.
     Therefore appending a root key like `default_permissions = ...` after a
@@ -340,7 +340,7 @@ def _strip_unmanaged_plugin_tables(toml_text: str) -> str:
     managed block.
 
     Codex itself writes these tables when the user runs ``codex plugins enable``
-    directly (i.e. before Allr' migrate has ever touched the file). When we
+    directly (i.e. before Allr's migrate has ever touched the file). When we
     later run migrate, ``_query_codex_plugins()`` reports the same plugins via
     the live ``plugin/list`` RPC and we re-emit them inside the managed block.
     The result without this strip is duplicate ``[plugins."X@Y"]`` table
@@ -555,7 +555,7 @@ def _looks_like_test_tempdir(path: str) -> bool:
 
 
 def _build_hermes_tools_mcp_entry() -> dict:
-    """Build the codex stdio-transport entry that launches Allr' own
+    """Build the codex stdio-transport entry that launches Allr's own
     tool surface as an MCP server. Codex's subprocess will call back into
     this for browser/web/delegate_task/vision/memory/skills tools.
 
@@ -635,7 +635,7 @@ def migrate(
             configured in their own [permissions.<name>] table. Set None
             to leave permissions unset and let codex use its compiled-in
             default (which is read-only).
-        expose_hermes_tools: when True (default), register Allr' own
+        expose_hermes_tools: when True (default), register Allr's own
             tool surface (web_search, browser_*, delegate_task, vision,
             memory, skills, etc.) as an MCP server in ~/.codex/config.toml
             so the codex subprocess can call back into Allr for tools
@@ -687,7 +687,7 @@ def migrate(
     if default_permission_profile:
         report.wrote_permissions_default = default_permission_profile
 
-    # Inject Allr' own tool surface as an MCP server so the spawned
+    # Inject Allr's own tool surface as an MCP server so the spawned
     # codex subprocess can call back into Allr for the tools codex
     # doesn't ship with — web_search, browser_*, delegate_task, vision,
     # memory, skills, session_search, image_generate, text_to_speech.

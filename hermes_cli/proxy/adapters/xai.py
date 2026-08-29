@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 _POOL_PROVIDER = "xai-oauth"
 
 # xAI's public API is OpenAI-compatible for the endpoints Allr commonly
-# uses. The Responses endpoint is included because Allr' native xAI runtime
+# uses. The Responses endpoint is included because Allr's native xAI runtime
 # uses codex_responses mode.
 _ALLOWED_PATHS: FrozenSet[str] = frozenset(
     {

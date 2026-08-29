@@ -515,7 +515,7 @@ def _cwd_marker(session_id: str) -> str:
 # ALLR_SESSION_ID leak via the shared snapshot). Stripping them from the
 # snapshot is safe because they are re-injected on every command; a snapshot
 # should only carry the user's own shell state (PATH, functions, exports they
-# set), not Allr' per-turn session identity.
+# set), not Allr's per-turn session identity.
 #
 # Kept in sync with gateway.session_context._VAR_MAP: every bridged name starts
 # with one of these prefixes (or is ALLR_UI_SESSION_ID). Used by unit tests

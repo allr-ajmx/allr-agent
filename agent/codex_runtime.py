@@ -49,7 +49,7 @@ def _record_codex_app_server_usage(agent, turn) -> dict[str, Any]:
     inputTokens, cachedInputTokens, outputTokens, reasoningOutputTokens,
     totalTokens.
 
-    Allr' canonical prompt bucket includes uncached input + cached input.
+    Allr's canonical prompt bucket includes uncached input + cached input.
     The Codex app-server protocol does not currently expose cache-write tokens,
     so that bucket remains zero on this runtime.
 
@@ -298,7 +298,7 @@ _CODEX_TOOL_ITEM_TYPES = frozenset(
     {"commandExecution", "fileChange", "mcpToolCall", "dynamicToolCall", "webSearch"}
 )
 
-# Internal MCP server that wraps Allr' native tools for codex. When
+# Internal MCP server that wraps Allr's native tools for codex. When
 # codex calls back through it, the inner dispatch runs in a SEPARATE
 # hermes-tools-mcp-server subprocess that has no access to the parent
 # agent's tool_progress_callback — so the inner call can never surface
@@ -430,7 +430,7 @@ def _codex_item_completion_payload(item: dict) -> tuple[str, bool]:
 
 def make_codex_app_server_event_bridge(agent) -> Callable[[dict], None]:
     """Build an ``on_event`` callback that wires codex app-server JSON-RPC
-    notifications into Allr' gateway UI callbacks.
+    notifications into Allr's gateway UI callbacks.
 
     Returns a single-argument callable suitable for
     ``CodexAppServerSession(on_event=...)``.
@@ -643,7 +643,7 @@ def run_codex_app_server_turn(
         from agent.runtime_cwd import resolve_agent_cwd
 
         cwd = getattr(agent, "session_cwd", None) or str(resolve_agent_cwd())
-        # Approval callback: defer to Allr' standard prompt flow if a
+        # Approval callback: defer to Allr's standard prompt flow if a
         # CLI thread has installed one. Gateway / cron contexts get the
         # codex-side fail-closed default.
         try:
@@ -674,7 +674,7 @@ def run_codex_app_server_turn(
             )
 
         # Bridge codex JSON-RPC notifications (item/started, item/completed,
-        # item/agentMessage/delta, ...) into Allr' gateway UI callbacks
+        # item/agentMessage/delta, ...) into Allr's gateway UI callbacks
         # (tool_progress_callback, _fire_stream_delta,
         # _emit_interim_assistant_message). Without this, Discord/Telegram
         # users see no live tool-progress or interim commentary while

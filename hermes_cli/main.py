@@ -527,7 +527,7 @@ def _apply_profile_override() -> None:
 
         ``mcp add --args`` is command-argv passthrough. Flags after that point
         belong to the child MCP command (for example Docker MCP Toolkit's
-        ``--profile``), not to Allr' own profile selector.
+        ``--profile``), not to Allr's own profile selector.
         """
         try:
             mcp_index = argv.index("mcp", 0, index)

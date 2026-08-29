@@ -25,7 +25,7 @@ Public helpers:
 Plugins that need per-sender behaviour on WhatsApp (role-based routing,
 per-contact authorisation, policy gating in a gateway hook) should use
 ``canonical_whatsapp_identifier`` so their bookkeeping lines up with
-Allr' own session keys.
+Allr's own session keys.
 """
 
 from __future__ import annotations
@@ -188,7 +188,7 @@ def canonical_whatsapp_identifier(identifier: str) -> str:
 
     Plugins that need per-sender behaviour (role-based routing,
     authorisation, per-contact policy) should use this so their
-    bookkeeping lines up with Allr' session bookkeeping even when
+    bookkeeping lines up with Allr's session bookkeeping even when
     the bridge reshuffles aliases.
 
     Returns an empty string if ``identifier`` normalizes to empty. If no
