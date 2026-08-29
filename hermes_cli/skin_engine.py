@@ -530,7 +530,7 @@ _BUILTIN_SKINS: Dict[str, Dict[str, Any]] = {
             "agent_name": "Allr",
             "welcome": "Welcome to Allr! Type your message or /help for commands.",
             "goodbye": "Goodbye! \u2695",
-            "response_label": " \u2695 Allr ",
+            "response_label": " Allr ",
             "prompt_symbol": "\u276f",
             "help_header": "(^_^)? Available Commands",
         },

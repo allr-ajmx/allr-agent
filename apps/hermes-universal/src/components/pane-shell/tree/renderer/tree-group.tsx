@@ -24,6 +24,7 @@ import {
   useState
 } from 'react'
 
+import { BRAND_LOWER } from '@/brand'
 import { CONTEXT_KIT } from '@/components/ui/actions-menu'
 import { Codicon } from '@/components/ui/codicon'
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@/components/ui/context-menu'
@@ -974,7 +975,7 @@ export function TreeGroup({
           {isEmpty ? (
             <div className="grid h-full place-items-center">
               {/* Same decode primitive as the CONNECTING boot overlay. */}
-              <DecodeText className="text-(--ui-text-quaternary)" cursor prefix={1} text="ALLR" />
+              <DecodeText className="text-(--ui-text-quaternary)" cursor prefix={1} text={BRAND_LOWER} />
             </div>
           ) : (
             keptPanes.map(paneId => {
