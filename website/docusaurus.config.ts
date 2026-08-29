@@ -13,7 +13,7 @@ const config: Config = {
   organizationName: 'allr-ajmx',
   projectName: 'allr-agent',
 
-  onBrokenLinks: 'warn',
+  onBrokenLinks: 'throw',
 
   // Brand faces: Young Serif for headings, Nunito Sans for body. Loaded as a
   // plain stylesheet link so the theme stays unswizzled.
@@ -27,7 +27,7 @@ const config: Config = {
   markdown: {
     mermaid: true,
     hooks: {
-      onBrokenMarkdownLinks: 'warn',
+      onBrokenMarkdownLinks: 'throw',
     },
   },
 
@@ -47,6 +47,22 @@ const config: Config = {
 
   themes: [
     '@docusaurus/theme-mermaid',
+    // Local (offline) search. Replaces Algolia DocSearch, which pointed at an
+    // index this project does not own. Scoped to docs only and hashed so the
+    // client index stays as small as the page count allows — the reason the
+    // local plugin was dropped before was a ~16 MB whole-site index.
+    [
+      require.resolve('@easyops-cn/docusaurus-search-local'),
+      {
+        hashed: true,
+        indexDocs: true,
+        indexBlog: false,
+        indexPages: false,
+        docsRouteBasePath: '/',
+        language: ['en', 'zh'],
+        highlightSearchTermsOnTargetPage: true,
+      },
+    ],
   ],
 
   plugins: [
@@ -56,6 +72,22 @@ const config: Config = {
         // Static-host redirects for renamed doc pages (GitHub Pages can't
         // do server-side redirects). Paths are relative to baseUrl (/docs/).
         redirects: [
+          // Renamed off the pre-fork brand. The link TEXT was rebranded long ago but
+          // the slugs were not, so these URLs are live and must keep resolving.
+          {from: '/guides/use-mcp-with-hermes', to: '/guides/use-mcp-with-allr'},
+          {from: '/guides/use-soul-with-hermes', to: '/guides/use-soul-with-allr'},
+          {from: '/guides/use-voice-mode-with-hermes', to: '/guides/use-voice-mode-with-allr'},
+          {from: '/guides/run-hermes-with-nous-portal', to: '/guides/run-allr-with-nous-portal'},
+          {
+            from: '/guides/secure-hermes-on-a-work-machine',
+            to: '/guides/secure-allr-on-a-work-machine',
+          },
+          {
+            // Removed: a time-boxed provider promotion (a free window that closed
+            // in June). Allr documents capability, not partner offers.
+            from: '/guides/run-nemotron-3-ultra-free',
+            to: '/integrations/providers',
+          },
           {
             // Renamed in #44470 (Automation Blueprints terminology rebrand)
             from: '/guides/automation-templates',
@@ -101,20 +133,6 @@ const config: Config = {
 
   themeConfig: {
     image: 'img/allr-agent-banner.png',
-    // Algolia DocSearch (replaces @easyops-cn/docusaurus-search-local).
-    // The local plugin shipped a ~16 MB client-side lunr index that every
-    // visitor downloaded and hydrated before their first result; DocSearch
-    // answers from Algolia's servers with no client index at all. These are
-    // public search-only credentials — safe to commit (the admin key is not
-    // in the repo). Index is populated by the Algolia Crawler configured at
-    // crawler.algolia.com; contextualSearch scopes results to the active
-    // locale via the docusaurus_tag/lang facets the crawler records carry.
-    algolia: {
-      appId: '2JLBVEYZN5',
-      apiKey: '8fda2a49223ce185ac30c2dbf6898a07',
-      indexName: 'hermes docs',
-      contextualSearch: true,
-    },
     colorMode: {
       defaultMode: 'dark',
       respectPrefersColorScheme: true,

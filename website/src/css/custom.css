@@ -226,11 +226,6 @@ pre.prism-code.language-ascii code {
   background: #2a2a40;
 }
 
-/* Search bar */
-[data-theme='dark'] .DocSearch-Button {
-  background-color: #0f0f18;
-  border: 1px solid rgba(233, 168, 62, 0.08);
-}
 
 /* ─── Mobile sidebar improvements ─────────────────────────────────────────── */
 
