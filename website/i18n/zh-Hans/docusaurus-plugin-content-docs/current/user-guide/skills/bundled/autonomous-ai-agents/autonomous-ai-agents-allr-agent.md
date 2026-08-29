@@ -20,7 +20,7 @@ description: "配置、扩展或贡献 Allr"
 | 作者 | Allr + Teknium |
 | 许可证 | MIT |
 | 平台 | linux, macos, windows |
-| 标签 | `hermes`, `setup`, `configuration`, `multi-agent`, `spawning`, `cli`, `gateway`, `development` |
+| 标签 | `allr`, `setup`, `configuration`, `multi-agent`, `spawning`, `cli`, `gateway`, `development` |
 | 相关 skill | [`claude-code`](/user-guide/skills/bundled/autonomous-ai-agents/autonomous-ai-agents-claude-code), [`codex`](/user-guide/skills/bundled/autonomous-ai-agents/autonomous-ai-agents-codex), [`opencode`](/user-guide/skills/bundled/autonomous-ai-agents/autonomous-ai-agents-opencode) |
 
 ## 参考：完整 SKILL.md
@@ -55,7 +55,7 @@ Allr 的差异化特性：
 curl -fsSL https://allr.work/install.sh | bash
 
 # 交互式聊天（默认）
-hermes
+allr
 
 # 单次查询
 allr chat -q "What is the capital of France?"
@@ -454,7 +454,7 @@ Profiles 使用 `~/.allr/profiles/<name>/`，布局相同。
 
 ## 安全与隐私开关
 
-常见的"为什么 Allr 对我的输出/工具调用/命令做了 X？"开关——以及更改它们的确切命令。其中大多数需要新会话（聊天中的 `/reset`，或启动新的 `hermes` 调用），因为它们在启动时只读取一次。
+常见的"为什么 Allr 对我的输出/工具调用/命令做了 X？"开关——以及更改它们的确切命令。其中大多数需要新会话（聊天中的 `/reset`，或启动新的 `allr` 调用），因为它们在启动时只读取一次。
 
 ### 工具输出中的密钥脱敏
 
@@ -494,7 +494,7 @@ allr config set approvals.mode off         # 绕过一切（不推荐）
 ```
 
 单次调用绕过（不更改配置）：
-- `hermes --yolo …`
+- `allr --yolo …`
 - `export ALLR_YOLO_MODE=1`
 
 注意：YOLO / `approvals.mode: off` **不会**关闭密钥脱敏。两者相互独立。
@@ -551,7 +551,7 @@ stt:
 
 ### 何时使用此方式 vs delegate_task
 
-| | `delegate_task` | 生成 `hermes` 进程 |
+| | `delegate_task` | 生成 `allr` 进程 |
 |-|-----------------|--------------------------|
 | 隔离性 | 独立对话，共享进程 | 完全独立进程 |
 | 持续时间 | 分钟级（受父循环限制） | 小时/天 |
@@ -593,11 +593,11 @@ terminal(command="tmux send-keys -t agent1 '/exit' Enter && sleep 2 && tmux kill
 
 ```
 # Agent A：后端
-terminal(command="tmux new-session -d -s backend -x 120 -y 40 'hermes -w'", timeout=10)
+terminal(command="tmux new-session -d -s backend -x 120 -y 40 'allr -w'", timeout=10)
 terminal(command="sleep 8 && tmux send-keys -t backend 'Build REST API for user management' Enter", timeout=15)
 
 # Agent B：前端
-terminal(command="tmux new-session -d -s frontend -x 120 -y 40 'hermes -w'", timeout=10)
+terminal(command="tmux new-session -d -s frontend -x 120 -y 40 'allr -w'", timeout=10)
 terminal(command="sleep 8 && tmux send-keys -t frontend 'Build React dashboard for user management' Enter", timeout=15)
 
 # 检查进度，在两者之间传递上下文
@@ -609,10 +609,10 @@ terminal(command="tmux send-keys -t frontend 'Here is the API schema from the ba
 
 ```
 # 恢复最近的会话
-terminal(command="tmux new-session -d -s resumed 'hermes --continue'", timeout=10)
+terminal(command="tmux new-session -d -s resumed 'allr --continue'", timeout=10)
 
 # 恢复特定会话
-terminal(command="tmux new-session -d -s resumed 'hermes --resume 20260225_143052_a1b2c3'", timeout=10)
+terminal(command="tmux new-session -d -s resumed 'allr --resume 20260225_143052_a1b2c3'", timeout=10)
 ```
 
 ### 提示
@@ -750,7 +750,7 @@ export PYTHONPATH="$(pwd)"
 ### Skill 未显示
 1. `allr skills list` — 验证已安装
 2. `allr skills config` — 检查平台启用状态
-3. 显式加载：`/skill name` 或 `hermes -s name`
+3. 显式加载：`/skill name` 或 `allr -s name`
 
 ### Gateway 问题
 首先检查日志：
@@ -792,7 +792,7 @@ allr config set auxiliary.vision.model <model_name>
 | Cron 任务 | `allr cron list` 或[Cron 文档](https://allr.work/docs/user-guide/features/cron) |
 | 记忆 | `allr memory status` 或[记忆文档](https://allr.work/docs/user-guide/features/memory) |
 | 环境变量 | `allr config env-path` 或[环境变量参考](https://allr.work/docs/reference/environment-variables) |
-| CLI 命令 | `hermes --help` 或[CLI 参考](https://allr.work/docs/reference/cli-commands) |
+| CLI 命令 | `allr --help` 或[CLI 参考](https://allr.work/docs/reference/cli-commands) |
 | Gateway 日志 | `~/.allr/logs/gateway.log` |
 | 会话文件 | `~/.allr/sessions/` 或 `allr sessions browse` |
 | 源代码 | `~/.allr/allr-agent/` |

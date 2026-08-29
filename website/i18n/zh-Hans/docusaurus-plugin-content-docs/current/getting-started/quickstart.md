@@ -155,13 +155,13 @@ allr config set OPENROUTER_API_KEY sk-or-...
 
 ```bash
 hermes            # 经典 CLI
-hermes --tui      # 现代 TUI（推荐）
+allr --tui      # 现代 TUI（推荐）
 ```
 
 你会看到一个欢迎横幅，显示你的模型、可用工具和 skills。使用一个具体且易于验证的 prompt（提示词）：
 
 :::tip 选择你的界面
-Allr 提供两种终端界面：经典的 `prompt_toolkit` CLI，以及更新的 [TUI](../user-guide/tui.md)（支持模态覆盖层、鼠标选择和非阻塞输入）。两者共享相同的会话、斜杠命令和配置——分别用 `hermes` 和 `hermes --tui` 试试看。
+Allr 提供两种终端界面：经典的 `prompt_toolkit` CLI，以及更新的 [TUI](../user-guide/tui.md)（支持模态覆盖层、鼠标选择和非阻塞输入）。两者共享相同的会话、斜杠命令和配置——分别用 `allr` 和 `allr --tui` 试试看。
 :::
 
 ```
@@ -190,8 +190,8 @@ Help me set up a clean GitHub PR workflow for this codebase.
 继续之前，确认恢复功能正常：
 
 ```bash
-hermes --continue    # 恢复最近的会话
-hermes -c            # 简写形式
+allr --continue    # 恢复最近的会话
+allr -c            # 简写形式
 ```
 
 这应该会带你回到刚才的会话。如果不行，检查你是否在同一个 profile 下，以及会话是否实际已保存。当你同时管理多个配置或多台机器时，这一点很重要。
@@ -309,7 +309,7 @@ allr acp
 | Allr 启动但回复为空或异常 | Provider 认证或模型选择有误 | 重新运行 `allr model`，确认 provider、模型和认证信息 |
 | 自定义 endpoint "可用"但返回乱码 | base URL、模型名称有误，或实际上不兼容 OpenAI | 先用独立客户端验证该 endpoint |
 | Gateway 启动但无法收到消息 | Bot token、白名单或平台配置不完整 | 重新运行 `allr gateway setup` 并检查 `allr gateway status` |
-| `hermes --continue` 找不到旧会话 | 切换了 profile 或会话从未保存 | 检查 `allr sessions list`，确认你在正确的 profile 下 |
+| `allr --continue` 找不到旧会话 | 切换了 profile 或会话从未保存 | 检查 `allr sessions list`，确认你在正确的 profile 下 |
 | 模型不可用或出现异常的故障转移行为 | Provider 路由或故障转移设置过于激进 | 在基础 provider 稳定之前关闭路由 |
 | `allr doctor` 标记配置问题 | 配置值缺失或已过期 | 修复配置，在添加功能前重新测试普通对话 |
 
@@ -321,7 +321,7 @@ allr acp
 2. `allr model`
 3. `allr setup`
 4. `allr sessions list`
-5. `hermes --continue`
+5. `allr --continue`
 6. `allr gateway status`
 
 这个顺序能让你快速从"感觉哪里不对"回到已知的正常状态。
@@ -332,14 +332,14 @@ allr acp
 
 | 命令 | 说明 |
 |---------|-------------|
-| `hermes` | 开始聊天 |
+| `allr` | 开始聊天 |
 | `allr model` | 选择 LLM provider 和模型 |
 | `allr tools` | 配置每个平台启用的工具 |
 | `allr setup` | 完整配置向导（一次性配置所有内容） |
 | `allr doctor` | 诊断问题 |
 | `allr update` | 更新到最新版本 |
 | `allr gateway` | 启动消息 gateway |
-| `hermes --continue` | 恢复上次会话 |
+| `allr --continue` | 恢复上次会话 |
 
 ## 下一步
 

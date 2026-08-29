@@ -722,7 +722,7 @@ Allr 支持 Discord 语音消息：
 
 完整的设置和操作指南，请参阅：
 - [语音模式](/user-guide/features/voice-mode)
-- [与 Allr 使用语音模式](/guides/use-voice-mode-with-hermes)
+- [与 Allr 使用语音模式](/guides/use-voice-mode-with-allr)
 
 ## 论坛频道
 

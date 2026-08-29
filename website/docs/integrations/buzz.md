@@ -12,7 +12,7 @@ Allr integrates with Buzz three ways. Pick by where Allr runs and what you want 
 
 | | ① Desktop runtime | ② Relay bridge (ACP) | ③ Native gateway platform |
 |---|---|---|---|
-| **What it is** | Buzz Desktop spawns Allr locally as a managed harness | Buzz's `buzz-acp` bridges a channel to `allr acp` over stdio | Allr' gateway joins Buzz as a first-class messaging platform |
+| **What it is** | Buzz Desktop spawns Allr locally as a managed harness | Buzz's `buzz-acp` bridges a channel to `allr acp` over stdio | Allr's gateway joins Buzz as a first-class messaging platform |
 | **Allr runs** | On your desktop, launched by Buzz | On a server, launched by `buzz-acp` | In your own gateway, alongside Telegram/Discord/etc. |
 | **Best for** | Trying Allr inside Buzz Desktop with zero config | A hosted agent identity when Buzz owns the transport | Full Allr: memory, skills, approvals, cron, sessions |
 | **Inbound** | ACP stdio | ACP stdio (via relay WebSocket) | NIP-42-authenticated Nostr WebSocket (poll fallback) |
@@ -32,11 +32,11 @@ For a hosted Allr identity that joins Buzz *channels* while Buzz's own harness o
 Buzz relay <-- WebSocket --> buzz-acp <-- ACP over stdio --> Allr
 ```
 
-The spawned Allr uses the same config, credentials, memory, and skills as `hermes` on that host. Key minting, channel discovery, owner-only telemetry (`BUZZ_ACP_RELAY_OBSERVER`), and headless-permission guidance: **[ACP Host Integration → Buzz channels (relay bridge)](/user-guide/features/acp#buzz-channels-relay-bridge)**
+The spawned Allr uses the same config, credentials, memory, and skills as `allr` on that host. Key minting, channel discovery, owner-only telemetry (`BUZZ_ACP_RELAY_OBSERVER`), and headless-permission guidance: **[ACP Host Integration → Buzz channels (relay bridge)](/user-guide/features/acp#buzz-channels-relay-bridge)**
 
 ## ③ Native gateway platform (recommended for full Allr)
 
-The bundled `buzz` platform plugin makes Buzz a normal Allr messaging platform — channels, DMs, mention gating, threaded replies, reactions, images, and cron delivery (`deliver=buzz`), with Allr' own approvals, memory, and session management intact. Inbound arrives over a persistent NIP-42-authenticated Nostr WebSocket (dependency-free BIP-340 signing) with automatic fallback to CLI polling; outbound goes through the `buzz` CLI.
+The bundled `buzz` platform plugin makes Buzz a normal Allr messaging platform — channels, DMs, mention gating, threaded replies, reactions, images, and cron delivery (`deliver=buzz`), with Allr's own approvals, memory, and session management intact. Inbound arrives over a persistent NIP-42-authenticated Nostr WebSocket (dependency-free BIP-340 signing) with automatic fallback to CLI polling; outbound goes through the `buzz` CLI.
 
 ```bash
 allr gateway setup   # pick Buzz

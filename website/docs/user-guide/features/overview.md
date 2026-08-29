@@ -2,6 +2,7 @@
 title: "Features Overview"
 sidebar_label: "Overview"
 sidebar_position: 1
+description: "A tour of what Allr can do: persistent memory, file-aware context, browser automation, voice, and the features that combine them"
 ---
 
 # Features Overview

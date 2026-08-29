@@ -506,12 +506,12 @@ allr gateway status
 allr gateway stop
 
 # 命名配置文件
-hermes -p research gateway start
-hermes -p research gateway status
-hermes -p research gateway stop
+allr -p research gateway start
+allr -p research gateway status
+allr -p research gateway stop
 ```
 
-对于小型固定机器人集群，使用 shell 循环或脚本，对默认配置文件调用 `allr gateway <action>`，对每个命名配置文件调用 `hermes -p <profile> gateway <action>`。这比假设单个进程级命令在每个服务管理器上控制所有命名配置文件更可靠。
+对于小型固定机器人集群，使用 shell 循环或脚本，对默认配置文件调用 `allr gateway <action>`，对每个命名配置文件调用 `allr -p <profile> gateway <action>`。这比假设单个进程级命令在每个服务管理器上控制所有命名配置文件更可靠。
 
 ### 故障排除：私聊正常但群组无响应
 

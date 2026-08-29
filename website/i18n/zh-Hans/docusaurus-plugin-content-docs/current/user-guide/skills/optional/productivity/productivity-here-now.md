@@ -215,7 +215,7 @@ mkdir -p ~/.herenow && echo "{API_KEY}" > ~/.herenow/credentials && chmod 600 ~/
 | `--title {text}` | 预览器标题（非 HTML 站点） |
 | `--description {text}` | 预览器描述 |
 | `--ttl {seconds}` | 设置过期时间（仅限已认证用户） |
-| `--client {name}` | 用于归因的 agent 名称（如 `hermes`） |
+| `--client {name}` | 用于归因的 agent 名称（如 `allr`） |
 | `--base-url {url}` | API 基础 URL（默认：`https://here.now`） |
 | `--allow-nonherenow-base-url` | 允许向非默认 `--base-url` 发送认证信息 |
 | `--api-key {key}` | API key 覆盖（优先使用凭据文件） |

@@ -46,7 +46,7 @@ This is more reliable than trying to force Allr core browser transport to attach
 
 See:
 
-- [Use MCP with Allr](../guides/use-mcp-with-hermes.md#wsl2-bridge-allr-in-wsl-to-windows-chrome)
+- [Use MCP with Allr](../guides/use-mcp-with-allr.md#wsl2-bridge-allr-in-wsl-to-windows-chrome)
 - [Browser Automation](../user-guide/features/browser.md#wsl2--windows-chrome-prefer-mcp-over-browser-connect)
 
 ### Is my data sent anywhere?
@@ -226,7 +226,7 @@ To isolate the source:
 3. Retry in a fresh session with another configured model or provider. A refusal that changes with the model is model/provider behavior, not an Allr execution control.
 4. If an explicit tool error appears, use its exact text when reporting the problem.
 
-See [Security](/user-guide/security) for Allr' documented execution controls and [Providers](/integrations/providers) for provider configuration.
+See [Security](/user-guide/security) for Allr's documented execution controls and [Providers](/integrations/providers) for provider configuration.
 
 #### `/model` only shows one provider / can't switch providers
 
@@ -600,7 +600,7 @@ allr chat
 
 See also:
 - [MCP (Model Context Protocol)](/user-guide/features/mcp)
-- [Use MCP with Allr](/guides/use-mcp-with-hermes)
+- [Use MCP with Allr](/guides/use-mcp-with-allr)
 - [MCP Config Reference](/reference/mcp-config-reference)
 
 #### MCP timeout errors
@@ -865,6 +865,6 @@ If using OpenRouter, make sure your API key has credits. A 400 from OpenRouter o
 
 If your issue isn't covered here:
 
-1. **Search existing issues:** [GitHub Issues](https://github.com/NousResearch/hermes-agent/issues)
+1. **Search existing issues:** [GitHub Issues](https://github.com/allr-ajmx/allr-agent/issues)
 2. **Ask the community:** [Nous Research Discord](https://discord.gg/nousresearch)
-3. **File a bug report:** Include your OS, Python version (`python3 --version`), Allr version (`hermes --version`), and the full error message
+3. **File a bug report:** Include your OS, Python version (`python3 --version`), Allr version (`allr --version`), and the full error message

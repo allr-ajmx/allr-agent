@@ -95,7 +95,7 @@ cd ~/.allr/allr-agent && uv pip install -e ".[wake]"
 ## Quick start
 
 ```bash
-# In an interactive `hermes` session:
+# In an interactive `allr` session:
 /wake on        # start listening (installs the engine on first use)
 /wake status    # show phrase, provider, and state
 /wake off       # stop listening
@@ -181,8 +181,8 @@ owns the listener and opens the new session when it fires:
 | `surface` | Behavior |
 |-----------|----------|
 | `auto` (default) | All local surfaces are eligible; the first one to arm owns the listener. |
-| `cli` | Only the classic `hermes` CLI. |
-| `tui` | Only `hermes --tui`. |
+| `cli` | Only the classic `allr` CLI. |
+| `tui` | Only `allr --tui`. |
 | `gui` | Only the desktop app. |
 
 The detector is on-device and single-mic, so only one surface listens at a time,
@@ -230,7 +230,7 @@ there, and starts hands-free voice:
 Set `wake_word.profile_routing: false` on the listener's profile to opt out
 and listen only for its own phrase. The CLI and TUI are single-profile
 processes: a wake phrase belonging to another profile prints the switch
-command (`hermes -p <profile>`) instead of routing.
+command (`allr -p <profile>`) instead of routing.
 
 Names are matched acoustically by their English subword sounds: two-word
 phrases with distinct, 2+ syllable names work best. Very short names, heavy

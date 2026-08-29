@@ -87,15 +87,15 @@ coder skills list             # 列出 coder 的技能
 coder config set model.default anthropic/claude-sonnet-4
 ```
 
-别名支持所有 hermes 子命令——底层实际上是 `hermes -p <name>`。
+别名支持所有 hermes 子命令——底层实际上是 `allr -p <name>`。
 
 ### `-p` 标志
 
 你也可以通过任意命令显式指定 profile：
 
 ```bash
-hermes -p coder chat
-hermes --profile=coder doctor
+allr -p coder chat
+allr --profile=coder doctor
 allr chat -p coder -q "hello"    # 可在任意位置使用
 ```
 
@@ -108,7 +108,7 @@ allr tools                  # 配置 coder 的工具
 allr profile use default    # 切换回默认
 ```
 
-设置默认值后，普通 `hermes` 命令将指向该 profile。类似于 `kubectl config use-context`。
+设置默认值后，普通 `allr` 命令将指向该 profile。类似于 `kubectl config use-context`。
 
 ### 了解当前所在 profile
 
@@ -179,7 +179,7 @@ assistant gateway install     # 创建 allr-gateway-assistant 服务
 每个 profile 拥有独立的服务名称，各自独立运行。
 
 :::note 在官方 Docker 镜像中
-各 profile 的 gateway 由 [s6-overlay](https://github.com/just-containers/s6-overlay)（容器中的 PID 1）监管，因此 `allr profile create <name>` 会自动在 `/run/service/gateway-<name>/` 注册 s6 服务槽。`hermes -p <name> gateway start/stop/restart` 会调度到 `s6-svc` 而非直接启动裸进程——崩溃后自动重启，`docker restart` 会保留之前运行的 gateway 集合。详见 [各 profile gateway 监管](/user-guide/docker#per-profile-gateway-supervision)。
+各 profile 的 gateway 由 [s6-overlay](https://github.com/just-containers/s6-overlay)（容器中的 PID 1）监管，因此 `allr profile create <name>` 会自动在 `/run/service/gateway-<name>/` 注册 s6 服务槽。`allr -p <name> gateway start/stop/restart` 会调度到 `s6-svc` 而非直接启动裸进程——崩溃后自动重启，`docker restart` 会保留之前运行的 gateway 集合。详见 [各 profile gateway 监管](/user-guide/docker#per-profile-gateway-supervision)。
 :::
 
 ## 配置 profile

@@ -1,5 +1,7 @@
 ---
 sidebar_position: 15
+title: "WeCom Callback"
+description: "Connect Allr to WeCom as a self-built app receiving encrypted XML callbacks"
 ---
 
 # WeCom Callback (Self-Built App)

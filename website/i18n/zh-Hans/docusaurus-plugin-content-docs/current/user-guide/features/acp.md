@@ -101,7 +101,7 @@ Buzz relay <-- WebSocket --> buzz-acp <-- ACP over stdio --> Allr
 ```
 
 这是一种传输层集成，不是第二个 Allr 安装。由 `buzz-acp` 启动的子进程使用该主机上
-与 `hermes` 相同的配置、凭据、记忆、技能和状态。
+与 `allr` 相同的配置、凭据、记忆、技能和状态。
 
 （这与 [Buzz Desktop 的托管运行时](#buzz-desktop)不同——后者在本地将 Allr 作为
 预设 harness 启动。中继桥接用于以 agent 身份加入 Buzz *频道*，通常部署在服务器上。）
@@ -122,7 +122,7 @@ Buzz relay <-- WebSocket --> buzz-acp <-- ACP over stdio --> Allr
 export BUZZ_RELAY_URL="wss://community.example.com"
 export BUZZ_PRIVATE_KEY="..."
 export BUZZ_API_TOKEN="..."
-export BUZZ_ACP_AGENT_COMMAND="hermes"
+export BUZZ_ACP_AGENT_COMMAND="allr"
 export BUZZ_ACP_AGENT_ARGS="acp"
 
 buzz-acp
@@ -172,7 +172,7 @@ Desktop 会在该 agent 的 **Activity log** 中实时渲染生命周期、工�
 {
   "acp.agents": {
     "Allr": {
-      "command": "hermes",
+      "command": "allr",
       "args": ["acp"]
     }
   }
@@ -191,7 +191,7 @@ Desktop 会在该 agent 的 **Activity log** 中实时渲染生命周期、工�
   "agent_servers": {
     "allr-agent": {
       "type": "custom",
-      "command": "hermes",
+      "command": "allr",
       "args": ["acp"]
     }
   }
@@ -220,9 +220,9 @@ Allr 就会出现在你的运行时列表中。
 command -v allr-acp || command -v hermes
 ```
 
-较新的安装会将 `hermes` 和 `allr-acp` 两个启动器写入 `~/.local/bin`；
+较新的安装会将 `allr` 和 `allr-acp` 两个启动器写入 `~/.local/bin`；
 运行 `allr update` 会为较旧的安装补上 `allr-acp` 启动器。作为手动兜底方案，
-可以将 Buzz 的 agent 命令配置为 `hermes`，参数为 `["acp"]`。
+可以将 Buzz 的 agent 命令配置为 `allr`，参数为 `["acp"]`。
 
 #### 将 Buzz agent 保持为 owner-only
 

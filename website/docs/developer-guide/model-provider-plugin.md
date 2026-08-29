@@ -239,7 +239,7 @@ register_provider(ProviderProfile(
 EOF
 
 export MY_API_KEY=your-test-key
-hermes -z "hello" --provider my-provider -m some-model
+allr -z "hello" --provider my-provider -m some-model
 ```
 
 ## General PluginManager integration

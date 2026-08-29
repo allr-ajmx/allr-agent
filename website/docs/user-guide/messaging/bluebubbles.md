@@ -1,3 +1,8 @@
+---
+title: "BlueBubbles"
+description: "Connect Allr to Apple iMessage through a BlueBubbles server running on a Mac"
+---
+
 # BlueBubbles (iMessage)
 
 Connect Allr to Apple iMessage via [BlueBubbles](https://bluebubbles.app/) — a free, open-source macOS server that bridges iMessage to any device.

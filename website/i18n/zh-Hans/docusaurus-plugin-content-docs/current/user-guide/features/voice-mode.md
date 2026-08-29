@@ -8,7 +8,7 @@ description: "与 Allr 进行实时语音对话 — CLI、Telegram、Discord（�
 
 Allr 支持在 CLI 和消息平台上进行完整的语音交互。通过麦克风与 Agent 对话，听取语音回复，并在 Discord 语音频道中进行实时语音对话。
 
-如需包含推荐配置和实际使用模式的实践指南，请参阅 [使用 Allr 的语音模式](/guides/use-voice-mode-with-hermes)。
+如需包含推荐配置和实际使用模式的实践指南，请参阅 [使用 Allr 的语音模式](/guides/use-voice-mode-with-allr)。
 
 ## 前提条件
 
@@ -16,10 +16,10 @@ Allr 支持在 CLI 和消息平台上进行完整的语音交互。通过麦克�
 
 1. **已安装 Allr** — 通过安装脚本（参见 [安装](/getting-started/installation)）
 2. **已配置 LLM 提供商** — 运行 `allr model` 或在 `~/.allr/.env` 中设置首选提供商的凭据
-3. **基础设置正常** — 运行 `hermes` 验证 Agent 能够响应文字消息，再启用语音功能
+3. **基础设置正常** — 运行 `allr` 验证 Agent 能够响应文字消息，再启用语音功能
 
 :::tip
-`~/.allr/` 目录和默认的 `config.yaml` 会在首次运行 `hermes` 时自动创建。只需手动创建 `~/.allr/.env` 来存放 API 密钥。
+`~/.allr/` 目录和默认的 `config.yaml` 会在首次运行 `allr` 时自动创建。只需手动创建 `~/.allr/.env` 来存放 API 密钥。
 :::
 
 :::tip Nous Portal 同时覆盖两项
@@ -109,7 +109,7 @@ ELEVENLABS_API_KEY=***           # ElevenLabs — 高级音质
 
 ## CLI 语音模式
 
-语音模式在**经典 CLI**（`allr chat`）和 **TUI**（`hermes --tui`）中均可使用。两者行为完全一致 — 相同的斜杠命令、相同的 VAD（语音活动检测）静音检测、相同的流式 TTS、相同的幻觉过滤器。TUI 额外将崩溃诊断日志转发至 `~/.allr/logs/`，以便在异常音频后端出现按键录音失败时提供完整堆栈跟踪，而非静默消失。
+语音模式在**经典 CLI**（`allr chat`）和 **TUI**（`allr --tui`）中均可使用。两者行为完全一致 — 相同的斜杠命令、相同的 VAD（语音活动检测）静音检测、相同的流式 TTS、相同的幻觉过滤器。TUI 额外将崩溃诊断日志转发至 `~/.allr/logs/`，以便在异常音频后端出现按键录音失败时提供完整堆栈跟踪，而非静默消失。
 
 ### 快速开始
 
@@ -131,7 +131,7 @@ hermes                # 启动交互式 CLI
 
 ### 工作原理
 
-1. 使用 `hermes` 启动 CLI，并通过 `/voice on` 启用语音模式
+1. 使用 `allr` 启动 CLI，并通过 `/voice on` 启用语音模式
 2. **按下 Ctrl+B** — 播放提示音（880Hz），开始录音
 3. **开始说话** — 实时音频电平条显示输入状态：`● [▁▂▃▅▇▇▅▂] ❯`
 4. **停止说话** — 静音 3 秒后自动停止录音

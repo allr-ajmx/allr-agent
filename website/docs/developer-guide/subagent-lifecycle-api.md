@@ -1,6 +1,7 @@
 ---
 title: Public Subagent Lifecycle API
 sidebar_label: Subagent lifecycle API
+description: "Launch, poll, wait on, cancel, and reconnect to child Allr sessions from a plugin via ctx.subagent_lifecycle"
 ---
 
 # Public Subagent Lifecycle API

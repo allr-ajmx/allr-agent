@@ -13,14 +13,14 @@ One command — `allr setup --portal` — and you're ready to `allr chat`. See [
 :::
 
 :::tip
-Allr also ships a modern TUI with modal overlays, mouse selection, and non-blocking input. Launch it with `hermes --tui` — see the [TUI](tui.md) guide.
+Allr also ships a modern TUI with modal overlays, mouse selection, and non-blocking input. Launch it with `allr --tui` — see the [TUI](tui.md) guide.
 :::
 
 ## Running the CLI
 
 ```bash
 # Start an interactive session (default)
-hermes
+allr
 
 # Single query mode (non-interactive)
 allr chat -q "Hello"
@@ -36,21 +36,21 @@ allr chat --provider openrouter  # Force OpenRouter
 allr chat --toolsets "web,terminal,skills"
 
 # Start with one or more skills preloaded
-hermes -s allr-agent-dev,github-auth
+allr -s allr-agent-dev,github-auth
 allr chat -s github-pr-workflow -q "open a draft PR"
 
 # Resume previous sessions
-hermes --continue             # Resume the most recent CLI session (-c)
-hermes --resume <session_id>  # Resume a specific session by ID (-r)
-hermes --resume latest        # Resume the most recent session (same as -c)
-hermes --resume latest --in ./dir  # Resume ./dir's latest session, staying in ./dir
+allr --continue             # Resume the most recent CLI session (-c)
+allr --resume <session_id>  # Resume a specific session by ID (-r)
+allr --resume latest        # Resume the most recent session (same as -c)
+allr --resume latest --in ./dir  # Resume ./dir's latest session, staying in ./dir
 
 # Verbose mode (debug output)
 allr chat --verbose
 
 # Isolated git worktree (for running multiple agents in parallel)
-hermes -w                         # Interactive mode in worktree
-hermes -w -z "Fix issue #123"     # Single query in worktree
+allr -w                         # Interactive mode in worktree
+allr -w -z "Fix issue #123"     # Single query in worktree
 ```
 
 ### Plugin management
@@ -97,7 +97,7 @@ A persistent status bar sits above the input area, updating in real time:
 | ▶ N | **Active background tasks** — how many `/background` prompts are still running in the current session. Appears whenever at least one task is in flight. |
 | Duration | Elapsed session time |
 | Session title | Once the session has a title, it appears as a gold badge pinned to the far-right edge. Long titles truncate before displacing the essential model and context fields. |
-| ⚠ YOLO | **YOLO mode warning** — shown whenever `ALLR_YOLO_MODE` is on (either `hermes --yolo` at launch or `/yolo` toggled mid-session). Mirrors the banner-line warning so you can't forget you're in auto-approve mode. |
+| ⚠ YOLO | **YOLO mode warning** — shown whenever `ALLR_YOLO_MODE` is on (either `allr --yolo` at launch or `/yolo` toggled mid-session). Mirrors the banner-line warning so you can't forget you're in auto-approve mode. |
 
 The bar adapts to terminal width — full layout at ≥ 76 columns, compact at 52–75, minimal (model + duration, plus the YOLO badge when active) below 52.
 
@@ -116,7 +116,7 @@ On the `openai-codex` provider, `/usage` also shows any banked usage-limit reset
 
 ### Session Resume Display
 
-When resuming a previous session (`hermes -c` or `hermes --resume <id>`), a "Previous Conversation" panel appears between the banner and the input prompt, showing a compact recap of the conversation history. See [Sessions — Conversation Recap on Resume](sessions.md#conversation-recap-on-resume) for details and configuration.
+When resuming a previous session (`allr -c` or `allr --resume <id>`), a "Previous Conversation" panel appears between the banner and the input prompt, showing a compact recap of the conversation history. See [Sessions — Conversation Recap on Resume](sessions.md#conversation-recap-on-resume) for details and configuration.
 
 ## Keybindings
 
@@ -214,7 +214,7 @@ Then type `/status`, `/gpu`, or `/restart` in any chat. See the [Configuration g
 If you already know which skills you want active for the session, pass them at launch time:
 
 ```bash
-hermes -s allr-agent-dev,github-auth
+allr -s allr-agent-dev,github-auth
 allr chat -s github-pr-workflow -s github-auth
 ```
 
@@ -379,7 +379,7 @@ When you exit a CLI session, a resume command is printed:
 
 ```
 Resume this session with:
-  hermes --resume 20260225_143052_a1b2c3
+  allr --resume 20260225_143052_a1b2c3
 
 Session:        20260225_143052_a1b2c3
 Duration:       12m 34s
@@ -389,14 +389,14 @@ Messages:       28 (5 user, 18 tool calls)
 Resume options:
 
 ```bash
-hermes --continue                          # Resume the most recent CLI session
-hermes -c                                  # Short form
-hermes -c "my project"                     # Resume a named session (latest in lineage)
-hermes --resume 20260225_143052_a1b2c3     # Resume a specific session by ID
-hermes --resume "refactoring auth"         # Resume by title
-hermes --resume latest                     # Resume the most recent session (same as -c)
-hermes --resume latest --in ./my-project   # Latest session for ./my-project's workspace
-hermes -r 20260225_143052_a1b2c3           # Short form
+allr --continue                          # Resume the most recent CLI session
+allr -c                                  # Short form
+allr -c "my project"                     # Resume a named session (latest in lineage)
+allr --resume 20260225_143052_a1b2c3     # Resume a specific session by ID
+allr --resume "refactoring auth"         # Resume by title
+allr --resume latest                     # Resume the most recent session (same as -c)
+allr --resume latest --in ./my-project   # Latest session for ./my-project's workspace
+allr -r 20260225_143052_a1b2c3           # Short form
 ```
 
 Resuming restores the full conversation history from SQLite. The agent sees all previous messages, tool calls, and responses — just as if you never left.

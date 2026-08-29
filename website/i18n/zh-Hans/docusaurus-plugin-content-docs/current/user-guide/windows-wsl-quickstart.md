@@ -102,7 +102,7 @@ wsl --shutdown
 ```bash
 curl -fsSL https://allr.work/install.sh | bash
 source ~/.bashrc
-hermes
+allr
 ```
 
 安装程序将 WSL2 视为普通 Linux —— 无需任何 WSL 专属配置。完整目录结构请参阅[安装说明](/getting-started/installation)。
@@ -188,7 +188,7 @@ dos2unix path/to/script.sh
 
 在 WSL 内 clone。始终如此，除非有特殊原因。典型的 Allr 工作流（`allr chat`、调用 `rg`/`ripgrep` 搜索仓库的工具、文件监听器、后台 gateway）在 `~/code/myrepo` 下会比在 `/mnt/c/Users/you/myrepo` 下快得多，也更可靠。
 
-一个例外：**启动 Windows 二进制文件的 MCP bridge。** 如果你通过 `cmd.exe` 使用 `chrome-devtools-mcp`（参见 [MCP 指南：WSL → Windows Chrome](/guides/use-mcp-with-hermes#wsl2-bridge-allr-in-wsl-to-windows-chrome)），当 Allr 的当前工作目录是 `~` 时，Windows 可能会报 `UNC` 警告。此时请从 `/mnt/c/` 下的某个目录启动 Allr，以便 Windows 进程拥有一个带盘符的工作目录。
+一个例外：**启动 Windows 二进制文件的 MCP bridge。** 如果你通过 `cmd.exe` 使用 `chrome-devtools-mcp`（参见 [MCP 指南：WSL → Windows Chrome](/guides/use-mcp-with-allr#wsl2-bridge-allr-in-wsl-to-windows-chrome)），当 Allr 的当前工作目录是 `~` 时，Windows 可能会报 `UNC` 警告。此时请从 `/mnt/c/` 下的某个目录启动 Allr，以便 Windows 进程拥有一个带盘符的工作目录。
 
 ## 网络：WSL ↔ Windows
 
@@ -315,7 +315,7 @@ sudo hwclock -s
 **启用镜像模式后或连接 VPN 时 DNS 停止工作。**
 镜像模式会将宿主机网络设置代理到 WSL —— 如果 Windows DNS 有问题（VPN 分流隧道、企业解析器），WSL 会继承这些问题。解决方法：手动覆盖 `resolv.conf`（在 `/etc/wsl.conf` 中设置 `generateResolvConf=false`，然后手动编写 `/etc/resolv.conf`，填入 `1.1.1.1` 或你的 VPN DNS）。
 
-**运行安装程序后找不到 `hermes` 命令。**
+**运行安装程序后找不到 `allr` 命令。**
 安装程序通过 `~/.bashrc` 将 `~/.local/bin` 添加到 shell 的 PATH 中。需要执行 `source ~/.bashrc`（或打开新终端）才能在当前会话中生效。
 
 **Windows Defender 对 WSL 文件扫描很慢。**
@@ -328,5 +328,5 @@ WSL2 将虚拟机磁盘存储为 `%LOCALAPPDATA%\Packages\...` 下的稀疏 VHDX
 
 - **[安装说明](/getting-started/installation)** —— 实际安装步骤（Linux/WSL2/Termux 均使用同一安装程序）。
 - **[集成 → Providers → WSL2 网络配置](/integrations/providers#wsl2-networking-windows-users)** —— 本地模型服务器网络配置的权威深度说明。
-- **[MCP 指南 → WSL → Windows Chrome](/guides/use-mcp-with-hermes#wsl2-bridge-allr-in-wsl-to-windows-chrome)** —— 从 WSL 中的 Allr 控制你已登录的 Windows Chrome。
+- **[MCP 指南 → WSL → Windows Chrome](/guides/use-mcp-with-allr#wsl2-bridge-allr-in-wsl-to-windows-chrome)** —— 从 WSL 中的 Allr 控制你已登录的 Windows Chrome。
 - **[Tool Gateway](/user-guide/features/tool-gateway)** 和 **[Web Dashboard](/user-guide/features/web-dashboard)** —— 你最常需要从 WSL 暴露到网络其他部分的长期运行服务。

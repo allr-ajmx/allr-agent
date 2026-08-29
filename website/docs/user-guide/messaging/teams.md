@@ -111,14 +111,14 @@ cd /path/to/allr-agent
 ALLR_UID=$(id -u) ALLR_GID=$(id -g) docker compose up -d gateway
 ```
 
-**Native / systemd install** (typical `hermes` one-liner installer under `~/.allr/allr-agent`):
+**Native / systemd install** (typical `allr` one-liner installer under `~/.allr/allr-agent`):
 
 ```bash
 allr gateway restart
 # or foreground: allr gateway run
 ```
 
-The Teams SDK is optional; when Teams is enabled, the gateway lazy-installs it into Allr' own venv on first start (do **not** use system `pip install` on Ubuntu 24.04 — that hits PEP 668 `externally-managed-environment`). To install manually into the Allr venv:
+The Teams SDK is optional; when Teams is enabled, the gateway lazy-installs it into Allr's own venv on first start (do **not** use system `pip install` on Ubuntu 24.04 — that hits PEP 668 `externally-managed-environment`). To install manually into the Allr venv:
 
 ```bash
 ~/.allr/allr-agent/venv/bin/pip install microsoft-teams-apps aiohttp

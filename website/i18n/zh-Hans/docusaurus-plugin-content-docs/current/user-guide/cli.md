@@ -9,14 +9,14 @@ description: "掌握 Allr 终端界面——命令、快捷键、人格设定等
 Allr 的 CLI 是一个完整的终端用户界面（TUI），而非 Web UI。它支持多行编辑、斜杠命令自动补全、对话历史、中断并重定向，以及流式工具输出。专为常驻终端的用户而生。
 
 :::tip
-Allr 还提供了一个现代 TUI，支持模态覆盖层、鼠标选择和非阻塞输入。使用 `hermes --tui` 启动——参见 [TUI](tui.md) 指南。
+Allr 还提供了一个现代 TUI，支持模态覆盖层、鼠标选择和非阻塞输入。使用 `allr --tui` 启动——参见 [TUI](tui.md) 指南。
 :::
 
 ## 运行 CLI
 
 ```bash
 # 启动交互式会话（默认）
-hermes
+allr
 
 # 单次查询模式（非交互式）
 allr chat -q "Hello"
@@ -32,19 +32,19 @@ allr chat --provider openrouter  # 强制使用 OpenRouter
 allr chat --toolsets "web,terminal,skills"
 
 # 启动时预加载一个或多个 skill
-hermes -s allr-agent-dev,github-auth
+allr -s allr-agent-dev,github-auth
 allr chat -s github-pr-workflow -q "open a draft PR"
 
 # 恢复之前的会话
-hermes --continue             # 恢复最近的 CLI 会话（-c）
-hermes --resume <session_id>  # 通过 ID 恢复指定会话（-r）
+allr --continue             # 恢复最近的 CLI 会话（-c）
+allr --resume <session_id>  # 通过 ID 恢复指定会话（-r）
 
 # 详细模式（调试输出）
 allr chat --verbose
 
 # 隔离的 git worktree（用于并行运行多个 agent）
-hermes -w                         # 在 worktree 中以交互模式运行
-hermes -w -z "Fix issue #123"     # 在 worktree 中以单次查询模式运行
+allr -w                         # 在 worktree 中以交互模式运行
+allr -w -z "Fix issue #123"     # 在 worktree 中以单次查询模式运行
 ```
 
 ## 界面布局
@@ -71,7 +71,7 @@ hermes -w -z "Fix issue #123"     # 在 worktree 中以单次查询模式运行
 | 🗜️ N | **上下文压缩次数**——当前运行会话被自动压缩的次数。首次压缩触发后显示。 |
 | ▶ N | **活跃后台任务数**——当前会话中仍在运行的 `/background` prompt（提示词）数量。至少有一个任务进行中时显示。 |
 | 时长 | 会话已用时间 |
-| ⚠ YOLO | **YOLO 模式警告**——当 `ALLR_YOLO_MODE` 开启时显示（通过启动时的 `hermes --yolo` 或会话中的 `/yolo` 切换）。与横幅行警告保持同步，确保你不会忘记自己处于自动批准模式。 |
+| ⚠ YOLO | **YOLO 模式警告**——当 `ALLR_YOLO_MODE` 开启时显示（通过启动时的 `allr --yolo` 或会话中的 `/yolo` 切换）。与横幅行警告保持同步，确保你不会忘记自己处于自动批准模式。 |
 
 状态栏会根据终端宽度自适应——≥ 76 列时显示完整布局，52–75 列时显示紧凑布局，低于 52 列时显示最简布局（模型 + 时长，以及 YOLO 徽章（如已激活））。
 
@@ -88,7 +88,7 @@ hermes -w -z "Fix issue #123"     # 在 worktree 中以单次查询模式运行
 
 ### 会话恢复显示
 
-恢复之前的会话时（`hermes -c` 或 `hermes --resume <id>`），横幅与输入提示符之间会出现一个"Previous Conversation"面板，显示对话历史的简洁摘要。详情及配置说明参见[会话——恢复时的对话摘要](sessions.md#conversation-recap-on-resume)。
+恢复之前的会话时（`allr -c` 或 `allr --resume <id>`），横幅与输入提示符之间会出现一个"Previous Conversation"面板，显示对话历史的简洁摘要。详情及配置说明参见[会话——恢复时的对话摘要](sessions.md#conversation-recap-on-resume)。
 
 ## 快捷键
 
@@ -164,7 +164,7 @@ quick_commands:
 如果你已知道本次会话需要哪些 skill，可在启动时传入：
 
 ```bash
-hermes -s allr-agent-dev,github-auth
+allr -s allr-agent-dev,github-auth
 allr chat -s github-pr-workflow -s github-auth
 ```
 
@@ -327,7 +327,7 @@ display:
 
 ```
 Resume this session with:
-  hermes --resume 20260225_143052_a1b2c3
+  allr --resume 20260225_143052_a1b2c3
 
 Session:        20260225_143052_a1b2c3
 Duration:       12m 34s
@@ -337,12 +337,12 @@ Messages:       28 (5 user, 18 tool calls)
 恢复选项：
 
 ```bash
-hermes --continue                          # 恢复最近的 CLI 会话
-hermes -c                                  # 简写形式
-hermes -c "my project"                     # 恢复命名会话（谱系中最新的）
-hermes --resume 20260225_143052_a1b2c3     # 通过 ID 恢复指定会话
-hermes --resume "refactoring auth"         # 通过标题恢复
-hermes -r 20260225_143052_a1b2c3           # 简写形式
+allr --continue                          # 恢复最近的 CLI 会话
+allr -c                                  # 简写形式
+allr -c "my project"                     # 恢复命名会话（谱系中最新的）
+allr --resume 20260225_143052_a1b2c3     # 通过 ID 恢复指定会话
+allr --resume "refactoring auth"         # 通过标题恢复
+allr -r 20260225_143052_a1b2c3           # 简写形式
 ```
 
 恢复会从 SQLite 中还原完整的对话历史。agent 能看到所有之前的消息、工具调用和响应——就像从未离开一样。

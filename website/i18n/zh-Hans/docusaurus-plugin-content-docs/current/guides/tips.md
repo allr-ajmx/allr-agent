@@ -48,7 +48,7 @@ CLI 会自动检测多行粘贴。直接粘贴代码块或错误堆栈——不�
 
 ### 使用 `-c` 恢复会话
 
-上次会话有遗漏？运行 `hermes -c` 可精确恢复到上次离开的位置，完整对话历史全部还原。也可以按标题恢复：`hermes -r "my research project"`。
+上次会话有遗漏？运行 `allr -c` 可精确恢复到上次离开的位置，完整对话历史全部还原。也可以按标题恢复：`allr -r "my research project"`。
 
 ### 剪贴板图片粘贴
 
@@ -80,7 +80,7 @@ CLI 会自动检测多行粘贴。直接粘贴代码块或错误堆栈——不�
 
 想让 Allr 拥有稳定的默认风格？编辑 `~/.allr/SOUL.md`（如果使用自定义 Allr home，则为 `$ALLR_HOME/SOUL.md`）。Allr 现在会自动生成一个初始 SOUL 文件，并将该全局文件作为实例级个性来源。
 
-完整说明请参阅 [在 Allr 中使用 SOUL.md](/guides/use-soul-with-hermes)。
+完整说明请参阅 [在 Allr 中使用 SOUL.md](/guides/use-soul-with-allr)。
 
 ```markdown
 # Soul
@@ -159,7 +159,7 @@ Allr 在会话启动时从当前工作目录加载顶层 `AGENTS.md`。子目录
 
 ### 使用 /title 整理会话
 
-用 `/title auth-refactor` 或 `/title research-llm-quantization` 为会话命名。命名后的会话可通过 `allr sessions list` 轻松找到，并用 `hermes -r "auth-refactor"` 恢复。未命名的会话会堆积起来，难以区分。
+用 `/title auth-refactor` 或 `/title research-llm-quantization` 为会话命名。命名后的会话可通过 `allr sessions list` 轻松找到，并用 `allr -r "auth-refactor"` 恢复。未命名的会话会堆积起来，难以区分。
 
 ### DM 配对实现团队访问
 

@@ -173,7 +173,7 @@ VERCEL_OIDC_TOKEN="$(vc project token)" allr chat
 
 With `container_persistent: true`, Allr uses Vercel snapshots to preserve filesystem state across sandbox recreation for the same task. This can include Allr-synced credentials, skills, and cache files inside the sandbox. Snapshots do not preserve live processes, PID space, or the same live sandbox identity.
 
-Background terminal commands use Allr' generic non-local process flow: spawn, poll, wait, log, and kill work through the normal process tool while the sandbox is alive, but Allr does not provide native Vercel detached-process recovery after cleanup or restart.
+Background terminal commands use Allr's generic non-local process flow: spawn, poll, wait, log, and kill work through the normal process tool while the sandbox is alive, but Allr does not provide native Vercel detached-process recovery after cleanup or restart.
 
 Leave `container_disk` unset or at the shared default `51200`; custom disk sizing is unsupported for Vercel Sandbox and will fail diagnostics/backend creation.
 

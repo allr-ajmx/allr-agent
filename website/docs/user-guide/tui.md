@@ -14,22 +14,22 @@ It's the recommended way to run Allr interactively.
 
 ```bash
 # Launch the TUI
-hermes --tui
+allr --tui
 
 # Resume the latest TUI session (falls back to the latest classic session)
-hermes --tui -c
-hermes --tui --continue
-hermes --tui --resume latest
+allr --tui -c
+allr --tui --continue
+allr --tui --resume latest
 
 # Resume a specific session by ID or title
-hermes --tui -r 20260409_000000_aa11bb
-hermes --tui --resume "my t0p session"
+allr --tui -r 20260409_000000_aa11bb
+allr --tui --resume "my t0p session"
 
 # Resume the latest session for a specific project directory
-hermes --tui --resume latest --in ./my-project
+allr --tui --resume latest --in ./my-project
 
 # Run source directly — skips the prebuild step (for TUI contributors)
-hermes --tui --dev
+allr --tui --dev
 ```
 
 You can also enable it via env var:
@@ -47,7 +47,7 @@ display:
   interface: tui   # "cli" (default) or "tui"
 ```
 
-With `display.interface: tui`, a bare `hermes` (and `allr chat`) launches the TUI. Explicit flags always win — run `hermes --cli` to drop back to the classic REPL for a single invocation, or `hermes --tui` / `ALLR_TUI=1` to force the TUI when the config default is `cli`.
+With `display.interface: tui`, a bare `allr` (and `allr chat`) launches the TUI. Explicit flags always win — run `allr --cli` to drop back to the classic REPL for a single invocation, or `allr --tui` / `ALLR_TUI=1` to force the TUI when the config default is `cli`.
 
 The classic CLI remains the shipped default. Anything documented in [CLI Interface](cli.md) — slash commands, quick commands, skill preloading, personalities, multi-line input, interrupts — works in the TUI identically.
 
@@ -93,7 +93,7 @@ Distributions that ship a prebuilt bundle (Nix, system packages) can point Allr 
 
 ```bash
 export ALLR_TUI_DIR=/path/to/prebuilt/ui-tui
-hermes --tui
+allr --tui
 ```
 
 The directory must contain `dist/entry.js`.
@@ -129,7 +129,7 @@ Every other slash command (including installed skills, quick commands, and perso
 
 ## Live session switcher
 
-Use the live session switcher when you want one terminal to act as a dispatcher for several TUI sessions. It lists only sessions that are currently live in this TUI process; closed sessions remain saved transcripts and can still be reopened with `/resume` or `hermes --tui --resume <id-or-title>`.
+Use the live session switcher when you want one terminal to act as a dispatcher for several TUI sessions. It lists only sessions that are currently live in this TUI process; closed sessions remain saved transcripts and can still be reopened with `/resume` or `allr --tui --resume <id-or-title>`.
 
 Open it with any of these:
 
@@ -174,7 +174,7 @@ export ALLR_TUI_THEME=light
 
 ## Busy indicator styles
 
-The status-bar busy indicator is pluggable — the default rotates Allr' kawaii face palette every 2.5 seconds during agent work. Pick a different style via config or the `/indicator` slash command:
+The status-bar busy indicator is pluggable — the default rotates Allr's kawaii face palette every 2.5 seconds during agent work. Pick a different style via config or the `/indicator` slash command:
 
 ```yaml
 display:
@@ -185,7 +185,7 @@ Or in-session: `/indicator emoji` (etc.). Styles ship with matched glyph widths 
 
 ## Auto-resume
 
-By default, `hermes --tui` starts a fresh session each launch. To re-attach to the most recent TUI session automatically (useful when your terminal or SSH connection drops unexpectedly), opt in:
+By default, `allr --tui` starts a fresh session each launch. To re-attach to the most recent TUI session automatically (useful when your terminal or SSH connection drops unexpectedly), opt in:
 
 ```bash
 export ALLR_TUI_RESUME=1          # most-recent TUI session
@@ -217,7 +217,7 @@ The status line also shows:
 - **Per-prompt elapsed time** — `⏱ 12s/3m 45s` while the turn is running (live), frozen to `⏲ 32s / 3m 45s` after the turn completes. First number is time since last user message; second is total session duration. Resets on every new prompt.
 - **`🗜️ N`** — number of times the running session has been auto-compressed. Appears once the first compression fires.
 - **`▶ N`** — number of `/background` tasks currently running in this session. Appears whenever at least one task is in flight.
-- **`⚠ YOLO`** — visible warning whenever YOLO mode is on (`hermes --yolo`, `/yolo`, or `ALLR_YOLO_MODE=1`). The same badge also appears in the startup banner so you cannot launch an auto-approving session without noticing.
+- **`⚠ YOLO`** — visible warning whenever YOLO mode is on (`allr --yolo`, `/yolo`, or `ALLR_YOLO_MODE=1`). The same badge also appears in the startup banner so you cannot launch an auto-approving session without noticing.
 
 ## Configuration
 
@@ -293,7 +293,7 @@ If you want multiple surfaces to share one set of sessions, use the shared `~/.a
 
 ## Reverting to the classic CLI
 
-Launching `hermes` (without `--tui`) stays on the classic CLI by default. To make a machine prefer the TUI, set `display.interface: tui` in `~/.allr/config.yaml` (persistent) or `ALLR_TUI=1` in your shell profile (per-shell). To go back, set `interface: cli` / unset the env var, or pass `hermes --cli` for a one-off.
+Launching `allr` (without `--tui`) stays on the classic CLI by default. To make a machine prefer the TUI, set `display.interface: tui` in `~/.allr/config.yaml` (persistent) or `ALLR_TUI=1` in your shell profile (per-shell). To go back, set `interface: cli` / unset the env var, or pass `allr --cli` for a one-off.
 
 If the TUI fails to launch (no Node, missing bundle, TTY issue), Allr prints a diagnostic and falls back — rather than leaving you stuck.
 

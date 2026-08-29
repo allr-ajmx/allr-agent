@@ -8,7 +8,7 @@ description: "Real-time voice conversations with Allr — CLI, Telegram, Discord
 
 Allr supports full voice interaction across CLI and messaging platforms. Talk to the agent using your microphone, hear spoken replies, and have live voice conversations in Discord voice channels.
 
-If you want a practical setup walkthrough with recommended configurations and real usage patterns, see [Use Voice Mode with Allr](/guides/use-voice-mode-with-hermes).
+If you want a practical setup walkthrough with recommended configurations and real usage patterns, see [Use Voice Mode with Allr](/guides/use-voice-mode-with-allr).
 
 For hands-free session start — saying "hey hermes" (or any phrase) to open a fresh voice session on the CLI, TUI, or desktop app — see [Wake Word](/user-guide/features/wake-word).
 
@@ -18,10 +18,10 @@ Before using voice features, make sure you have:
 
 1. **Allr installed** — via the install script (see [Installation](/getting-started/installation))
 2. **An LLM provider configured** — run `allr model` or set your preferred provider credentials in `~/.allr/.env`
-3. **A working base setup** — run `hermes` to verify the agent responds to text before enabling voice
+3. **A working base setup** — run `allr` to verify the agent responds to text before enabling voice
 
 :::tip
-The `~/.allr/` directory and default `config.yaml` are created automatically the first time you run `hermes`. You only need to create `~/.allr/.env` manually for API keys.
+The `~/.allr/` directory and default `config.yaml` are created automatically the first time you run `allr`. You only need to create `~/.allr/.env` manually for API keys.
 :::
 
 :::tip Nous Portal covers both
@@ -111,7 +111,7 @@ If `faster-whisper` is installed, voice mode works with **zero API keys** for ST
 
 ## CLI Voice Mode
 
-Voice mode is available in both the **classic CLI** (`allr chat`) and the **TUI** (`hermes --tui`). Behavior is identical across both — same slash commands, same VAD silence detection, same streaming TTS, same hallucination filter. The TUI additionally forwards crash-forensic logs to `~/.allr/logs/` so push-to-talk failures on exotic audio backends can be reported with a full stack trace rather than disappearing silently.
+Voice mode is available in both the **classic CLI** (`allr chat`) and the **TUI** (`allr --tui`). Behavior is identical across both — same slash commands, same VAD silence detection, same streaming TTS, same hallucination filter. The TUI additionally forwards crash-forensic logs to `~/.allr/logs/` so push-to-talk failures on exotic audio backends can be reported with a full stack trace rather than disappearing silently.
 
 ### Quick Start
 
@@ -133,7 +133,7 @@ Then use these commands inside the CLI:
 
 ### How It Works
 
-1. Start the CLI with `hermes` and enable voice mode with `/voice on`
+1. Start the CLI with `allr` and enable voice mode with `/voice on`
 2. **Press Ctrl+B** — a beep plays (880Hz), recording starts
 3. **Speak** — a live audio level bar shows your input: `● [▁▂▃▅▇▇▅▂] ❯`
 4. **Stop speaking** — after 3 seconds of silence, recording auto-stops

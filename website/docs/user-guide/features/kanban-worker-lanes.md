@@ -1,3 +1,8 @@
+---
+title: "Kanban Worker Lanes"
+description: "The contract a worker lane must meet - assignee, spawn mechanism, lifecycle terminator - and how to add new lanes."
+---
+
 # Kanban worker lanes
 
 A **worker lane** is a class of process that the kanban dispatcher can route tasks to. Each lane has an identity (the assignee string), a spawn mechanism, and a contract for what it must do with the task once spawned.
@@ -30,7 +35,7 @@ The dispatcher matches `task.assignee` against either an Allr profile name (the 
 
 ### 2. A spawn mechanism
 
-For Allr profile lanes, the dispatcher's `_default_spawn` runs `hermes -p <assignee> chat -q <prompt>` (or the equivalent module form when the `hermes` shim isn't on `$PATH`) inside the task's pinned workspace, with these env vars set:
+For Allr profile lanes, the dispatcher's `_default_spawn` runs `allr -p <assignee> chat -q <prompt>` (or the equivalent module form when the `allr` shim isn't on `$PATH`) inside the task's pinned workspace, with these env vars set:
 
 | Variable | Carries |
 |---|---|
@@ -80,7 +85,7 @@ The dashboard renders run history with summaries, metadata blocks, and exit-stat
 
 ### Allr profile lane (default)
 
-The shape every kanban worker takes today: the assignee is a profile name, the dispatcher spawns `hermes -p <profile>`, the worker gets the `KANBAN_GUIDANCE` system-prompt block injected automatically, and uses the `kanban_*` tools to terminate the run. No setup beyond defining the profile.
+The shape every kanban worker takes today: the assignee is a profile name, the dispatcher spawns `allr -p <profile>`, the worker gets the `KANBAN_GUIDANCE` system-prompt block injected automatically, and uses the `kanban_*` tools to terminate the run. No setup beyond defining the profile.
 
 When you create profiles for your fleet, choose names that match the *role* you want the orchestrator to route to. The orchestrator (when there is one) discovers your profile names via `allr profile list` — there's no fixed roster the system assumes (the orchestrator side of the contract is part of the injected `KANBAN_GUIDANCE`).
 

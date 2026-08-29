@@ -1,3 +1,8 @@
+---
+title: "1Password"
+description: "Resolve provider keys from 1Password op:// references at startup via the op CLI, with service-account or desktop auth."
+---
+
 # 1Password
 
 Resolve provider API keys from [1Password](https://1password.com/) at process startup instead of storing them in plaintext inside `~/.allr/.env`. You keep your keys as 1Password items and reference them by `op://vault/item/field`; rotating a credential becomes a single change in 1Password.
@@ -6,7 +11,7 @@ Resolve provider API keys from [1Password](https://1password.com/) at process st
 
 1. You install the official [1Password CLI](https://developer.1password.com/docs/cli/get-started/) (`op`) and authenticate it — either with a **service-account token** (headless servers) or an **interactive/desktop session** (your laptop).
 2. You map environment-variable names to `op://` references in `~/.allr/config.yaml`.
-3. Every time `hermes` (or the gateway, or a cron job) starts, after `~/.allr/.env` has loaded, Allr runs `op read` for each reference and sets the resolved values into `os.environ`.
+3. Every time `allr` (or the gateway, or a cron job) starts, after `~/.allr/.env` has loaded, Allr runs `op read` for each reference and sets the resolved values into `os.environ`.
 4. By default Allr **overrides** values already in your environment, so 1Password is the source of truth — rotate a credential once and every Allr process picks it up on next start. Flip `override_existing: false` if you want `.env` to win instead.
 
 Allr never authenticates on your behalf and never downloads `op`: it shells out to your already-installed, already-trusted CLI. If `op` is missing, your session is locked, or a reference is wrong, Allr prints a one-line warning and continues with whatever credentials `.env` already had — it never blocks startup.
@@ -85,7 +90,7 @@ allr secrets onepassword sync     # dry-run: resolve now, show what would apply
 allr secrets onepassword status   # config + binary + references + auth
 ```
 
-From now on, every `hermes` invocation resolves the references at startup. You'll see a one-line summary in stderr the first time secrets are applied in a process.
+From now on, every `allr` invocation resolves the references at startup. You'll see a one-line summary in stderr the first time secrets are applied in a process.
 
 ## CLI
 
@@ -146,7 +151,7 @@ Startup warnings now include a `→` remediation line telling you exactly which 
 
 ## Caching
 
-Successful, complete pulls are cached in-process and on disk under `<hermes_home>/cache/op_cache.json` (written atomically, mode `0600`), so back-to-back short-lived `hermes` invocations don't re-shell `op` for every reference. The cache:
+Successful, complete pulls are cached in-process and on disk under `<hermes_home>/cache/op_cache.json` (written atomically, mode `0600`), so back-to-back short-lived `allr` invocations don't re-shell `op` for every reference. The cache:
 
 - stores only resolved secret **values** — never the service-account token or any raw auth material (auth is fingerprinted into the cache key);
 - is invalidated when the token, account, `OP_SESSION_*` variables, or the set of references change;

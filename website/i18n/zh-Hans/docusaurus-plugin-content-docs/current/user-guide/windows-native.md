@@ -23,7 +23,7 @@ Allr 可在 Windows 10 和 Windows 11 上原生运行——无需 WSL、Cygwin �
 iex (irm https://allr.work/install.ps1)
 ```
 
-无需管理员权限。安装程序会写入 `%LOCALAPPDATA%\allr\`，并将 `hermes` 添加到你的**用户 PATH**——安装完成后打开新终端即可使用。
+无需管理员权限。安装程序会写入 `%LOCALAPPDATA%\allr\`，并将 `allr` 添加到你的**用户 PATH**——安装完成后打开新终端即可使用。
 
 **安装程序选项**（需要使用 scriptblock 形式传递参数）：
 
@@ -45,7 +45,7 @@ iex (irm https://allr.work/install.ps1)
 
 ### 桌面安装程序（备选方案）
 
-也提供了一个轻量 GUI 安装程序——如果你更倾向于双击 `.exe` 而非打开 PowerShell，可以使用它。下载 Allr Desktop，运行安装程序，首次启动时 GUI 会在后台调用 `install.ps1` 来配置 Python（通过 `uv`）、Node、PortableGit 以及下文描述的其余依赖引导流程。首次运行后，桌面应用与 PowerShell 安装的 `hermes` CLI 共享同一个 `%LOCALAPPDATA%\allr\allr-agent` 安装目录和 `%USERPROFILE%\.allr` 数据目录——可以在 GUI 和 CLI 之间自由切换。
+也提供了一个轻量 GUI 安装程序——如果你更倾向于双击 `.exe` 而非打开 PowerShell，可以使用它。下载 Allr Desktop，运行安装程序，首次启动时 GUI 会在后台调用 `install.ps1` 来配置 Python（通过 `uv`）、Node、PortableGit 以及下文描述的其余依赖引导流程。首次运行后，桌面应用与 PowerShell 安装的 `allr` CLI 共享同一个 `%LOCALAPPDATA%\allr\allr-agent` 安装目录和 `%USERPROFILE%\.allr` 数据目录——可以在 GUI 和 CLI 之间自由切换。
 
 如果你想要熟悉的 Windows 安装体验，或者要将 Allr 交给非开发者使用，请使用桌面安装程序；如果你已经在终端中，请使用 PowerShell 一行命令。
 
@@ -75,7 +75,7 @@ iex (irm https://allr.work/install.ps1)
 6. **分层 `uv pip install`** — 先尝试 `.[all]`，如果 `git+https` 依赖在 GitHub 限速时失败，则逐步回退到更小的集合（`[messaging,dashboard,ext]` → `[messaging]` → `.`）。防止"单次失败导致裸安装"的故障模式。
 7. **根据 `.env` 自动安装消息 SDK** — 如果存在 `TELEGRAM_BOT_TOKEN` / `DISCORD_BOT_TOKEN` / `SLACK_BOT_TOKEN` / `SLACK_APP_TOKEN` / `WHATSAPP_ENABLED`，则运行 `python -m ensurepip --upgrade` 并针对性地调用 `pip install`，确保各平台 SDK 可正常导入。
 8. **设置 `ALLR_GIT_BASH_PATH`** 为解析后的 `bash.exe` 路径，使 Allr 在新 shell 中能确定性地找到它。
-9. **将 `%LOCALAPPDATA%\allr\bin` 添加到用户 PATH** — 打开新终端后即可使用 `hermes` 命令。
+9. **将 `%LOCALAPPDATA%\allr\bin` 添加到用户 PATH** — 打开新终端后即可使用 `allr` 命令。
 10. **运行 `allr setup`** — 正常的首次运行向导（模型、提供商、工具集）。使用 `-SkipSetup` 跳过。
 
 :::tip 在 Windows 上跳过繁琐的提供商配置
@@ -89,7 +89,7 @@ iex (irm https://allr.work/install.ps1)
 | 功能                                                         | 原生 Windows        | WSL2               |
 | ------------------------------------------------------------ | ------------------- | ------------------ |
 | CLI（`allr chat`、`allr setup`、`allr gateway` 等）    | ✓                   | ✓                  |
-| 交互式 TUI（`hermes --tui`）                                 | ✓                   | ✓                  |
+| 交互式 TUI（`allr --tui`）                                 | ✓                   | ✓                  |
 | 消息 gateway（Telegram、Discord、Slack、WhatsApp，15+ 平台） | ✓                   | ✓                  |
 | Cron 调度器                                                  | ✓                   | ✓                  |
 | 浏览器工具（通过 Node 驱动 Chromium）                        | ✓                   | ✓                  |
@@ -230,7 +230,7 @@ allr gateway uninstall   # 移除 schtasks 条目、Startup 快捷方式、pid �
 
 ```powershell
 Get-Command hermes        # 应输出 C:\Users\<you>\AppData\Local\hermes\bin\hermes.cmd
-hermes --version
+allr --version
 ```
 
 ### 环境变量
@@ -320,6 +320,6 @@ UTF-8 stdio 垫片未激活。检查 `ALLR_DISABLE_WINDOWS_UTF8` 是否**未**�
 
 - **[安装](../getting-started/installation.md)** — 完整安装页面，包括 Linux/macOS/WSL2/Termux。
 - **[Windows（WSL2）指南](./windows-wsl-quickstart.md)** — 如果你需要 POSIX 语义或 dashboard 终端面板。
-- **[CLI 参考](../reference/cli-commands.md)** — 所有 `hermes` 子命令。
+- **[CLI 参考](../reference/cli-commands.md)** — 所有 `allr` 子命令。
 - **[FAQ](../reference/faq.md)** — 常见的非 Windows 专属问题。
 - **[消息 Gateway](./messaging/index.md)** — 在 Windows 上运行 Telegram/Discord/Slack。

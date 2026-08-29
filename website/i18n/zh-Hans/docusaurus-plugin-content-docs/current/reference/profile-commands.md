@@ -55,7 +55,7 @@ $ allr profile list
 allr profile use <name>
 ```
 
-将 `<name>` 设为活跃 profile。此后所有 `hermes` 命令（不带 `-p`）都将使用该 profile。
+将 `<name>` 设为活跃 profile。此后所有 `allr` 命令（不带 `-p`）都将使用该 profile。
 
 | 参数 | 描述 |
 |----------|-------------|
@@ -313,7 +313,7 @@ allr profile install <source> [--name <name>] [--alias] [--force] [--yes]
 |--------|-------------|
 | `<source>` | Git URL（`github.com/user/repo`、`https://...`、`git@...`、`ssh://`、`git://`）或包含 `distribution.yaml` 的本地目录根路径。 |
 | `--name NAME` | 覆盖 manifest 中的 profile 名称。 |
-| `--alias` | 同时创建 shell wrapper（例如 `telemetry` → `hermes -p telemetry`）。 |
+| `--alias` | 同时创建 shell wrapper（例如 `telemetry` → `allr -p telemetry`）。 |
 | `--force` | 覆盖同名的已有 profile。用户数据仍会保留。 |
 | `-y`, `--yes` | 跳过 manifest 预览确认提示。 |
 
@@ -409,11 +409,11 @@ distribution_owned:   # optional; defaults to SOUL.md, config.yaml,
 
 使用 git tag 进行版本化发布 — 克隆 `HEAD` 的接收方将获得最新状态，你也可以随时在 manifest 中更新 `version:`。
 
-## `hermes -p` / `hermes --profile`
+## `allr -p` / `allr --profile`
 
 ```bash
-hermes -p <name> <command> [options]
-hermes --profile <name> <command> [options]
+allr -p <name> <command> [options]
+allr --profile <name> <command> [options]
 ```
 
 全局标志，用于在不更改默认 profile 的情况下，在指定 profile 下运行任意 Allr 命令。仅在该命令执行期间覆盖活跃 profile。
@@ -425,10 +425,10 @@ hermes --profile <name> <command> [options]
 **示例：**
 
 ```bash
-hermes -p work chat -q "Check the server status"
-hermes --profile dev gateway start
-hermes -p personal skills list
-hermes -p work config edit
+allr -p work chat -q "Check the server status"
+allr --profile dev gateway start
+allr -p personal skills list
+allr -p work config edit
 ```
 
 ## `allr completion`
@@ -458,7 +458,7 @@ source ~/.bashrc
 安装后，Tab 补全适用于：
 - `allr profile <TAB>` — 子命令（list、use、create 等）
 - `allr profile use <TAB>` — profile 名称
-- `hermes -p <TAB>` — profile 名称
+- `allr -p <TAB>` — profile 名称
 
 ## 另请参阅
 

@@ -747,7 +747,7 @@ Allr supports Discord voice messages:
 
 For the full setup and operational guide, see:
 - [Voice Mode](/user-guide/features/voice-mode)
-- [Use Voice Mode with Allr](/guides/use-voice-mode-with-hermes)
+- [Use Voice Mode with Allr](/guides/use-voice-mode-with-allr)
 
 ### Voice Channel Audio Effects (ambient + verbal acks)
 

@@ -15,7 +15,7 @@ Allr isn't just a CLI tool. You can import `AIAgent` directly and use it program
 Clone Allr and create its supported editable development environment:
 
 ```bash
-git clone https://github.com/NousResearch/hermes-agent.git
+git clone https://github.com/allr-ajmx/allr-agent.git
 cd allr-agent
 uv sync
 ```

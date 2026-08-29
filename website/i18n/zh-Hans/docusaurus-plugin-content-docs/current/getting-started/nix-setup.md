@@ -44,13 +44,13 @@ allr setup
 allr chat
 ```
 
-执行 `nix profile install` 后，`hermes`、`allr-agent` 和 `allr-acp` 将出现在你的 PATH 中。之后的工作流与[标准安装](./installation.md)完全相同——`allr setup` 引导你完成提供商选择，`allr gateway install` 设置 launchd（macOS）或 systemd 用户服务，配置存放在 `~/.allr/`。
+执行 `nix profile install` 后，`allr`、`allr-agent` 和 `allr-acp` 将出现在你的 PATH 中。之后的工作流与[标准安装](./installation.md)完全相同——`allr setup` 引导你完成提供商选择，`allr gateway install` 设置 launchd（macOS）或 systemd 用户服务，配置存放在 `~/.allr/`。
 
 <details>
 <summary><strong>从本地克隆构建</strong></summary>
 
 ```bash
-git clone https://github.com/NousResearch/hermes-agent.git
+git clone https://github.com/allr-ajmx/allr-agent.git
 cd allr-agent
 nix build
 ./result/bin/allr setup
@@ -104,7 +104,7 @@ nix build
 }
 ```
 
-就这些。`nixos-rebuild switch` 会创建 `hermes` 用户、生成 `config.yaml`、连接密钥并启动 gateway——这是一个长期运行的服务，将 Agent 连接到消息平台（Telegram、Discord 等）并监听传入消息。
+就这些。`nixos-rebuild switch` 会创建 `allr` 用户、生成 `config.yaml`、连接密钥并启动 gateway——这是一个长期运行的服务，将 Agent 连接到消息平台（Telegram、Discord 等）并监听传入消息。
 
 :::warning 密钥是必需的
 上面的 `environmentFiles` 行假设你已配置 [sops-nix](https://github.com/Mic92/sops-nix) 或 [agenix](https://github.com/ryantm/agenix)。该文件至少应包含一个 LLM 提供商密钥（例如 `OPENROUTER_API_KEY=sk-or-...`）。完整设置请参阅[密钥管理](#secrets-management)。如果你还没有密钥管理器，可以先使用普通文件——只需确保它不是全局可读的：
@@ -119,13 +119,13 @@ services.hermes-agent.environmentFiles = [ "/var/lib/hermes/env" ];
 :::
 
 :::tip addToSystemPackages
-设置 `addToSystemPackages = true` 有两个作用：将 `hermes` CLI 添加到系统 PATH，**并**在系统范围内设置 `ALLR_HOME`，使交互式 CLI 与 gateway 服务共享状态（会话、技能、cron）。不设置此项时，在 shell 中运行 `hermes` 会创建独立的 `~/.allr/` 目录。
+设置 `addToSystemPackages = true` 有两个作用：将 `allr` CLI 添加到系统 PATH，**并**在系统范围内设置 `ALLR_HOME`，使交互式 CLI 与 gateway 服务共享状态（会话、技能、cron）。不设置此项时，在 shell 中运行 `allr` 会创建独立的 `~/.allr/` 目录。
 :::
 
 ### 容器感知 CLI
 
 :::info
-当 `container.enable = true` 且 `addToSystemPackages = true` 时，主机上的**所有** `hermes` 命令都会自动路由到托管容器中执行。这意味着你的交互式 CLI 会话在与 gateway 服务相同的环境中运行——可以访问所有容器内安装的包和工具。
+当 `container.enable = true` 且 `addToSystemPackages = true` 时，主机上的**所有** `allr` 命令都会自动路由到托管容器中执行。这意味着你的交互式 CLI 会话在与 gateway 服务相同的环境中运行——可以访问所有容器内安装的包和工具。
 
 - 路由是透明的：`allr chat`、`allr sessions list`、`allr version` 等命令都会在底层 exec 进容器
 - 所有 CLI 参数原样转发
@@ -142,7 +142,7 @@ services.hermes-agent = {
 };
 ```
 
-`hostUsers` 中列出的用户会自动加入 `hermes` 组以获得文件权限访问。
+`hostUsers` 中列出的用户会自动加入 `allr` 组以获得文件权限访问。
 
 **Podman 用户：** NixOS 服务以 root 身份运行容器。Docker 用户通过 `docker` 组 socket 获得访问权限，但 Podman 的 rootful 容器需要 sudo。为你的容器运行时授予免密 sudo：
 
@@ -763,9 +763,9 @@ nix build .#checks.x86_64-linux.config-roundtrip    # 合并脚本保留用户�
 
 | 检查 | 测试内容 |
 |---|---|
-| `package-contents` | `hermes` 和 `allr-agent` 二进制文件存在且 `allr version` 可运行 |
+| `package-contents` | `allr` 和 `allr-agent` 二进制文件存在且 `allr version` 可运行 |
 | `entry-points-sync` | `pyproject.toml` 中 `[project.scripts]` 的每个条目在 Nix 包中都有对应的封装二进制文件 |
-| `cli-commands` | `hermes --help` 暴露 `gateway` 和 `config` 子命令 |
+| `cli-commands` | `allr --help` 暴露 `gateway` 和 `config` 子命令 |
 | `managed-guard` | `ALLR_MANAGED=true allr config set ...` 打印 NixOS 错误 |
 | `bundled-skills` | skills 目录存在，包含 SKILL.md 文件，wrapper 中设置了 `ALLR_BUNDLED_SKILLS` |
 | `config-roundtrip` | 7 种合并场景：全新安装、Nix 覆盖、用户键保留、混合合并、MCP 累加合并、嵌套深度合并、幂等性 |
@@ -787,7 +787,7 @@ nix build .#checks.x86_64-linux.config-roundtrip    # 合并脚本保留用户�
 | `createUser` | `bool` | `true` | 自动创建用户/组 |
 | `stateDir` | `str` | `"/var/lib/hermes"` | 状态目录（`ALLR_HOME` 的父目录） |
 | `workingDirectory` | `str` | `"${stateDir}/workspace"` | Agent 工作目录（`MESSAGING_CWD`） |
-| `addToSystemPackages` | `bool` | `false` | 将 `hermes` CLI 添加到系统 PATH 并在系统范围内设置 `ALLR_HOME` |
+| `addToSystemPackages` | `bool` | `false` | 将 `allr` CLI 添加到系统 PATH 并在系统范围内设置 `ALLR_HOME` |
 
 ### 配置
 
@@ -849,7 +849,7 @@ nix build .#checks.x86_64-linux.config-roundtrip    # 合并脚本保留用户�
 | `container.image` | `str` | `"ubuntu:24.04"` | 基础镜像（运行时拉取） |
 | `container.extraVolumes` | `listOf str` | `[]` | 额外卷挂载（`host:container:mode`） |
 | `container.extraOptions` | `listOf str` | `[]` | 传递给 `docker create` 的额外参数 |
-| `container.hostUsers` | `listOf str` | `[]` | 获得 `~/.allr` 符号链接（指向服务 stateDir）的交互式用户，自动加入 `hermes` 组 |
+| `container.hostUsers` | `listOf str` | `[]` | 获得 `~/.allr` 符号链接（指向服务 stateDir）的交互式用户，自动加入 `allr` 组 |
 
 ---
 

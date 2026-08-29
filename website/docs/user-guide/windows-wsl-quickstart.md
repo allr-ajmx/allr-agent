@@ -102,7 +102,7 @@ Once you have a WSL2 shell open:
 ```bash
 curl -fsSL https://allr.work/install.sh | bash
 source ~/.bashrc
-hermes
+allr
 ```
 
 The installer treats WSL2 as plain Linux — nothing WSL-specific is needed. See [Installation](/getting-started/installation) for the full layout.
@@ -188,7 +188,7 @@ dos2unix path/to/script.sh
 
 Clone inside WSL. Always, unless you have a specific reason not to. A typical Allr workflow (`allr chat`, tool calls that `rg`/`ripgrep` the repo, file watchers, background gateway) will be dramatically faster and more reliable against `~/code/myrepo` than `/mnt/c/Users/you/myrepo`.
 
-One exception: **MCP bridges that launch Windows binaries.** If you're using `chrome-devtools-mcp` through `cmd.exe` (see [MCP guide: WSL → Windows Chrome](/guides/use-mcp-with-hermes#wsl2-bridge-allr-in-wsl-to-windows-chrome)), Windows may complain with a `UNC` warning if Allr's current working directory is `~`. In that case, start Allr from somewhere under `/mnt/c/` so the Windows process has a drive-letter cwd.
+One exception: **MCP bridges that launch Windows binaries.** If you're using `chrome-devtools-mcp` through `cmd.exe` (see [MCP guide: WSL → Windows Chrome](/guides/use-mcp-with-allr#wsl2-bridge-allr-in-wsl-to-windows-chrome)), Windows may complain with a `UNC` warning if Allr's current working directory is `~`. In that case, start Allr from somewhere under `/mnt/c/` so the Windows process has a drive-letter cwd.
 
 ## Networking: WSL ↔ Windows
 
@@ -269,13 +269,13 @@ it on the Windows side and have it jump into WSL for you:
 2. For the target, use your distro name (replace `Ubuntu` if needed):
 
    ```text
-   wt.exe -w 0 -p "Ubuntu" wsl.exe -d Ubuntu --cd ~ -- bash -ic "hermes"
+   wt.exe -w 0 -p "Ubuntu" wsl.exe -d Ubuntu --cd ~ -- bash -ic "allr"
    ```
 
 3. Name it something obvious like `Allr`.
 
 That opens Windows Terminal, starts your WSL distro, drops you in your Linux
-home directory, and launches Allr. If `hermes` is not on PATH yet, open WSL
+home directory, and launches Allr. If `allr` is not on PATH yet, open WSL
 once manually and run `source ~/.bashrc`, or replace the command with
 `uv run hermes` inside your project checkout.
 
@@ -341,7 +341,7 @@ Or install `ntpdate` and run it at login.
 **DNS stops working after enabling mirrored mode, or when a VPN is connected.**
 Mirrored mode proxies host network settings into WSL — if Windows DNS is funky (VPN split-tunnel, corporate resolver), WSL inherits that. Workaround: override `resolv.conf` manually (set `generateResolvConf=false` in `/etc/wsl.conf`, then write your own `/etc/resolv.conf` with `1.1.1.1` or your VPN's DNS).
 
-**`hermes` not found after running the installer.**
+**`allr` not found after running the installer.**
 The installer adds `~/.local/bin` to your shell's PATH via `~/.bashrc`. You need to `source ~/.bashrc` (or open a new terminal) for it to take effect in the current session.
 
 **Windows Defender is slow on WSL files.**
@@ -354,5 +354,5 @@ WSL2 stores its VM disk as a sparse VHDX under `%LOCALAPPDATA%\Packages\...`. It
 
 - **[Installation](/getting-started/installation)** — actual install steps (Linux/WSL2/Termux all use the same installer).
 - **[Integrations → Providers → WSL2 Networking](/integrations/providers#wsl2-networking-windows-users)** — the canonical networking deep-dive for local model servers.
-- **[MCP guide → WSL → Windows Chrome](/guides/use-mcp-with-hermes#wsl2-bridge-allr-in-wsl-to-windows-chrome)** — controlling your signed-in Windows Chrome from Allr in WSL.
+- **[MCP guide → WSL → Windows Chrome](/guides/use-mcp-with-allr#wsl2-bridge-allr-in-wsl-to-windows-chrome)** — controlling your signed-in Windows Chrome from Allr in WSL.
 - **[Tool Gateway](/user-guide/features/tool-gateway)** and **[Web Dashboard](/user-guide/features/web-dashboard)** — the long-lived services you'll most often want to expose from WSL to the rest of your network.

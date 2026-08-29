@@ -258,8 +258,8 @@ EOF
 ### 2. 启动各 gateway
 
 ```bash
-hermes -p alice gateway &
-hermes -p bob gateway &
+allr -p alice gateway &
+allr -p bob gateway &
 ```
 
 ### 3. 在 Open WebUI 中添加连接
@@ -276,7 +276,7 @@ hermes -p bob gateway &
 :::tip 自定义模型名称
 模型名称默认为 profile 名称。如需覆盖，请在 profile 的 `.env` 中设置 `API_SERVER_MODEL_NAME`：
 ```bash
-hermes -p alice config set API_SERVER_MODEL_NAME "Alice's Agent"
+allr -p alice config set API_SERVER_MODEL_NAME "Alice's Agent"
 ```
 :::
 

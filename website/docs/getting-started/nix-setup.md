@@ -53,10 +53,10 @@ nix run github:NousResearch/hermes-agent -- --tui
 # or install it in your profile
 nix profile install github:NousResearch/hermes-agent
 allr setup
-hermes --tui
+allr --tui
 ```
 
-After `nix profile install`, `hermes`, `allr-agent`, and `allr-acp` are on your PATH. From here, the workflow is identical to the [standard installation](./installation.md) — `allr setup` walks you through provider selection, `allr gateway install` sets up a launchd (macOS) or systemd user service, and config lives in `~/.allr/`.
+After `nix profile install`, `allr`, `allr-agent`, and `allr-acp` are on your PATH. From here, the workflow is identical to the [standard installation](./installation.md) — `allr setup` walks you through provider selection, `allr gateway install` sets up a launchd (macOS) or systemd user service, and config lives in `~/.allr/`.
 
 :::warning Messaging platforms (Discord, Telegram, Slack)
 The default package includes ALL libraries allr-agent might need. if you want a smaller variant, check the other flake outputs. 
@@ -69,7 +69,7 @@ The `default` package adds ~700 MB to the closure. If you only need messaging pl
 <summary><strong>Running from a local clone</strong></summary>
 
 ```bash
-git clone https://github.com/NousResearch/hermes-agent.git
+git clone https://github.com/allr-ajmx/allr-agent.git
 cd allr-agent
 nix develop
 allr setup
@@ -138,13 +138,13 @@ services.hermes-agent.environmentFiles = [ "/var/lib/hermes/env" ];
 :::
 
 :::tip addToSystemPackages
-Setting `addToSystemPackages = true` does two things: puts the `hermes` CLI on your system PATH **and** sets `ALLR_HOME` system-wide so the interactive CLI shares state (sessions, skills, cron) with the gateway service. Without it, running `hermes` in your shell creates a separate `~/.allr/` directory.
+Setting `addToSystemPackages = true` does two things: puts the `allr` CLI on your system PATH **and** sets `ALLR_HOME` system-wide so the interactive CLI shares state (sessions, skills, cron) with the gateway service. Without it, running `allr` in your shell creates a separate `~/.allr/` directory.
 :::
 
 ### Container-aware CLI
 
 :::info
-When `container.enable = true` and `addToSystemPackages = true`, **every** `hermes` command on the host automatically routes into the managed container. This means your interactive CLI session runs inside the same environment as the gateway service — with access to all container-installed packages and tools.
+When `container.enable = true` and `addToSystemPackages = true`, **every** `allr` command on the host automatically routes into the managed container. This means your interactive CLI session runs inside the same environment as the gateway service — with access to all container-installed packages and tools.
 
 - The routing is transparent: `allr chat`, `allr sessions list`, `allr version`, etc. all exec into the container under the hood
 - All CLI flags are forwarded as-is
@@ -161,7 +161,7 @@ services.hermes-agent = {
 };
 ```
 
-Users listed in `hostUsers` are automatically added to the `hermes` group for file permission access.
+Users listed in `hostUsers` are automatically added to the `allr` group for file permission access.
 
 **Podman users:** The NixOS service runs the container as root. Docker users get access via the `docker` group socket, but Podman's rootful containers require sudo. Grant passwordless sudo for your container runtime:
 
@@ -811,9 +811,9 @@ nix build .#checks.x86_64-linux.config-roundtrip    # merge script preserves use
 
 | Check | What it tests |
 |---|---|
-| `package-contents` | `hermes` and `allr-agent` binaries exist and `allr version` runs |
+| `package-contents` | `allr` and `allr-agent` binaries exist and `allr version` runs |
 | `entry-points-sync` | Every `[project.scripts]` entry in `pyproject.toml` has a wrapped binary in the Nix package |
-| `cli-commands` | `hermes --help` exposes `gateway` and `config` subcommands |
+| `cli-commands` | `allr --help` exposes `gateway` and `config` subcommands |
 | `managed-guard` | `ALLR_MANAGED=true allr config set ...` prints the NixOS error |
 | `bundled-skills` | Skills directory exists, contains SKILL.md files, `ALLR_BUNDLED_SKILLS` is set in wrapper |
 | `config-roundtrip` | 7 merge scenarios: fresh install, Nix override, user key preservation, mixed merge, MCP additive merge, nested deep merge, idempotency |
@@ -835,7 +835,7 @@ nix build .#checks.x86_64-linux.config-roundtrip    # merge script preserves use
 | `createUser` | `bool` | `true` | Auto-create user/group |
 | `stateDir` | `str` | `"/var/lib/hermes"` | State directory (`ALLR_HOME` parent) |
 | `workingDirectory` | `str` | `"${stateDir}/workspace"` | Agent working directory |
-| `addToSystemPackages` | `bool` | `false` | Add `hermes` CLI to system PATH and set `ALLR_HOME` system-wide |
+| `addToSystemPackages` | `bool` | `false` | Add `allr` CLI to system PATH and set `ALLR_HOME` system-wide |
 
 ### Configuration
 
@@ -897,7 +897,7 @@ nix build .#checks.x86_64-linux.config-roundtrip    # merge script preserves use
 | `container.image` | `str` | `"ubuntu:24.04"` | Base image (pulled at runtime) |
 | `container.extraVolumes` | `listOf str` | `[]` | Extra volume mounts (`host:container:mode`) |
 | `container.extraOptions` | `listOf str` | `[]` | Extra args passed to `docker create` |
-| `container.hostUsers` | `listOf str` | `[]` | Interactive users who get a `~/.allr` symlink to the service stateDir and are auto-added to the `hermes` group |
+| `container.hostUsers` | `listOf str` | `[]` | Interactive users who get a `~/.allr` symlink to the service stateDir and are auto-added to the `allr` group |
 
 ---
 

@@ -88,7 +88,7 @@ After creation, the topic's detail page has a **Subscriptions** tab. Create one:
 
 - Subscription ID: `hermes-chat-events-sub`
 - Delivery type: **Pull**
-- Message retention: **7 days** (so backlog survives a hermes restart)
+- Message retention: **7 days** (so backlog survives an Allr restart)
 - Leave the rest default.
 
 ---
@@ -272,7 +272,7 @@ python -m plugins.platforms.google_chat.oauth \
     --client-secret /path/to/client_secret.json
 
 # A named profile gets its own separate registration:
-hermes -p <profile> python -m plugins.platforms.google_chat.oauth \
+allr -p <profile> python -m plugins.platforms.google_chat.oauth \
     --client-secret /path/to/client_secret.json
 ```
 
@@ -374,7 +374,7 @@ python -m plugins.platforms.google_chat.oauth \
     --client-secret /path/to/client_secret.json
 
 # Named profile:
-hermes -p <profile> python -m plugins.platforms.google_chat.oauth \
+allr -p <profile> python -m plugins.platforms.google_chat.oauth \
     --client-secret /path/to/client_secret.json
 ```
 

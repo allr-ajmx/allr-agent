@@ -175,7 +175,7 @@ If you run your own homeserver (Synapse, Conduit, Dendrite):
 register_new_matrix_user -c /etc/synapse/homeserver.yaml http://localhost:8008
 ```
 
-2. Choose a username like `hermes` — the full user ID will be `@hermes:your-server.org`.
+2. Choose a username like `allr` — the full user ID will be `@hermes:your-server.org`.
 
 ### Option B: Use matrix.org or Another Public Homeserver
 
@@ -362,7 +362,7 @@ E2EE requires the `mautrix` library with encryption extras and the `libolm` C li
 # Install mautrix with E2EE support
 pip install 'mautrix[encryption]'
 
-# Or install with hermes extras
+# Or install with allr extras
 cd ~/.allr/allr-agent && uv pip install -e ".[matrix]"
 ```
 
@@ -805,7 +805,7 @@ FROM python:3.11-slim
 RUN apt-get update && apt-get install -y libolm-dev && rm -rf /var/lib/apt/lists/*
 RUN cd ~/.allr/allr-agent && uv pip install -e ".[matrix]"
 
-CMD ["hermes", "gateway"]
+CMD ["allr", "gateway"]
 ```
 
 That's the entire container. No API keys for OpenRouter, Anthropic, or any inference provider.

@@ -1,3 +1,8 @@
+---
+title: "IRC"
+description: "Set up Allr as an IRC bot on any network, using only the Python standard library"
+---
+
 # IRC
 
 The IRC adapter connects Allr to any IRC server and relays messages between an IRC channel (or direct messages) and the agent. It speaks the IRC protocol over Python's stdlib `asyncio` — **no external dependencies, no SDK, no daemon**. It works with public networks like [Libera.Chat](https://libera.chat/) and any self-hosted ircd.
