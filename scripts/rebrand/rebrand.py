@@ -45,6 +45,13 @@ DELIBERATE NON-SCOPE — these keep the word "hermes" on purpose:
   splits every trace in two.
 * Directory/package names under `gen/android` and `gen/apple` — the app
   identifier lives there and is maintained by hand.
+* Authorship credit. Any `author:` / `authors =` line, and the phrases
+  "Hermes Agent by Nous Research" / "built on Hermes Agent". R7 and R19 do not know
+  the difference between naming our product and crediting someone else's work: they
+  rewrote `author: Hermes Agent` into `author: Allr` across ~85 bundled skills and
+  turned "Hermes Agent by Nous Research" into "Allr", claiming authorship of code
+  this project did not write. Allr is built on Hermes Agent by Nous Research and
+  says so; the rename must never be what edits that sentence.
 * Any line carrying a `# rebrand:keep` (or `// rebrand:keep`) comment — the deliberate
   backward-compat literals (legacy `HERMES_*` env names, legacy unit names)
   that exist precisely to read the pre-rename world.
@@ -80,6 +87,19 @@ PROTECT_PARTS = [
     # Anchored to line start: an unanchored `[^\n]*…` is quadratic on the
     # single-line dist bundles and turns --check into a multi-minute hang.
     r"(?<![^\n])[^\n]*(?:#|//) rebrand:keep[^\n]*",
+    # Authorship credit (see DELIBERATE NON-SCOPE above). Anchored to line start
+    # for the same reason the rebrand:keep pattern is: an unanchored `[^\n]*` is
+    # quadratic on the single-line dist bundles.
+    r"(?<![^\n])[ \t]*author:[^\n]*",
+    r"(?<![^\n])[ \t]*authors\s*=[^\n]*",
+    # website/scripts/generate-skill-docs.py renders the same credit as a table row.
+    r"\|[ \t]*Author[ \t]*\|[^|\n]*\|",
+    # Copyright lines, wherever they live. A brand sweep has no business editing one.
+    r"(?<![^\n])[^\n]*Copyright[^\n]*",
+    # The attribution sentence itself, in the long and short form this repo uses,
+    # plus the bare form an upstream ingest brings in.
+    r"[Bb]uilt on Hermes Agent(?: by Nous Research)?",
+    r"Hermes Agent by Nous Research",
     # Python modules / internal identifiers.
     r"hermes_cli\b",
     r"hermes_constants\b",
@@ -246,6 +266,8 @@ RULES: list[tuple[str, str, str, object]] = [
     # generic status marker elsewhere (` ⚕ ` in the TUI status bar, test
     # fixtures). Only strip it where it decorates the brand.
     ("R21 caduceus", r"⚕ (\*?)Allr", r"\1Allr", None),
+    # The same ornament written as an escape — how it survived in skin_engine.py.
+    ("R21 caduceus", r"\\u2695 (\*?)Allr", r"\1Allr", None),
     ("R21 caduceus", r"Allr ☤", "Allr", None),
     ("R21 caduceus", r"Goodbye! ⚕", "Goodbye!", None),
 ]
@@ -318,7 +340,11 @@ PATH_RENAMES = [
 # --------------------------------------------------------------------------
 
 SKIP_SUFFIXES = (".lock", "-lock.json")
-SKIP_NAMES = {"LICENSE", ".mailmap", ".git-blame-ignore-revs"}
+# Matched on the basename: these were compared against the full path before, so
+# only the root LICENSE was ever skipped and vendored plugins/*/LICENSE and
+# NOTICE files had their third-party copyright holders renamed.
+SKIP_NAMES = {"LICENSE", "LICENSE.md", "LICENSE.txt", "NOTICE", "NOTICE.txt",
+              "COPYING", ".mailmap", ".git-blame-ignore-revs"}
 # No `dist/`/`build/` skip: the only tracked ones are the dashboard plugins'
 # hand-written IIFE bundles (no build step), and skipping them left them calling
 # `window.__HERMES_PLUGIN_SDK__` after the host renamed the global.
@@ -340,7 +366,7 @@ def candidate_files(pathspecs: list[str], excludes: list[str]) -> list[str]:
     listed = _git("ls-files", "-z", "--", *(pathspecs or ["."])).split("\0")
     out = []
     for path in listed:
-        if not path or path in SKIP_NAMES or path.endswith(SKIP_SUFFIXES):
+        if not path or Path(path).name in SKIP_NAMES or path.endswith(SKIP_SUFFIXES):
             continue
         if path.startswith(SKIP_PREFIXES):
             continue
@@ -428,6 +454,19 @@ KEEP = [
     'legacy = os.environ["HERMES_HOME"]  # rebrand:keep',
     "description: 'Hosted Hermes & Nous-trained models', // rebrand:keep",
     'URL = "https://hermes-agent.nousresearch.com/docs/api/model-catalog.json"',
+    # Authorship credit. These sat in no list at all, which is how ~85 skills lost
+    # their author line to R7/R19 without a single test going red.
+    "author: Hermes Agent",
+    "| Author | Teknium (teknium1), Hermes Agent |",
+    "Copyright (c) 2026 Hermes Achievements contributors",
+    "author: Teknium (teknium1), Hermes Agent",
+    "author: Hermes Agent + Teknium",
+    "author: Hermes Agent (Nous Research)",
+    "  author: Ben Barclay (benbarclay), Hermes Agent",
+    'authors = ["Nous Research <info@nousresearch.com>"]',
+    "You are Allr, built on Hermes Agent by Nous Research.",
+    "An open source AI agent, built on Hermes Agent by Nous Research.",
+    "model_short + ' \u00b7 Built on Hermes Agent'",
     # On-wire contracts. The cookie line used to sit in CHANGE below, asserting the
     # rename that broke sign-in against every deployed gateway — the bug encoded as a
     # passing test. It belongs here.
