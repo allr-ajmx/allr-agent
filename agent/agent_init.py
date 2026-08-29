@@ -1845,7 +1845,7 @@ def init_agent(
             pass
 
     # Per-platform prompt-hint overrides (config.yaml → platform_hints).
-    # Lets an enterprise admin append to or replace Allr' built-in
+    # Lets an enterprise admin append to or replace Allr's built-in
     # platform hint for a single messaging platform (e.g. WhatsApp) without
     # affecting other platforms. Shape:
     #   platform_hints:

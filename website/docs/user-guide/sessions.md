@@ -74,7 +74,7 @@ Each session is tagged with its source platform:
 
 | Source | Description |
 |--------|-------------|
-| `cli` | Interactive CLI (`hermes` or `allr chat`) |
+| `cli` | Interactive CLI (`allr` or `allr chat`) |
 | `telegram` | Telegram messenger |
 | `discord` | Discord server/DM |
 | `slack` | Slack workspace |
@@ -105,8 +105,8 @@ Resume previous conversations from the CLI using `--continue` or `--resume`:
 
 ```bash
 # Resume the most recent CLI session
-hermes --continue
-hermes -c
+allr --continue
+allr -c
 
 # Or with the chat subcommand
 allr chat --continue
@@ -121,25 +121,25 @@ If you've given a session a title (see [Session Naming](#session-naming) below),
 
 ```bash
 # Resume a named session
-hermes -c "my project"
+allr -c "my project"
 
 # If there are lineage variants (my project, my project #2, my project #3),
 # this automatically resumes the most recent one
-hermes -c "my project"   # → resumes "my project #3"
+allr -c "my project"   # → resumes "my project #3"
 ```
 
 ### Resume Specific Session
 
 ```bash
 # Resume a specific session by ID
-hermes --resume 20250305_091523_a1b2c3d4
-hermes -r 20250305_091523_a1b2c3d4
+allr --resume 20250305_091523_a1b2c3d4
+allr -r 20250305_091523_a1b2c3d4
 
 # Resume by title
-hermes --resume "refactoring auth"
+allr --resume "refactoring auth"
 
 # Resume the most recent session — same lookup as -c
-hermes --resume latest
+allr --resume latest
 
 # Or with the chat subcommand
 allr chat --resume 20250305_091523_a1b2c3d4
@@ -157,10 +157,10 @@ Pass `--in <dir>` to change into a directory before starting or resuming. Combin
 
 ```bash
 # Resume the latest session that belongs to ./my-project
-hermes --resume latest --in ./my-project
+allr --resume latest --in ./my-project
 
 # Works with the TUI too
-hermes --tui --resume latest --in ./my-project
+allr --tui --resume latest --in ./my-project
 ```
 
 `--in` also pins the session to that directory: the resumed session's recorded working directory is not restored (as if `--no-restore-cwd` were passed).
@@ -170,7 +170,7 @@ hermes --tui --resume latest --in ./my-project
 Resuming a CLI session also `cd`s back into the session's recorded working directory (its git repo root or project dir), so the conversation picks up in the workspace it belonged to. If you'd rather stay where you are, pass `--no-restore-cwd`:
 
 ```bash
-hermes --resume 20250305_091523_a1b2c3 --no-restore-cwd
+allr --resume 20250305_091523_a1b2c3 --no-restore-cwd
 ```
 
 A `↪ restored workspace dir: …` line confirms the switch. Restore failures never break the resume itself.
@@ -238,7 +238,7 @@ What happens:
 
 6. From that point, the conversation lives on the platform. Reply in the new thread — anyone authorized in that channel shares the same session, and any later real user message in the thread joins seamlessly because thread sessions key without `user_id`.
 
-**Resume back to CLI:** when you want to come back to a desktop, just run `/resume <title>` (or `hermes -r "<title>"` from the shell) and pick up where the platform left off.
+**Resume back to CLI:** when you want to come back to a desktop, just run `/resume <title>` (or `allr -r "<title>"` from the shell) and pick up where the platform left off.
 
 **Failure modes:**
 - No home channel configured → CLI refuses with a `/sethome` hint.
@@ -289,7 +289,7 @@ When a session's context is compressed (manually via `/compress` or automaticall
 "my project" → "my project #2" → "my project #3"
 ```
 
-When you resume by name (`hermes -c "my project"`), it automatically picks the most recent session in the lineage.
+When you resume by name (`allr -c "my project"`), it automatically picks the most recent session in the lineage.
 
 ### /title in Messaging Platforms
 

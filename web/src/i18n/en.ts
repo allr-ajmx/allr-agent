@@ -54,7 +54,7 @@ export const en: Translations = {
 
   app: {
     brand: "Allr",
-    brandShort: "HA",
+    brandShort: "AA",
     closeNavigation: "Close navigation",
     closeModelTools: "Close model and tools",
     footer: {

@@ -8,6 +8,36 @@ description: "How to contribute to Allr — dev setup, code style, PR process"
 
 Thank you for contributing to Allr! This guide covers setting up your dev environment, understanding the codebase, and getting your PR merged.
 
+## Where to contribute — here or upstream
+
+Allr is a fork of [`NousResearch/hermes-agent`](https://github.com/NousResearch/hermes-agent)
+and shares its DNA. That gives you two good homes for a change, and picking the right
+one gets your work in front of the most users:
+
+- **Generic improvements belong upstream.** A fix or feature that any Hermes Agent user  <!-- # rebrand:keep -->
+  would want — a provider, a platform adapter, a bug in the shared core — is best sent to
+  [`NousResearch/hermes-agent`](https://github.com/NousResearch/hermes-agent). We
+  actively encourage this: it reaches both projects, and it reaches Allr on the next
+  ingest. Contributing there is not a detour.
+- **Allr-specific work belongs here.** If it only makes sense inside Allr — our app, our
+  workspace model, our defaults — open it against
+  [`allr-ajmx/allr-agent`](https://github.com/allr-ajmx/allr-agent).
+
+Either way, two things shape how a contribution lands:
+
+**We prefer plugins.** New capability should arrive as a plugin, a skill, or a CLI
+command before it becomes core surface. The core is a narrow waist — every model tool is
+paid for on every API call — so a plugin usually ships faster and is easier to keep.
+
+**AI-facing work is held to token economics.** Anything touching prompts, tools, or the
+agent loop is judged end to end: from the wording of a prompt through the tokens it costs
+on every turn. A change has to reduce friction in the workflow, not add it. We may reshape
+a submission to meet that bar rather than reject it.
+
+**Your credit survives.** Contributions are often batched into a larger PR carried by the
+team. When that happens we cherry-pick so your authorship stays in the git history — we
+do not reimplement your work under someone else's name.
+
 ## Contribution Priorities
 
 We value contributions in this order:
@@ -36,13 +66,13 @@ We value contributions in this order:
 | **Git**              | With the `git-lfs` extension installed                                                        |
 | **Python 3.11–3.13** | uv will install it if missing                                                                 |
 | **uv**               | Fast Python package manager ([install](https://docs.astral.sh/uv/))                           |
-| **Node.js 26+**      | Optional — needed for browser tools and WhatsApp bridge (matches root `package.json` engines) |
+| **Node.js 22.22+**   | Optional — needed for browser tools and WhatsApp bridge (root `package.json` engines; CI builds on Node 26) |
 
 ### Install with the standard installer
 
 For most contributors, the best development bootstrap is the same path users
 take: run the standard installer, then work inside the repository it cloned.
-The installer creates the Allr venv, wires the `hermes` command, stamps the
+The installer creates the Allr venv, wires the `allr` command, stamps the
 install method for `allr update`, and clones the full git project into
 `$ALLR_HOME/allr-agent` (usually `~/.allr/allr-agent`). That keeps your
 development environment on the same layout the CLI, updater, lazy dependency
@@ -76,9 +106,9 @@ scripts/dev-sandbox.sh --persistent python -m hermes_cli.main desktop  # state s
 
 ### Manual clone fallback
 
-Use this only if you intentionally do not want Allr' managed install layout
+Use this only if you intentionally do not want Allr's managed install layout
 (for example, a throwaway clone inside a container or CI job). If you install
-this way, make sure you run the `hermes` entrypoint from this venv; running the
+this way, make sure you run the `allr` entrypoint from this venv; running the
 system `python3 -m hermes_cli.main` can pick up unrelated system Python
 packages.
 
@@ -89,7 +119,7 @@ which silently destroys the running runtime mid-session. Keeping it outside the
 tree means no relative path from the workspace resolves to it.
 
 ```bash
-git clone https://github.com/NousResearch/hermes-agent.git
+git clone https://github.com/allr-ajmx/allr-agent.git
 cd allr-agent
 
 # Create venv with Python 3.11, OUTSIDE the source tree
@@ -118,7 +148,7 @@ echo 'OPENROUTER_API_KEY=sk-or-v1-your-key' >> ~/.allr/.env
 ### Run
 
 ```bash
-# The standard installer already put `hermes` on PATH.
+# The standard installer already put `allr` on PATH.
 allr doctor
 allr chat -q "Hello"
 ```
@@ -143,7 +173,7 @@ scripts/run_tests.sh
 - **Comments**: Only when explaining non-obvious intent, trade-offs, or API quirks
 - **Error handling**: Catch specific exceptions. Use `logger.warning()`/`logger.error()` with `exc_info=True` for unexpected errors
 - **Cross-platform**: Never assume Unix (see below)
-- **Profile-safe paths**: Never hardcode `~/.allr` — use `get_hermes_home()` from `hermes_constants` for code paths and `display_hermes_home()` for user-facing messages. See [AGENTS.md](https://github.com/NousResearch/hermes-agent/blob/main/AGENTS.md#profiles-multi-instance-support) for full rules.
+- **Profile-safe paths**: Never hardcode `~/.allr` — use `get_hermes_home()` from `hermes_constants` for code paths and `display_hermes_home()` for user-facing messages. See [AGENTS.md](https://github.com/allr-ajmx/allr-agent/blob/main/AGENTS.md#profiles-multi-instance-support) for full rules.
 
 ## Cross-Platform Compatibility
 
@@ -239,7 +269,7 @@ refactor/description   # Code restructuring
 ### Before Submitting
 
 1. **Run tests**: `scripts/run_tests.sh` for CI-parity. Use direct `python -m pytest ...` only when the wrapper is unavailable or you are intentionally debugging outside the wrapper.
-2. **Test manually**: Run `hermes` and exercise the code path you changed
+2. **Test manually**: Run `allr` and exercise the code path you changed
 3. **Check cross-platform impact**: Consider macOS, Linux, WSL2, and native Windows. If you touch file I/O, process management, terminal handling, subprocesses, or signals, run `scripts/check-windows-footguns.py`.
 4. **Keep PRs focused**: One logical change per PR
 
@@ -302,7 +332,8 @@ When you ask Allr to review a PR in a repository that has `.agents/checks/`, tel
 
 ## Reporting Issues
 
-- Use [GitHub Issues](https://github.com/NousResearch/hermes-agent/issues)
+- Allr issues: [allr-ajmx/allr-agent/issues](https://github.com/allr-ajmx/allr-agent/issues)
+- Upstream issues (anything not Allr-specific): [NousResearch/hermes-agent/issues](https://github.com/NousResearch/hermes-agent/issues)
 - Include: OS, Python version, Allr version (`allr version`), full error traceback
 - Include steps to reproduce
 - Check existing issues before creating duplicates
@@ -316,4 +347,4 @@ When you ask Allr to review a PR in a repository that has `.agents/checks/`, tel
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the [MIT License](https://github.com/NousResearch/hermes-agent/blob/main/LICENSE).
+By contributing, you agree that your contributions will be licensed under the [MIT License](https://github.com/allr-ajmx/allr-agent/blob/main/LICENSE).

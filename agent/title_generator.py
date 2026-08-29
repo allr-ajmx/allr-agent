@@ -123,7 +123,7 @@ _CONTROL_WRAPPERS = (
     ("<ide_selection>", "</ide_selection>"),
 )
 
-# Allr' own machine-authored openers. A compaction handoff or a resumed
+# Allr's own machine-authored openers. A compaction handoff or a resumed
 # session must not be titled after the scaffolding that carried it. The legacy
 # summary prefix comes from the compressor rather than a fourth local copy —
 # compaction still emits it, and a session named after it is named after us.

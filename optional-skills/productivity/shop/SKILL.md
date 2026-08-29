@@ -2,7 +2,7 @@
 name: shop
 description: "Shop catalog search, checkout, order tracking, returns."
 version: 1.0.1
-author: Joe Rinaldi Johnson (joerj123), Allr
+author: Joe Rinaldi Johnson (joerj123), Hermes Agent
 license: MIT
 platforms: [linux, macos, windows]
 prerequisites:

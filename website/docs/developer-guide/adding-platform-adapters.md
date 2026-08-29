@@ -1,5 +1,7 @@
 ---
 sidebar_position: 9
+title: "Adding Platform Adapters"
+description: "How to add a messaging platform to the Allr gateway — plugin adapters, the built-in checklist, config bridging, and cron delivery"
 ---
 
 # Adding a Platform Adapter

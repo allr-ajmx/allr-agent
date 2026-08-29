@@ -209,3 +209,7 @@ native/fts5_cjk/*.so
 # by accident via 3a69e34702, removed in the #72002 salvage).
 .lazy-refresh-incomplete
 /apps/hermes-universal/src-tauri/plugins/*/.tauri/**/*
+
+# Temporary review aids for the v0.0.8 attribution branch — not for commit.
+REBRAND-REVIEW.md
+DOCS-REVIEW.md

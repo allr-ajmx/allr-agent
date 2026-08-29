@@ -1,7 +1,7 @@
 """Human-friendly generic gateway status phrases.
 
 These helpers deliberately avoid relaying raw model scratch text.  They turn
-Allr' long-running gateway status surface into short status lines suitable
+Allr's long-running gateway status surface into short status lines suitable
 for chat surfaces.
 
 Built-in defaults live in ``gateway/assets/status_phrases.yaml``. Users can add

@@ -17,7 +17,7 @@ description: "4-phase root cause debugging: understand bugs before fixing"
 | Source | Bundled (installed by default) |
 | Path | `skills/software-development/systematic-debugging` |
 | Version | `1.1.0` |
-| Author | Allr (adapted from obra/superpowers) |
+| Author | Hermes Agent (adapted from obra/superpowers) |
 | License | MIT |
 | Platforms | linux, macos, windows |
 | Tags | `debugging`, `troubleshooting`, `problem-solving`, `root-cause`, `investigation` |

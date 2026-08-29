@@ -2,7 +2,7 @@
 name: bioinformatics
 description: Gateway to 400+ genomics and computational biology skills.
 version: 1.0.0
-author: Teknium (teknium1), Allr
+author: Teknium (teknium1), Hermes Agent
 license: MIT
 platforms: [linux, macos]
 metadata:

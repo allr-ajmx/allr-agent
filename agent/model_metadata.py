@@ -680,7 +680,7 @@ _URL_TO_PROVIDER: Dict[str, str] = {
     "models.github.ai": "copilot",
     # GitHub Models free tier (Azure-hosted prototyping endpoint) — same
     # canonical provider as the Copilot API.  Hard per-request token cap
-    # (often 8K) makes it unusable for Allr' system prompt, but mapping
+    # (often 8K) makes it unusable for Allr's system prompt, but mapping
     # it here lets us recognize the endpoint and emit a targeted hint
     # instead of falling through the unknown-custom-endpoint path.
     "models.inference.ai.azure.com": "copilot",

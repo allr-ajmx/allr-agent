@@ -17,7 +17,7 @@ Import an OpenClaw setup (memories, skills) into Allr.
 | Source | Optional — install with `allr skills install official/migration/openclaw-migration` |
 | Path | `optional-skills/migration/openclaw-migration` |
 | Version | `1.0.0` |
-| Author | Allr (Nous Research) |
+| Author | Hermes Agent (Nous Research) |
 | License | MIT |
 | Platforms | linux, macos, windows |
 | Tags | `Migration`, `OpenClaw`, `Allr`, `Memory`, `Persona`, `Import` |

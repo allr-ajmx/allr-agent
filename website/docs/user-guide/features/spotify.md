@@ -1,8 +1,13 @@
+---
+title: "Spotify"
+description: "Control Spotify playback, queue, search, playlists, and library from Allr using PKCE OAuth and your own developer app."
+---
+
 # Spotify
 
 Allr can control Spotify directly — playback, queue, search, playlists, saved tracks/albums, and listening history — using Spotify's official Web API with PKCE OAuth. Tokens are stored in `~/.allr/auth.json` and refreshed automatically on 401; you only log in once per machine (refresh tokens expire after ~6 months; re-run `allr auth spotify` when they do).
 
-Unlike Allr' built-in OAuth integrations (Google, GitHub Copilot, Codex), Spotify requires every user to register their own lightweight developer app. Spotify does not let third parties ship a public OAuth app that anyone can use. It takes about two minutes and `allr auth spotify` walks you through it.
+Unlike Allr's built-in OAuth integrations (Google, GitHub Copilot, Codex), Spotify requires every user to register their own lightweight developer app. Spotify does not let third parties ship a public OAuth app that anyone can use. It takes about two minutes and `allr auth spotify` walks you through it.
 
 ## Prerequisites
 

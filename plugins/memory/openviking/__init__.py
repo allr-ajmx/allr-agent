@@ -4211,7 +4211,7 @@ class OpenVikingMemoryProvider(MemoryProvider):
         user_content: str,
         assistant_content: str,
     ) -> List[Dict[str, Any]]:
-        """Slice the completed turn out of Allr' full canonical transcript."""
+        """Slice the completed turn out of Allr's full canonical transcript."""
         if not messages:
             return []
 

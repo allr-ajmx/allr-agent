@@ -1,3 +1,8 @@
+---
+title: "Bitwarden Secrets Manager"
+description: "Fetch provider keys from Bitwarden Secrets Manager at startup using a machine-account token and the auto-installed bws CLI."
+---
+
 # Bitwarden Secrets Manager
 
 Pull API keys from [Bitwarden Secrets Manager](https://bitwarden.com/products/secrets-manager/) at process startup instead of storing them in plaintext inside `~/.allr/.env`. One bootstrap secret (a machine-account access token) replaces N per-provider keys, and rotating a credential becomes a single change in the Bitwarden web app.
@@ -6,7 +11,7 @@ Pull API keys from [Bitwarden Secrets Manager](https://bitwarden.com/products/se
 
 1. You create a **machine account** in Bitwarden Secrets Manager, give it read access to a project, and generate an **access token**.
 2. Allr stores that single token in `~/.allr/.env` as `BWS_ACCESS_TOKEN`.
-3. Every time `hermes` (or the gateway, or a cron job) starts, after `~/.allr/.env` has loaded, Allr calls `bws secret list <project_id>` and sets the returned keys into `os.environ`.
+3. Every time `allr` (or the gateway, or a cron job) starts, after `~/.allr/.env` has loaded, Allr calls `bws secret list <project_id>` and sets the returned keys into `os.environ`.
 4. By default Allr **overrides** values already in your environment, so Bitwarden is the source of truth — rotate a key once in the web app and every Allr process picks it up on next start. Flip `override_existing: false` in config if you want `.env` to win instead.
 
 The `bws` binary is auto-downloaded into `~/.allr/bin/` on first use — no `apt`, no `brew`, no `sudo`.
@@ -61,7 +66,7 @@ allr secrets bitwarden setup \
 allr secrets bitwarden status
 ```
 
-From now on, every `hermes` invocation pulls fresh secrets at startup. You'll see a one-line summary in stderr the first time secrets are applied in a process.
+From now on, every `allr` invocation pulls fresh secrets at startup. You'll see a one-line summary in stderr the first time secrets are applied in a process.
 
 ## CLI
 

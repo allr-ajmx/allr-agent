@@ -2,7 +2,7 @@
 name: allr-s6-container-supervision
 description: Modify or debug s6 services in the Allr Docker image.
 version: 1.0.0
-author: Allr
+author: Hermes Agent
 license: MIT
 platforms: [linux]
 environments: [s6]

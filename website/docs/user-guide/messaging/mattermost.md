@@ -71,7 +71,7 @@ If you don't have System Admin access, ask your Mattermost administrator to enab
 1. In Mattermost, click the **☰** menu (top-left) → **Integrations** → **Bot Accounts**.
 2. Click **Add Bot Account**.
 3. Fill in the details:
-   - **Username**: e.g., `hermes`
+   - **Username**: e.g., `allr`
    - **Display Name**: e.g., `Allr`
    - **Description**: optional
    - **Role**: `Member` is sufficient
@@ -94,7 +94,7 @@ The bot needs to be a member of any channel where you want it to respond:
 
 1. Open the channel where you want the bot.
 2. Click the channel name → **Add Members**.
-3. Search for your bot username (e.g., `hermes`) and add it.
+3. Search for your bot username (e.g., `allr`) and add it.
 
 For DMs, simply open a direct message with the bot — it will be able to respond immediately.
 

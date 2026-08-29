@@ -2,7 +2,7 @@
 name: plan
 description: Write a markdown plan to .allr/plans/; no execution.
 version: 2.0.0
-author: Allr (writing-craft adapted from obra/superpowers)
+author: Hermes Agent (writing-craft adapted from obra/superpowers)
 license: MIT
 platforms: [linux, macos, windows]
 metadata:

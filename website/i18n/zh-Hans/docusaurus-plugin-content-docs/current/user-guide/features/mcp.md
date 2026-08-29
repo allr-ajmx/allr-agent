@@ -510,7 +510,7 @@ allr mcp serve
 {
   "mcpServers": {
     "hermes": {
-      "command": "hermes",
+      "command": "allr",
       "args": ["mcp", "serve"]
     }
   }
@@ -585,7 +585,7 @@ MCP 服务器直接从 Allr 的会话存储（`~/.allr/sessions/sessions.json` �
 
 ## 相关文档
 
-- [在 Allr 中使用 MCP](/guides/use-mcp-with-hermes)
+- [在 Allr 中使用 MCP](/guides/use-mcp-with-allr)
 - [CLI 命令](/reference/cli-commands)
 - [斜杠命令](/reference/slash-commands)
 - [常见问题](/reference/faq)

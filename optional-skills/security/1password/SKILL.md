@@ -2,7 +2,7 @@
 name: 1password
 description: Set up op CLI, sign in, and read or inject secrets.
 version: 1.0.0
-author: arceus77-7, enhanced by Allr
+author: arceus77-7, enhanced by Hermes Agent
 license: MIT
 platforms: [linux, macos, windows]
 metadata:

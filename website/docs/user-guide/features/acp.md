@@ -109,7 +109,7 @@ Buzz relay <-- WebSocket --> buzz-acp <-- ACP over stdio --> Allr
 
 This is a transport integration, not a second Allr installation. The
 subprocess launched by `buzz-acp` uses the same Allr configuration,
-credentials, memory, skills, and state as `hermes` on that host.
+credentials, memory, skills, and state as `allr` on that host.
 
 (This is distinct from [Buzz Desktop's managed runtime](#buzz-desktop), which
 spawns Allr locally as a preset harness. The relay bridge is for joining Buzz
@@ -132,7 +132,7 @@ Start a bridge with:
 export BUZZ_RELAY_URL="wss://community.example.com"
 export BUZZ_PRIVATE_KEY="..."
 export BUZZ_API_TOKEN="..."
-export BUZZ_ACP_AGENT_COMMAND="hermes"
+export BUZZ_ACP_AGENT_COMMAND="allr"
 export BUZZ_ACP_AGENT_ARGS="acp"
 
 buzz-acp
@@ -187,7 +187,7 @@ If you want to define Allr manually, add it through VS Code settings under `acp.
 {
   "acp.agents": {
     "Allr": {
-      "command": "hermes",
+      "command": "allr",
       "args": ["acp"]
     }
   }
@@ -206,7 +206,7 @@ Configure Allr as a custom agent server in Zed settings:
   "agent_servers": {
     "allr-agent": {
       "type": "custom",
-      "command": "hermes",
+      "command": "allr",
       "args": ["acp"]
     }
   }
@@ -236,14 +236,14 @@ login-shell PATH:
 command -v allr-acp || command -v hermes
 ```
 
-Recent installs write both `hermes` and `allr-acp` launchers into
+Recent installs write both `allr` and `allr-acp` launchers into
 `~/.local/bin`; running `allr update` adds the `allr-acp` launcher to
 older installs. As a manual fallback, configure Buzz's agent command as
-`hermes` with args `["acp"]`.
+`allr` with args `["acp"]`.
 
 #### Model picker
 
-Buzz Desktop (v0.5.1+) renders Allr' full model menu in the agent's runtime
+Buzz Desktop (v0.5.1+) renders Allr's full model menu in the agent's runtime
 settings. The list comes from Allr itself over ACP: it shows every model
 from providers you have authenticated in Allr (the same inventory behind
 `allr model` and the `/model` command), so a model missing from the menu
@@ -260,7 +260,7 @@ Buzz creates every agent with **Who can talk to this agent** set to `Owner only`
 Leave it there when the runtime is Allr.
 
 Two behaviors combine on this path. The `allr-acp` toolset includes `terminal`
-and `execute_code`, and Buzz's ACP bridge answers Allr' permission requests
+and `execute_code`, and Buzz's ACP bridge answers Allr's permission requests
 itself with `allow_once` rather than surfacing them. An Allr agent in Buzz
 therefore runs shell commands on the host without prompting. I asked one to run
 `rm -rf` against a scratch directory and it deleted it, no prompt anywhere.
@@ -287,7 +287,7 @@ ACP mode uses the same Allr configuration as the CLI:
 - `~/.allr/skills/`
 - `~/.allr/state.db`
 
-Provider resolution uses Allr' normal runtime resolver, so ACP inherits the currently configured provider and credentials. Allr also advertises a terminal auth method (`--setup`) for first-run ACP clients; this opens Allr' interactive model/provider setup.
+Provider resolution uses Allr's normal runtime resolver, so ACP inherits the currently configured provider and credentials. Allr also advertises a terminal auth method (`--setup`) for first-run ACP clients; this opens Allr's interactive model/provider setup.
 
 ## Host integration
 
@@ -323,7 +323,7 @@ Each session stores:
 - current conversation history
 - cancel event
 
-The underlying `AIAgent` still uses Allr' normal persistence/logging paths, but ACP `list/load/resume/fork` are scoped to the currently running ACP server process.
+The underlying `AIAgent` still uses Allr's normal persistence/logging paths, but ACP `list/load/resume/fork` are scoped to the currently running ACP server process.
 
 ## Working directory behavior
 
@@ -357,7 +357,7 @@ ACP exposes a third tier between *allow once* and *allow always*: **Allow for se
 
 `allow_session` is the right default for an editor workflow where you trust an agent for the duration of a task but don't want to grant a long-lived allowlist entry. The safety trade-off is straightforward: the broader the scope, the less the editor will interrupt you, and the more damage a misbehaving agent (or prompt injection) can do before you notice. Start with `allow_once` for unfamiliar commands; promote to `allow_session` once you've seen the agent run the same pattern correctly a few times; reserve `allow_always` for truly idempotent commands you trust forever (e.g. `git status`).
 
-The ACP bridge maps these options onto Allr' internal approval semantics — `allow_always` writes a permanent allowlist entry the same way the CLI does, while `allow_session` only affects the in-process approval cache for the current ACP session.
+The ACP bridge maps these options onto Allr's internal approval semantics — `allow_always` writes a permanent allowlist entry the same way the CLI does, while `allow_session` only affects the in-process approval cache for the current ACP session.
 
 ## Troubleshooting
 
@@ -382,7 +382,7 @@ allr status
 
 ### Missing credentials
 
-ACP mode uses Allr' existing provider setup. Configure credentials with:
+ACP mode uses Allr's existing provider setup. Configure credentials with:
 
 ```bash
 allr model

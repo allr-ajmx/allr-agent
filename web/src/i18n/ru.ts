@@ -51,7 +51,7 @@ export const ru: Translations = {
 
   app: {
     brand: "Allr",
-    brandShort: "HA",
+    brandShort: "AA",
     closeNavigation: "Закрыть навигацию",
     closeModelTools: "Закрыть модель и инструменты",
     footer: {

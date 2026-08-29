@@ -151,7 +151,7 @@ VALID_HOOKS: Set[str] = {
     #   {"action": "continue", "message": "<follow-up instruction>"}
     # The Claude-Code Stop shape {"decision": "block", "reason": "..."} (block
     # the stop == keep going) is accepted too. Anything else lets the turn
-    # finish. Allr' shipped guidance lives in the evidence-based
+    # finish. Allr's shipped guidance lives in the evidence-based
     # verification-stop nudge; this hook is for user/plugin policy and is
     # bounded by agent.max_verify_nudges.
     "pre_verify",

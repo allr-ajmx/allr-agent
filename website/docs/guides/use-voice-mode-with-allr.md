@@ -45,7 +45,7 @@ Before touching voice mode, verify that:
 - the agent can answer text prompts normally
 
 ```bash
-hermes
+allr
 ```
 
 Ask something simple:
@@ -204,7 +204,7 @@ tts:
 Start Allr:
 
 ```bash
-hermes
+allr
 ```
 
 Inside the CLI:

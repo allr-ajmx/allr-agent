@@ -51,7 +51,7 @@ export const ga: Translations = {
 
   app: {
     brand: "Allr",
-    brandShort: "HA",
+    brandShort: "AA",
     closeNavigation: "Dún an nascleanúint",
     closeModelTools: "Dún an samhail agus na huirlisí",
     footer: {

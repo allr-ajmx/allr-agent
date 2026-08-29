@@ -671,6 +671,8 @@ export const zhHant = defineLocale({
     }),
     about: {
       heading: 'Allr',
+      description:
+        'Allr 是一個持續演進的平台，讓使用 AI 這件事變得更簡單。我們不要求你去學習如何把 AI 用得更好，而是最佳化它周圍的框架——讓你以最佳效能獲得模型所能給出的最佳輸出。同時把整套應用整合到一處，讓你專注於想要的結果，而不是達成結果的過程。',
       version: value => `版本 ${value}`,
       versionUnavailable: '版本不可用',
       updates: '更新',

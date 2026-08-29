@@ -79,7 +79,7 @@ Allr detects this endpoint and creates its native Gemini adapter. Internally, Al
 :::note Gemini 3 thought signatures
 For Gemini 3 tool use, Allr preserves the `thoughtSignature` values attached to function-call parts and replays them on the next tool turn. That covers the validation-critical path for multi-step agent workflows.
 
-Gemini 3 may also attach thought signatures to other response parts. Allr' native adapter is optimized for agent tool loops today, so it does not yet replay every non-tool-call signature with full part-level fidelity.
+Gemini 3 may also attach thought signatures to other response parts. Allr's native adapter is optimized for agent tool loops today, so it does not yet replay every non-tool-call signature with full part-level fidelity.
 :::
 
 ### Prefer the Native Endpoint
@@ -100,7 +100,7 @@ GEMINI_BASE_URL=https://generativelanguage.googleapis.com/v1beta
 
 ## Available Models
 
-The `allr model` picker shows Gemini models maintained in Allr' provider registry. Common choices include:
+The `allr model` picker shows Gemini models maintained in Allr's provider registry. Common choices include:
 
 | Model | ID | Notes |
 |-------|----|-------|

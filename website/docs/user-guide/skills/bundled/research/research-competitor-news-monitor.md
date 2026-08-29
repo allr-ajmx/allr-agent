@@ -17,7 +17,7 @@ Watch named companies for material news; cited digests.
 | Source | Bundled (installed by default) |
 | Path | `skills/research/competitor-news-monitor` |
 | Version | `0.1.0` |
-| Author | Ben Barclay (benbarclay), Allr |
+| Author | Ben Barclay (benbarclay), Hermes Agent |
 | License | MIT |
 | Platforms | linux, macos, windows |
 | Tags | `Competitors`, `News`, `Market-Research`, `Monitoring` |

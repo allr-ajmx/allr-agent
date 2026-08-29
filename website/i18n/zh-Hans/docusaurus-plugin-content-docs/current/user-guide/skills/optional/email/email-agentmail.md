@@ -64,7 +64,7 @@ mcp_servers:
 
 ### 3. 重启 Allr
 ```bash
-hermes
+allr
 ```
 所有 11 个 AgentMail 工具现已自动可用。
 
@@ -132,7 +132,7 @@ hermes
 ## 验证
 配置完成后，使用以下命令测试：
 ```
-hermes --toolsets mcp -q "Create an AgentMail inbox called test-agent and tell me its email address"
+allr --toolsets mcp -q "Create an AgentMail inbox called test-agent and tell me its email address"
 ```
 应返回新收件箱的地址。
 

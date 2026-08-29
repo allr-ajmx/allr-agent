@@ -2909,8 +2909,13 @@ def build_anthropic_kwargs(
         for block in system:
             if isinstance(block, dict) and block.get("type") == "text":
                 text = block.get("text", "")
+                # The attribution sentence goes first: the generic replacements below
+                # would otherwise leave "built on Hermes Agent by Anthropic" behind,
+                # putting a product name into the very prompt this is sanitizing.
+                text = text.replace(
+                    "Allr, built on Hermes Agent by Nous Research", "Claude Code"
+                )
                 text = text.replace("Allr", "Claude Code")
-                text = text.replace("Allr agent", "Claude Code")
                 text = text.replace("allr-agent", "claude-code")
                 text = text.replace("Nous Research", "Anthropic")
                 block["text"] = text

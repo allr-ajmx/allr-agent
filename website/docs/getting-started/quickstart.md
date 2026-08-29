@@ -178,13 +178,13 @@ The right value goes to the right file automatically.
 
 ```bash
 hermes            # classic CLI
-hermes --tui      # modern TUI (recommended)
+allr --tui      # modern TUI (recommended)
 ```
 
 You'll see a welcome banner with your model, available tools, and skills. Use a prompt that's specific and easy to verify:
 
 :::tip Pick your interface
-Allr ships with two terminal interfaces: the classic `prompt_toolkit` CLI and a newer [TUI](../user-guide/tui.md) with modal overlays, mouse selection, and non-blocking input. Both share the same sessions, slash commands, and config — try each with `hermes` vs `hermes --tui`.
+Allr ships with two terminal interfaces: the classic `prompt_toolkit` CLI and a newer [TUI](../user-guide/tui.md) with modal overlays, mouse selection, and non-blocking input. Both share the same sessions, slash commands, and config — try each with `allr` vs `allr --tui`.
 :::
 
 ```
@@ -213,8 +213,8 @@ If that works, you're past the hardest part.
 Before moving on, make sure resume works:
 
 ```bash
-hermes --continue    # Resume the most recent session
-hermes -c            # Short form
+allr --continue    # Resume the most recent session
+allr -c            # Short form
 ```
 
 That should bring you back to the session you just had. If it doesn't, check whether you're in the same profile and whether the session actually saved. This matters later when you're juggling multiple setups or machines.
@@ -352,7 +352,7 @@ These are the problems that waste the most time:
 | Allr opens but gives empty or broken replies | Provider auth or model selection is wrong | Run `allr model` again and confirm provider, model, and auth |
 | Custom endpoint "works" but returns garbage | Wrong base URL, model name, or not actually OpenAI-compatible | Verify the endpoint in a separate client first |
 | Gateway starts but nobody can message it | Bot token, allowlist, or platform setup is incomplete | Re-run `allr gateway setup` and check `allr gateway status` |
-| `hermes --continue` can't find old session | Switched profiles or session never saved | Check `allr sessions list` and confirm you're in the right profile |
+| `allr --continue` can't find old session | Switched profiles or session never saved | Check `allr sessions list` and confirm you're in the right profile |
 | Model unavailable or odd fallback behavior | Provider routing or fallback settings are too aggressive | Keep routing off until the base provider is stable |
 | `allr doctor` flags config problems | Config values are missing or stale | Fix the config, retest a plain chat before adding features |
 
@@ -364,7 +364,7 @@ When something feels off, use this order:
 2. `allr model`
 3. `allr setup`
 4. `allr sessions list`
-5. `hermes --continue`
+5. `allr --continue`
 6. `allr gateway status`
 
 That sequence gets you from "broken vibes" back to a known state fast.
@@ -375,14 +375,14 @@ That sequence gets you from "broken vibes" back to a known state fast.
 
 | Command | Description |
 |---------|-------------|
-| `hermes` | Start chatting |
+| `allr` | Start chatting |
 | `allr model` | Choose your LLM provider and model |
 | `allr tools` | Configure which tools are enabled per platform |
 | `allr setup` | Full setup wizard (configures everything at once) |
 | `allr doctor` | Diagnose issues |
 | `allr update` | Update to latest version |
 | `allr gateway` | Start the messaging gateway |
-| `hermes --continue` | Resume last session |
+| `allr --continue` | Resume last session |
 
 ## Next Steps
 

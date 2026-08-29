@@ -606,6 +606,8 @@ export const en: Translations = {
     fieldDescriptions: FIELD_DESCRIPTIONS,
     about: {
       heading: 'Allr',
+      description:
+        'Allr is a continuously evolving platform that makes working with AI simpler. Rather than asking you to get better at using AI, Allr optimizes the harness around it — so you get the best output a model can give, at the best performance. And by bringing the whole application suite into one place, Allr keeps you focused on the outcome you want rather than the process of getting there.',
       version: value => `Version ${value}`,
       versionUnavailable: 'Version unavailable',
       updates: 'Updates',

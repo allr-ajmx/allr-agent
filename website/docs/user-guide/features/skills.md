@@ -670,7 +670,7 @@ Allr can search and convert agent entries from LobeHub's public catalog into ins
 
 #### 7. browse.sh (`browse-sh`)
 
-Allr integrates with [browse.sh](https://browse.sh), Browserbase's catalog of 200+ site-specific browser-automation SKILL.md files (Airbnb, Amazon, arXiv, 12306.cn, Etsy, Xero, and many more). Each skill describes how to drive one website end-to-end and is suitable for use with Allr' browser tools and any browser-automation skills you already have installed.
+Allr integrates with [browse.sh](https://browse.sh), Browserbase's catalog of 200+ site-specific browser-automation SKILL.md files (Airbnb, Amazon, arXiv, 12306.cn, Etsy, Xero, and many more). Each skill describes how to drive one website end-to-end and is suitable for use with Allr's browser tools and any browser-automation skills you already have installed.
 
 - Site: [browse.sh](https://browse.sh/)
 - Catalog API: `https://browse.sh/api/skills`
@@ -909,7 +909,7 @@ The same command works in chat as a slash command:
 ```
 
 :::note Profiles
-Each profile has its own `.bundled_manifest` under its own `ALLR_HOME`, so `hermes -p coder skills reset <name>` only affects that profile.
+Each profile has its own `.bundled_manifest` under its own `ALLR_HOME`, so `allr -p coder skills reset <name>` only affects that profile.
 :::
 
 ### Slash commands (inside chat)

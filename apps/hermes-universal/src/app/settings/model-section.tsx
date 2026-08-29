@@ -91,7 +91,7 @@ export function ModelSettingsSkeleton() {
   )
 }
 
-// Allr' reasoning levels (VALID_REASONING_EFFORTS); `none` = thinking off.
+// Allr's reasoning levels (VALID_REASONING_EFFORTS); `none` = thinking off.
 // Empty config = Allr default (medium), shown as Medium.
 const EFFORT_VALUES = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const
 

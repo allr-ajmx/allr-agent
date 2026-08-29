@@ -815,7 +815,7 @@ Add Allr to your MCP client config. For example, in Claude Code's `~/.claude/cla
 {
   "mcpServers": {
     "hermes": {
-      "command": "hermes",
+      "command": "allr",
       "args": ["mcp", "serve"]
     }
   }
@@ -890,7 +890,7 @@ The gateway does NOT need to be running for read operations (listing conversatio
 
 ## Related docs
 
-- [Use MCP with Allr](/guides/use-mcp-with-hermes)
+- [Use MCP with Allr](/guides/use-mcp-with-allr)
 - [CLI Commands](/reference/cli-commands)
 - [Slash Commands](/reference/slash-commands)
 - [FAQ](/reference/faq)

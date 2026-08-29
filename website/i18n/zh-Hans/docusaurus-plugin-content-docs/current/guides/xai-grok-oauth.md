@@ -50,7 +50,7 @@ allr model
 # → 选择模型（grok-build-0.1 在列表顶部）
 # → 开始对话
 
-hermes
+allr
 ```
 
 首次登录后，凭据存储在 `~/.allr/auth.json` 中，并在过期前自动刷新。
@@ -120,10 +120,10 @@ model:
 以下所有别名均解析为 `xai-oauth`：
 
 ```bash
-hermes --provider xai-oauth        # 规范名称
-hermes --provider grok-oauth       # 别名
-hermes --provider x-ai-oauth       # 别名
-hermes --provider xai-grok-oauth   # 别名
+allr --provider xai-oauth        # 规范名称
+allr --provider grok-oauth       # 别名
+allr --provider x-ai-oauth       # 别名
+allr --provider xai-grok-oauth   # 别名
 ```
 
 ## 直连 xAI 工具（TTS / 图像 / 视频 / 转录 / X 搜索）

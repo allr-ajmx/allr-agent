@@ -1,5 +1,7 @@
 ---
 sidebar_position: 7
+title: "Profile Commands"
+description: "Reference for every allr profile subcommand — create, use, describe, alias, rename, export/import, and distribution install/update"
 ---
 
 # Profile Commands Reference
@@ -56,7 +58,7 @@ No options.
 allr profile use <name>
 ```
 
-Sets `<name>` as the active profile. All subsequent `hermes` commands (without `-p`) will use this profile.
+Sets `<name>` as the active profile. All subsequent `allr` commands (without `-p`) will use this profile.
 
 | Argument | Description |
 |----------|-------------|
@@ -323,7 +325,7 @@ Installs a profile distribution from a git URL or a local directory.
 |--------|-------------|
 | `<source>` | Git URL (`github.com/user/repo`, `https://...`, `git@...`, `ssh://`, `git://`) or a local directory containing `distribution.yaml` at its root. |
 | `--name NAME` | Override the profile name from the manifest. |
-| `--alias` | Also create a shell wrapper (e.g. `telemetry` → `hermes -p telemetry`). |
+| `--alias` | Also create a shell wrapper (e.g. `telemetry` → `allr -p telemetry`). |
 | `--force` | Overwrite an existing profile of the same name. User data is still preserved. |
 | `-y`, `--yes` | Skip the manifest-preview confirmation prompt. |
 
@@ -445,11 +447,11 @@ Authoring a distribution is just a git push:
 Use git tags for versioned releases — recipients who clone `HEAD` get your
 latest state, and you can always bump `version:` in the manifest.
 
-## `hermes -p` / `hermes --profile`
+## `allr -p` / `allr --profile`
 
 ```bash
-hermes -p <name> <command> [options]
-hermes --profile <name> <command> [options]
+allr -p <name> <command> [options]
+allr --profile <name> <command> [options]
 ```
 
 Global flag to run any Allr command under a specific profile without changing the sticky default. This overrides the active profile for the duration of the command.
@@ -461,10 +463,10 @@ Global flag to run any Allr command under a specific profile without changing th
 **Examples:**
 
 ```bash
-hermes -p work chat -q "Check the server status"
-hermes --profile dev gateway start
-hermes -p personal skills list
-hermes -p work config edit
+allr -p work chat -q "Check the server status"
+allr --profile dev gateway start
+allr -p personal skills list
+allr -p work config edit
 ```
 
 ## `allr completion`
@@ -494,7 +496,7 @@ source ~/.bashrc
 After installation, tab completion works for:
 - `allr profile <TAB>` — subcommands (list, use, create, etc.)
 - `allr profile use <TAB>` — profile names
-- `hermes -p <TAB>` — profile names
+- `allr -p <TAB>` — profile names
 
 ## See also
 

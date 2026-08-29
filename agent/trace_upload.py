@@ -15,7 +15,7 @@ Design notes
   :func:`upload_session_trace` directly.
 * **Private by default.** Traces can contain prompts, tool output, local
   paths, and secrets. The dataset is created private and every text body
-  is passed through Allr' secret redactor (``force=True``) unless the
+  is passed through Allr's secret redactor (``force=True``) unless the
   caller explicitly opts out with ``redact=False``.
 * **Never raises.** Returns a user-facing status string so command
   handlers can echo it straight back to the user. Programmatic callers
@@ -58,7 +58,7 @@ def _now_iso() -> str:
 def _redact(text: Any, enabled: bool) -> Any:
     """Redact secrets from a string body when redaction is enabled.
 
-    Non-strings pass through untouched. Uses Allr' shared redactor with
+    Non-strings pass through untouched. Uses Allr's shared redactor with
     ``force=True`` so an upload always scrubs known secret shapes even if
     the user disabled log redaction globally.
     """

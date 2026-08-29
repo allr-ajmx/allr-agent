@@ -165,7 +165,7 @@ _BEARER_PROVIDERS: Dict[str, Tuple[str, ...]] = {
 # not "uncovered".
 #
 # ``aliases`` are interchangeable env-var names for the SAME upstream
-# credential (Allr' auth.py keys Google on both GEMINI_API_KEY and
+# credential (Allr's auth.py keys Google on both GEMINI_API_KEY and
 # GOOGLE_API_KEY).  Aliased names MUST collapse into a single mapping:
 # every rule carries ``require: true``, and two require-rules on the same
 # host reject each other's requests (each rule whose own token isn't

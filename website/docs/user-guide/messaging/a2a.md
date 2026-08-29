@@ -1,3 +1,8 @@
+---
+title: "A2A"
+description: "Call other A2A agents as tools and expose your Allr as a callable Agent2Agent service"
+---
+
 # A2A (Agent-to-Agent)
 
 [A2A](https://a2a-protocol.org) is the open Agent2Agent protocol (v1.0, stewarded by the Linux Foundation) for communication between independent AI agents. The Allr A2A plugin works in **both directions**: your agent can call other A2A agents as tools, and other agents can send tasks to your Allr over HTTP.

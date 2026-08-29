@@ -3,7 +3,7 @@ name: unreal-mcp
 description: Automate Unreal Engine editor scenes, actors, and renders.
 version: 1.0.0
 requires: Unreal Editor 5.8+ with the Unreal MCP plugin enabled and its server running
-author: Allr
+author: Hermes Agent
 license: MIT
 tags: [unreal, unreal-engine, ue5, 3d, mcp, scenes, cinematics, lighting, gamedev]
 platforms: [linux, macos, windows]
@@ -223,7 +223,7 @@ Load on demand; keep SKILL.md-level rules in mind throughout.
 - **Modal dialogs block everything.** A tool call that opens (or collides
   with) a modal editor dialog stalls until a human dismisses it. If a call
   hangs indefinitely, tell the user to check the editor for a dialog.
-- **Timeouts on long operations.** Allr' per-call default is 120 s; asset
+- **Timeouts on long operations.** Allr's per-call default is 120 s; asset
   imports, big level saves, and renders can exceed it. Raise
   `mcp_servers.unreal-engine.timeout` in `~/.allr/config.yaml` for
   render/import-heavy sessions.

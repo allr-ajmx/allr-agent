@@ -2,7 +2,7 @@
 name: solana
 description: Query Solana wallets, tokens, txs, and NFTs in USD.
 version: 0.2.0
-author: Deniz Alagoz (gizdusum), enhanced by Allr
+author: Deniz Alagoz (gizdusum), enhanced by Hermes Agent
 license: MIT
 platforms: [linux, macos, windows]
 metadata:

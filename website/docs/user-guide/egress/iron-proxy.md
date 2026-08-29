@@ -1,3 +1,8 @@
+---
+title: "Egress Proxy (iron-proxy)"
+description: "Keep real API keys out of the Docker sandbox by swapping opaque proxy tokens for credentials on the host."
+---
+
 # Egress credential-injection proxy (iron-proxy)
 
 When Allr runs your agent inside a Docker terminal sandbox, that sandbox normally holds your real upstream API keys (`OPENROUTER_API_KEY`, `OPENAI_API_KEY`, etc.). A prompt-injected agent in that sandbox can `cat ~/.config/openrouter/auth.json` or `printenv | grep -i key` and exfiltrate them.
@@ -397,7 +402,7 @@ Beyond that, every `start_proxy` plants a fresh random nonce in two places:
 - `ALLR_IRON_PROXY_NONCE=<nonce>` in the daemon's env
 - `~/.allr/proxy/iron-proxy.nonce` (0o600 sibling of the pidfile)
 
-When `allr egress stop` (or any other `_pid_alive` check) wants to confirm a PID still refers to *our* daemon — not an unrelated process that was assigned the same PID after iron-proxy crashed — it reads `/proc/<pid>/environ` and looks for the nonce. The on-disk copy is what makes this work across CLI invocations (the in-memory `_proxy_nonce` is per-process and resets on every `hermes` invocation).
+When `allr egress stop` (or any other `_pid_alive` check) wants to confirm a PID still refers to *our* daemon — not an unrelated process that was assigned the same PID after iron-proxy crashed — it reads `/proc/<pid>/environ` and looks for the nonce. The on-disk copy is what makes this work across CLI invocations (the in-memory `_proxy_nonce` is per-process and resets on every `allr` invocation).
 
 If the nonce check fails, the code falls back to matching `argv[0]` basename against `iron-proxy`. `stop_proxy` additionally captures `/proc/<pid>/stat` starttime before SIGTERM and re-verifies after the 5s grace window — if starttime drifted, the PID was recycled mid-wait and SIGKILL is suppressed with a warning.
 
@@ -432,7 +437,7 @@ If the nonce check fails, the code falls back to matching `argv[0]` basename aga
 - **Cloud metadata IP (169.254.169.254) requested** — refused by `upstream_deny_cidrs` regardless of allowlist.
 - **`docker_env` collides with a proxy-controlling var (enforce on)** — sandbox creation refuses with the names of the colliding keys.
 - **`docker_forward_env` tries to forward a protected provider key (enforce on)** — sandbox creation refuses; remove the key from `docker_forward_env` or opt out with `proxy.enforce_on_docker: false`.
-- **`docker_extra_args` overrides proxy env/network controls (enforce on)** — sandbox creation refuses; user-supplied `-e HTTPS_PROXY=...`, `--env-file`, or `--network` args run after Allr' generated args and can bypass egress.
+- **`docker_extra_args` overrides proxy env/network controls (enforce on)** — sandbox creation refuses; user-supplied `-e HTTPS_PROXY=...`, `--env-file`, or `--network` args run after Allr's generated args and can bypass egress.
 - **BWS access token missing in `credential_source: bitwarden`** — `allr egress start` refuses with `--no-bitwarden` as the recovery hint.
 - **iron-proxy doesn't bind within 5 seconds** — process is killed, pidfile unlinked, error names the port + tail of `iron-proxy.log`.
 - **Concurrent `allr egress start` calls** — second call refuses with "another start in progress" if the first's daemon is up; otherwise the second unlinks the stale pidfile and proceeds.

@@ -2,6 +2,7 @@
 title: "Integrations"
 sidebar_label: "Overview"
 sidebar_position: 0
+description: "Index of Allr integrations — inference providers, MCP tool servers, web search, browser, voice, memory, messaging platforms, and plugins"
 ---
 
 # Integrations

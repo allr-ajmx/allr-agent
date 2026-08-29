@@ -100,7 +100,7 @@ MATRIX_REACTIONS=true          # 默认：true——处理过程中发送 emoji 
 register_new_matrix_user -c /etc/synapse/homeserver.yaml http://localhost:8008
 ```
 
-2. 选择一个用户名，例如 `hermes`——完整的用户 ID 将是 `@hermes:your-server.org`。
+2. 选择一个用户名，例如 `allr`——完整的用户 ID 将是 `@hermes:your-server.org`。
 
 ### 方式 B：使用 matrix.org 或其他公共 Homeserver
 
@@ -591,7 +591,7 @@ FROM python:3.11-slim
 RUN apt-get update && apt-get install -y libolm-dev && rm -rf /var/lib/apt/lists/*
 RUN cd ~/.allr/allr-agent && uv pip install -e ".[matrix]"
 
-CMD ["hermes", "gateway"]
+CMD ["allr", "gateway"]
 ```
 
 这就是整个容器。无需 OpenRouter、Anthropic 或任何推理提供商的 API 密钥。

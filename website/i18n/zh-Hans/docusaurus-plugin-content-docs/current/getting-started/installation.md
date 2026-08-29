@@ -20,7 +20,7 @@ curl -fsSL https://allr.work/install.sh | bash
 
 ### Windows（原生，PowerShell）
 
-原生 Windows 无需 WSL 即可运行 Allr——CLI、gateway、TUI 和工具均可原生运行。（原生安装与 WSL2 安装可干净共存；唯一仅限 WSL2 的功能见下方功能说明。）遇到 bug 请[提交 issue](https://github.com/NousResearch/hermes-agent/issues)。
+原生 Windows 无需 WSL 即可运行 Allr——CLI、gateway、TUI 和工具均可原生运行。（原生安装与 WSL2 安装可干净共存；唯一仅限 WSL2 的功能见下方功能说明。）遇到 bug 请[提交 issue](https://github.com/allr-ajmx/allr-agent/issues)。
 
 打开 PowerShell 并运行：
 
@@ -28,7 +28,7 @@ curl -fsSL https://allr.work/install.sh | bash
 iex (irm https://allr.work/install.ps1)
 ```
 
-安装程序处理**一切**：`uv`、Python 3.11、Node.js 22、`ripgrep`、`ffmpeg`，**以及一个便携式 Git Bash**（PortableGit——一个自包含的 Git-for-Windows 发行版，附带 `bash.exe` 和 Allr 用于 shell 命令的完整 POSIX 工具链；在 32 位 Windows 上安装程序会回退到 MinGit，后者缺少 bash，终端工具和 agent 浏览器功能将被禁用）。它将仓库克隆到 `%LOCALAPPDATA%\allr\allr-agent`，创建虚拟环境，并将 `hermes` 添加到**用户 PATH**。安装完成后请重启终端（或打开新的 PowerShell 窗口）以使 PATH 生效。
+安装程序处理**一切**：`uv`、Python 3.11、Node.js 22、`ripgrep`、`ffmpeg`，**以及一个便携式 Git Bash**（PortableGit——一个自包含的 Git-for-Windows 发行版，附带 `bash.exe` 和 Allr 用于 shell 命令的完整 POSIX 工具链；在 32 位 Windows 上安装程序会回退到 MinGit，后者缺少 bash，终端工具和 agent 浏览器功能将被禁用）。它将仓库克隆到 `%LOCALAPPDATA%\allr\allr-agent`，创建虚拟环境，并将 `allr` 添加到**用户 PATH**。安装完成后请重启终端（或打开新的 PowerShell 窗口）以使 PATH 生效。
 
 **Git 的处理方式：**
 
@@ -77,13 +77,13 @@ curl -fsSL https://allr.work/install.sh | bash
 
 ### 安装程序做了什么
 
-安装程序自动处理一切——所有依赖（Python、Node.js、ripgrep、ffmpeg）、仓库克隆、虚拟环境、全局 `hermes` 命令配置以及 LLM 提供商配置。完成后即可开始聊天。
+安装程序自动处理一切——所有依赖（Python、Node.js、ripgrep、ffmpeg）、仓库克隆、虚拟环境、全局 `allr` 命令配置以及 LLM 提供商配置。完成后即可开始聊天。
 
 #### 安装目录结构
 
 安装程序的存放位置取决于你是以普通用户还是 root 身份安装：
 
-| 安装方式                                | 代码位置                       | `hermes` 二进制                          | 数据目录                              |
+| 安装方式                                | 代码位置                       | `allr` 二进制                          | 数据目录                              |
 | --------------------------------------- | ------------------------------ | ---------------------------------------- | ------------------------------------- |
 | 用户级（git 安装程序）                  | `~/.allr/allr-agent/`      | `~/.local/bin/allr`（符号链接）        | `~/.allr/`                          |
 | Root 模式（`sudo curl … \| sudo bash`） | `/usr/local/lib/allr-agent/` | `/usr/local/bin/allr`                  | `/root/.allr/`（或 `$ALLR_HOME`） |
@@ -149,7 +149,7 @@ allr setup --portal
 
 ## 非 Sudo / 系统服务用户安装
 
-支持以专用非特权用户身份运行 Allr（例如 `hermes` systemd 服务账户，或任何没有 `sudo` 权限的用户）。安装路径中真正需要 root 权限的只有 Playwright 的 `--with-deps` 步骤，该步骤通过 `apt` 安装 Chromium 所需的共享库（`libnss3`、`libxkbcommon` 等）。安装程序会检测 sudo 是否可用，并在不可用时优雅降级——它会将 Chromium 二进制安装到服务用户自己的 Playwright 缓存中，并打印管理员需要单独运行的确切命令。
+支持以专用非特权用户身份运行 Allr（例如 `allr` systemd 服务账户，或任何没有 `sudo` 权限的用户）。安装路径中真正需要 root 权限的只有 Playwright 的 `--with-deps` 步骤，该步骤通过 `apt` 安装 Chromium 所需的共享库（`libnss3`、`libxkbcommon` 等）。安装程序会检测 sudo 是否可用，并在不可用时优雅降级——它会将 Chromium 二进制安装到服务用户自己的 Playwright 缓存中，并打印管理员需要单独运行的确切命令。
 
 **推荐的分步方式（Debian/Ubuntu）：**
 
@@ -173,7 +173,7 @@ allr setup --portal
    curl -fsSL https://allr.work/install.sh | bash -s -- --skip-browser
    ```
 
-3. **使 `hermes` 对服务用户的 shell 可用。** 安装程序将启动器写入 `~/.local/bin/allr`。系统服务账户通常具有不包含 `~/.local/bin` 的最小 PATH。可以将其添加到用户环境，或将启动器符号链接到系统位置：
+3. **使 `allr` 对服务用户的 shell 可用。** 安装程序将启动器写入 `~/.local/bin/allr`。系统服务账户通常具有不包含 `~/.local/bin` 的最小 PATH。可以将其添加到用户环境，或将启动器符号链接到系统位置：
 
    ```bash
    # 方案 A — 添加到服务用户的 profile
@@ -183,7 +183,7 @@ allr setup --portal
    sudo ln -s /home/hermes/.allr/allr-agent/venv/bin/allr /usr/local/bin/allr
    ```
 
-4. **验证：** `allr doctor` 现在应能正常运行。如果出现 `ModuleNotFoundError: No module named 'dotenv'`，说明你在用系统 Python 调用仓库源码中的 `hermes` 文件（`~/.allr/allr-agent/hermes`），而非 venv 启动器（`~/.allr/allr-agent/venv/bin/allr`）——请修正步骤 3。
+4. **验证：** `allr doctor` 现在应能正常运行。如果出现 `ModuleNotFoundError: No module named 'dotenv'`，说明你在用系统 Python 调用仓库源码中的 `allr` 文件（`~/.allr/allr-agent/hermes`），而非 venv 启动器（`~/.allr/allr-agent/venv/bin/allr`）——请修正步骤 3。
 
 同样的方式适用于 Arch（安装程序使用 pacman，具有相同的 sudo 检测逻辑）、Fedora/RHEL 和 openSUSE——这些发行版完全不支持 `--with-deps`，因此管理员始终需要单独安装系统库。安装程序会打印相应的 `dnf`/`zypper` 命令。
 

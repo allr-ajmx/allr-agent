@@ -1,3 +1,8 @@
+---
+title: "Kanban Tutorial"
+description: "A dashboard walkthrough of four kanban workflows: solo feature work, fleet farming, role pipelines, and crash recovery."
+---
+
 # Kanban tutorial
 
 A walkthrough of the four use-cases the Allr Kanban system was designed for, with the dashboard open in a browser. If you haven't read the [Kanban overview](./kanban) yet, start there — this assumes you know what a task, run, assignee, and dispatcher are.

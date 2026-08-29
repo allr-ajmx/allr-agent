@@ -17,7 +17,7 @@ Zero-install localhost tunnels over SSH via Pinggy.
 | Source | Optional — install with `allr skills install official/devops/pinggy-tunnel` |
 | Path | `optional-skills/devops/pinggy-tunnel` |
 | Version | `0.1.0` |
-| Author | Teknium (teknium1), Allr |
+| Author | Teknium (teknium1), Hermes Agent |
 | License | MIT |
 | Platforms | linux, macos, windows |
 | Tags | `Pinggy`, `Tunnel`, `Networking`, `SSH`, `Webhook`, `Localhost` |
@@ -262,7 +262,7 @@ echo "MCP URL: $URL"
 echo "Bearer token: $TOKEN"
 ```
 
-The remote client connects to `$URL` with `Authorization: Bearer $TOKEN`. Allr' own native MCP client config: `{"transport": "http", "url": "<URL>", "headers": {"Authorization": "Bearer <TOKEN>"}}`.
+The remote client connects to `$URL` with `Authorization: Bearer $TOKEN`. Allr's own native MCP client config: `{"transport": "http", "url": "<URL>", "headers": {"Authorization": "Bearer <TOKEN>"}}`.
 
 ### Recipe 3 — Expose a local LLM endpoint (Ollama / vLLM / llama.cpp)
 

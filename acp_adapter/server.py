@@ -1175,7 +1175,7 @@ class HermesACPAgent(acp.Agent):
         # provider we advertised in initialize(). Without this check,
         # authenticate() would acknowledge any method_id as long as the
         # server has provider credentials configured — harmless under
-        # Allr' threat model (ACP is stdio-only, local-trust), but poor
+        # Allr's threat model (ACP is stdio-only, local-trust), but poor
         # API hygiene and confusing if ACP ever grows multi-method auth.
         if not isinstance(method_id, str):
             return None
@@ -1822,7 +1822,7 @@ class HermesACPAgent(acp.Agent):
 
         agent = state.agent
         agent.tool_progress_callback = tool_progress_cb
-        # ACP thought panes should not receive Allr' local kawaii waiting/status
+        # ACP thought panes should not receive Allr's local kawaii waiting/status
         # updates. Route provider/model reasoning deltas instead; if the provider
         # emits no reasoning, Zed should not get a fake "thinking" accordion.
         agent.thinking_callback = None
@@ -2005,7 +2005,7 @@ class HermesACPAgent(acp.Agent):
         final_response = result.get("final_response", "")
         cancelled = bool(state.cancel_event and state.cancel_event.is_set())
         interrupted = bool(result.get("interrupted")) or cancelled
-        # Allr' local "waiting for model response" interrupt status is metadata,
+        # Allr's local "waiting for model response" interrupt status is metadata,
         # not assistant prose — clients get cancellation from stop_reason instead.
         from agent.conversation_loop import INTERRUPT_WAITING_FOR_MODEL_PREFIX
 

@@ -117,7 +117,7 @@ model:
 ## 第四步：开始使用 Allr
 
 ```bash
-hermes
+allr
 ```
 
 就这样。你现在运行的是一个完全本地化的 agent。试试看：

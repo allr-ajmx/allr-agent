@@ -251,7 +251,7 @@ export function themeToneHex(tone: string): string {
 
 const BRAND: ThemeBrand = {
   name: 'Allr',
-  icon: '⚕',
+  icon: '◉',
   prompt: '❯',
   welcome: 'Type your message or /help for commands.',
   goodbye: 'Goodbye!',

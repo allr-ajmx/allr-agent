@@ -35,7 +35,7 @@ allr acp --bootstrap      # 打印适用于支持 ACP 的 IDE 的安装代码片
 
 ## TUI Gateway JSON-RPC
 
-`tui_gateway/server.py` 是 Ink TUI（`hermes --tui`）和嵌入式仪表板 PTY 桥接所使用的协议。任何外部宿主均可通过 stdio（或经由 `tui_gateway/ws.py` 的 WebSocket）使用相同协议。
+`tui_gateway/server.py` 是 Ink TUI（`allr --tui`）和嵌入式仪表板 PTY 桥接所使用的协议。任何外部宿主均可通过 stdio（或经由 `tui_gateway/ws.py` 的 WebSocket）使用相同协议。
 
 ### 方法目录（精选）
 

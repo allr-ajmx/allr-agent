@@ -36,7 +36,7 @@ allr acp --setup          # interactive provider/model setup for ACP terminal au
 
 ## TUI Gateway JSON-RPC
 
-`tui_gateway/server.py` is the protocol the Ink TUI (`hermes --tui`) and the embedded dashboard PTY bridge talk to. Any external host can speak the same protocol over stdio (or WebSocket via `tui_gateway/ws.py`).
+`tui_gateway/server.py` is the protocol the Ink TUI (`allr --tui`) and the embedded dashboard PTY bridge talk to. Any external host can speak the same protocol over stdio (or WebSocket via `tui_gateway/ws.py`).
 
 ### Method catalog (selected)
 
@@ -121,7 +121,7 @@ The OpenAI-compatible API intentionally keeps `GET /v1/models` minimal: it is
 the compatibility endpoint frontends expect, not the full Allr provider/model
 picker catalog.
 
-If an external control plane needs Allr' curated provider rows, per-model
+If an external control plane needs Allr's curated provider rows, per-model
 pricing, or capability hints, use one of the authenticated picker surfaces:
 
 - API server REST: `GET /api/model/options` with the API-server bearer key

@@ -132,7 +132,7 @@ Common options:
 Examples:
 
 ```bash
-hermes
+allr
 allr chat -q "Summarize the latest PRs"
 allr chat --provider openrouter --model anthropic/claude-sonnet-4.6
 allr chat --toolsets web,terminal,skills
@@ -142,16 +142,16 @@ allr chat --ignore-user-config --ignore-rules -q "Repro without my personal setu
 allr chat --safe-mode -q "Is this bug mine or Allr'?"
 ```
 
-### `hermes -z <prompt>` — scripted one-shot
+### `allr -z <prompt>` — scripted one-shot
 
-For programmatic callers (shell scripts, CI, cron, parent processes piping in a prompt), `hermes -z` is the purest one-shot entry point: **single prompt in, final response text out, nothing else on stdout or stderr.** No banner, no spinner, no tool previews, no `Session:` line — just the agent's final reply as plain text.
+For programmatic callers (shell scripts, CI, cron, parent processes piping in a prompt), `allr -z` is the purest one-shot entry point: **single prompt in, final response text out, nothing else on stdout or stderr.** No banner, no spinner, no tool previews, no `Session:` line — just the agent's final reply as plain text.
 
 ```bash
-hermes -z "What's the capital of France?"
+allr -z "What's the capital of France?"
 # → Paris.
 
 # Parent scripts can cleanly capture the response:
-answer=$(hermes -z "summarize this" < /path/to/file.txt)
+answer=$(allr -z "summarize this" < /path/to/file.txt)
 ```
 
 Per-run overrides (no mutation to `~/.allr/config.yaml`):
@@ -163,19 +163,19 @@ Per-run overrides (no mutation to `~/.allr/config.yaml`):
 | `--usage-file <path>` | _(none)_ | Write a JSON usage report after the run (see below) |
 
 ```bash
-hermes -z "…" --provider openrouter --model openai/gpt-5.5
+allr -z "…" --provider openrouter --model openai/gpt-5.5
 # or:
-ALLR_INFERENCE_MODEL=anthropic/claude-sonnet-4.6 hermes -z "…"
+ALLR_INFERENCE_MODEL=anthropic/claude-sonnet-4.6 allr -z "…"
 ```
 
 Same agent, same tools, same skills — just strips every interactive / cosmetic layer. If you need tool output in the transcript too, use `allr chat -q` instead; `-z` is explicitly for "I only want the final answer".
 
 #### `--usage-file` — JSON usage report for pipelines
 
-`hermes -z "…" --usage-file /path/report.json` writes a machine-readable usage report after the run: `estimated_cost_usd`, `input_tokens` / `output_tokens` / `cache_read_tokens` / `cache_write_tokens` / `reasoning_tokens` / `total_tokens`, `api_calls`, `model`, `provider`, `session_id`, `service_tier`, and `completed` / `failed` flags. The report is written **even when the run fails**, so batch pipelines can always account for spend. It has no effect outside `-z`/`--oneshot`, and a broken usage write never masks the run's own outcome.
+`allr -z "…" --usage-file /path/report.json` writes a machine-readable usage report after the run: `estimated_cost_usd`, `input_tokens` / `output_tokens` / `cache_read_tokens` / `cache_write_tokens` / `reasoning_tokens` / `total_tokens`, `api_calls`, `model`, `provider`, `session_id`, `service_tier`, and `completed` / `failed` flags. The report is written **even when the run fails**, so batch pipelines can always account for spend. It has no effect outside `-z`/`--oneshot`, and a broken usage write never masks the run's own outcome.
 
 ```bash
-hermes -z "summarize this repo" --usage-file /tmp/usage.json
+allr -z "summarize this repo" --usage-file /tmp/usage.json
 jq .estimated_cost_usd /tmp/usage.json
 ```
 
@@ -1255,7 +1255,7 @@ allr moa configure [name]
 allr moa delete <name>
 ```
 
-`allr moa configure` reuses Allr' provider → model picker for each reference model and the aggregator. A preset is an execution-mode configuration, not a primary model or provider.
+`allr moa configure` reuses Allr's provider → model picker for each reference model and the aggregator. A preset is an execution-mode configuration, not a primary model or provider.
 
 ## `allr fallback`
 
@@ -1308,7 +1308,7 @@ Subcommands:
 | `off` | Disable external provider (built-in only). |
 
 :::info Provider-specific subcommands
-When an external memory provider is active, it may register its own top-level `hermes <provider>` command for provider-specific management (e.g. `allr honcho` when Honcho is active). Inactive providers do not expose their subcommands. Run `hermes --help` to see what's currently wired in.
+When an external memory provider is active, it may register its own top-level `hermes <provider>` command for provider-specific management (e.g. `allr honcho` when Honcho is active). Inactive providers do not expose their subcommands. Run `allr --help` to see what's currently wired in.
 :::
 
 ## `allr acp`
@@ -1355,7 +1355,7 @@ Manage MCP (Model Context Protocol) server configurations and run Allr as an MCP
 | `configure <name>` (alias: `config`) | Toggle tool selection for a server. |
 | `login <name>` | Force re-authentication for an OAuth-based MCP server. |
 
-See [MCP Config Reference](./mcp-config-reference.md), [Use MCP with Allr](../guides/use-mcp-with-hermes.md), and [MCP Server Mode](../user-guide/features/mcp.md#running-allr-as-an-mcp-server).
+See [MCP Config Reference](./mcp-config-reference.md), [Use MCP with Allr](../guides/use-mcp-with-allr.md), and [MCP Server Mode](../user-guide/features/mcp.md#running-allr-as-an-mcp-server).
 
 ## `allr plugins`
 
@@ -1632,7 +1632,7 @@ allr profile export work -o work-backup.tar.gz
 allr profile import work-backup.tar.gz --name restored
 allr profile install github.com/user/my-distro --alias
 allr profile update work
-hermes -p work chat -q "Hello from work profile"
+allr -p work chat -q "Hello from work profile"
 ```
 
 ## `allr completion`

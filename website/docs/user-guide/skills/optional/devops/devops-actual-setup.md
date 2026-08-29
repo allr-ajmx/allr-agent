@@ -17,7 +17,7 @@ Set up Actual Computer (actual.inc) inference in Allr.
 | Source | Optional — install with `allr skills install official/devops/actual-setup` |
 | Path | `optional-skills/devops/actual-setup` |
 | Version | `2.0.0` |
-| Author | shl0ms + Allr |
+| Author | shl0ms + Hermes Agent |
 | License | MIT |
 | Platforms | linux, macos, windows |
 | Tags | `actual`, `actual-inc`, `provider`, `local-inference`, `relay`, `gguf`, `setup` |
@@ -126,7 +126,7 @@ a human in a browser.
    built-in provider clamps `xhigh→high` and `ultra→max` on the wire. If a
    request still 400s this way on an old Allr, set a per-model cap:
    `agent.reasoning_overrides.<model>: high` in config.yaml.
-2. **Context-window overflow on small local models.** Allr' default toolset
+2. **Context-window overflow on small local models.** Allr's default toolset
    is ~26k tokens of schemas plus a ~9k-token system prompt. A model loaded
    with a 32k context overflows before the first turn, and llama.cpp-family
    servers emit a bare `data: [DONE]` — Allr reports

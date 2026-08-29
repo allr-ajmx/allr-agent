@@ -1,7 +1,7 @@
 """Import-safe helpers for inspecting a Python interpreter's linked SQLite.
 
 This module intentionally depends only on the standard library.  Installer and
-update code must be able to use it before Allr' third-party dependencies are
+update code must be able to use it before Allr's third-party dependencies are
 healthy.
 """
 

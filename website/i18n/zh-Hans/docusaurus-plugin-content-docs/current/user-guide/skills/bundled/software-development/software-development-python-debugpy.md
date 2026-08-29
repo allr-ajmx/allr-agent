@@ -295,9 +295,9 @@ nc 127.0.0.1 4444
 参见方案 3。wrapper 会捕获子进程输出，交互式 pdb 请直接运行 pytest。
 
 ### `run_agent.py` / CLI — 一次性运行
-最简单：在可疑行附近添加 `breakpoint()`，然后正常运行 `hermes`。控制权将在暂停点返回到你的终端。
+最简单：在可疑行附近添加 `breakpoint()`，然后正常运行 `allr`。控制权将在暂停点返回到你的终端。
 
-### `tui_gateway` 子进程（由 `hermes --tui` 启动）
+### `tui_gateway` 子进程（由 `allr --tui` 启动）
 gateway 作为 Node TUI 的子进程运行。可选方案：
 
 **A. 修改 gateway 源码：**
@@ -307,7 +307,7 @@ import debugpy
 debugpy.listen(("127.0.0.1", 5678))
 debugpy.wait_for_client()
 ```
-启动 `hermes --tui`。TUI 将显示为冻结状态（其后端正在等待）。附加客户端后，执行在你 `continue` 时恢复。
+启动 `allr --tui`。TUI 将显示为冻结状态（其后端正在等待）。附加客户端后，执行在你 `continue` 时恢复。
 
 **B. 在特定处理器中使用 `remote-pdb`：**
 ```python

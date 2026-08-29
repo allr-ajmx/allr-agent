@@ -1,6 +1,7 @@
 ---
 title: Codex App-Server Runtime (optional)
 sidebar_label: Codex App-Server Runtime
+description: "Opt-in: hand openai/* turns to the Codex CLI app-server so commands, edits, sandboxing and MCP run inside Codex's runtime"
 ---
 
 # Codex App-Server Runtime
@@ -18,8 +19,8 @@ Not using OpenAI Codex? `allr setup --portal` configures a non-Codex backend wit
 - Run OpenAI agent turns against your **ChatGPT subscription** (no API key required) using the same auth flow Codex CLI uses.
 - Use **Codex's own toolset and sandbox** — `shell` for terminal/read/write/search, `apply_patch` for structured edits, `update_plan` for planning, all running inside seatbelt/landlock sandboxing.
 - **Native Codex plugins** — Linear, GitHub, Gmail, Calendar, Canva, etc. — installed via `codex plugin` are auto-migrated and active in your Allr session.
-- **Allr' richer tools come along** — web_search, web_extract, browser automation, vision, image generation, skills, and TTS work via an MCP callback. Codex calls back into Allr for tools it doesn't have built in.
-- **Memory and skill nudges keep working** — Codex's events are projected into Allr' message shape so the self-improvement loop sees a normal-looking transcript.
+- **Allr's richer tools come along** — web_search, web_extract, browser automation, vision, image generation, skills, and TTS work via an MCP callback. Codex calls back into Allr for tools it doesn't have built in.
+- **Memory and skill nudges keep working** — Codex's events are projected into Allr's message shape so the self-improvement loop sees a normal-looking transcript.
 
 ## What tools the model actually has
 
@@ -62,20 +63,20 @@ Allr registers itself as an MCP server so codex can call back for tools codex do
 - **`web_search`** / **`web_extract`** — Firecrawl-backed; tends to be cleaner than scraping for structured content.
 - **`browser_navigate` / `browser_click` / `browser_type` / `browser_press` / `browser_snapshot` / `browser_scroll` / `browser_back` / `browser_get_images` / `browser_console` / `browser_vision`** — full browser automation via Camofox or Browserbase.
 - **`vision_analyze`** — call a separate vision model to inspect an image (different from codex's `view_image` which loads it into the conversation).
-- **`image_generate`** — image generation through Allr' image_gen plugin chain.
-- **`skill_view` / `skills_list`** — read from Allr' skill library.
-- **`text_to_speech`** — TTS through Allr' configured provider.
+- **`image_generate`** — image generation through Allr's image_gen plugin chain.
+- **`skill_view` / `skills_list`** — read from Allr's skill library.
+- **`text_to_speech`** — TTS through Allr's configured provider.
 
-When the model wants one of these, codex spawns the `hermes_tools_mcp_server` subprocess via stdio MCP, the call is dispatched through `model_tools.handle_function_call()` (same code path as Allr' default runtime), and the result is returned to codex like any other MCP response.
+When the model wants one of these, codex spawns the `hermes_tools_mcp_server` subprocess via stdio MCP, the call is dispatched through `model_tools.handle_function_call()` (same code path as Allr's default runtime), and the result is returned to codex like any other MCP response.
 
 ### What's NOT available on this runtime
 
 These four Allr tools require the running AIAgent context (mid-loop state) to dispatch, and a stateless MCP callback can't drive them. Switch back to the default runtime (`/codex-runtime auto`) when you need any of them:
 
 - **`delegate_task`** — spawn subagents
-- **`memory`** — Allr' persistent memory store
+- **`memory`** — Allr's persistent memory store
 - **`session_search`** — cross-session search
-- **`todo`** — Allr' todo store (codex's `update_plan` is the in-runtime equivalent)
+- **`todo`** — Allr's todo store (codex's `update_plan` is the in-runtime equivalent)
 
 ## Workflow features (`/goal`, kanban, cron)
 
@@ -158,7 +159,7 @@ uses:
    ```bash
    codex login                  # writes tokens to ~/.codex/auth.json
    ```
-   Allr' own `allr auth add openai-codex` writes to `~/.allr/auth.json` — that's a separate session. **Run `codex login` separately** if you haven't.
+   Allr's own `allr auth add openai-codex` writes to `~/.allr/auth.json` — that's a separate session. **Run `codex login` separately** if you haven't.
 
 3. **(Optional) Install the Codex plugins you want.** When you enable the runtime, Allr auto-migrates whichever curated plugins you've already installed via Codex CLI:
    ```bash
@@ -180,7 +181,7 @@ That command:
 - Persists `model.openai_runtime: codex_app_server` to your config.yaml.
 - Migrates user MCP servers from `~/.allr/config.yaml` to `~/.codex/config.toml`.
 - **Discovers and migrates installed native Codex plugins** (Linear, GitHub, Gmail, Calendar, Canva, etc.) by querying Codex's `plugin/list` RPC.
-- **Registers Allr' own tools as an MCP server** so the codex subprocess can call back for tools codex doesn't ship with.
+- **Registers Allr's own tools as an MCP server** so the codex subprocess can call back for tools codex doesn't ship with.
 - **Writes `default_permissions = ":workspace"`** so the sandbox allows writes within the workspace without prompting for every operation.
 - Tells you what was migrated. Takes effect on the **next** session — the current cached agent keeps the prior runtime so prompt caches stay valid.
 
@@ -199,7 +200,7 @@ model:
 
 ## Self-improvement loop (memory + skill nudges)
 
-Allr' background self-improvement fires on counter thresholds:
+Allr's background self-improvement fires on counter thresholds:
 
 - Every 10 user prompts → a forked review agent looks at the conversation and decides whether anything should be saved to memory.
 - Every 10 tool iterations within a single turn → same idea but for skills (`skill_manage` writes).
@@ -216,13 +217,13 @@ How the wiring stays equivalent:
 | Skill trigger (`_iters_since_skill >= _skill_nudge_interval`) | computed after the loop | computed after the codex turn |
 | `_spawn_background_review(messages_snapshot=..., review_memory=..., review_skills=...)` | called when either trigger fires | called identically when either trigger fires |
 
-One detail: the review fork itself needs to call Allr' agent-loop tools (`memory`, `skill_manage`), which require Allr' own dispatch. So when the parent agent is on `codex_app_server`, the review fork is **downgraded to `codex_responses`** — same OAuth credentials, same `openai-codex` provider, but talks to OpenAI's Responses API directly so Allr owns the loop and the agent-loop tools work. This is invisible to the user.
+One detail: the review fork itself needs to call Allr's agent-loop tools (`memory`, `skill_manage`), which require Allr's own dispatch. So when the parent agent is on `codex_app_server`, the review fork is **downgraded to `codex_responses`** — same OAuth credentials, same `openai-codex` provider, but talks to OpenAI's Responses API directly so Allr owns the loop and the agent-loop tools work. This is invisible to the user.
 
 Net effect: enable the codex runtime and your memory + skill nudges keep firing exactly as they would otherwise.
 
 ## How approvals work
 
-Codex requests approval before executing commands or applying patches. These get translated into Allr' standard "Dangerous Command" prompt:
+Codex requests approval before executing commands or applying patches. These get translated into Allr's standard "Dangerous Command" prompt:
 
 ```
 ╭───────────────────────────────────────╮
@@ -248,10 +249,10 @@ For `apply_patch` (file edit) approvals, Allr shows a summary of what changed (`
 
 Codex has three built-in permission profiles:
 - `:read-only` — no writes; every shell command requires approval
-- `:workspace` — writes within the current workspace allowed without prompts (Allr' default when you enable the runtime)
+- `:workspace` — writes within the current workspace allowed without prompts (Allr's default when you enable the runtime)
 - `:danger-no-sandbox` — no sandbox at all (don't use this unless you understand it)
 
-You can override the default in `~/.codex/config.toml` outside Allr' managed block:
+You can override the default in `~/.codex/config.toml` outside Allr's managed block:
 
 ```toml
 default_permissions = ":read-only"
@@ -261,7 +262,7 @@ default_permissions = ":read-only"
 
 ## Auxiliary tasks and ChatGPT subscription token cost
 
-When this runtime is on with the `openai-codex` provider, **auxiliary tasks (title generation, context compression, vision auto-detect, the background self-improvement review fork) also flow through your ChatGPT subscription by default**, because Allr' auxiliary client uses the main provider/model when no per-task override is set.
+When this runtime is on with the `openai-codex` provider, **auxiliary tasks (title generation, context compression, vision auto-detect, the background self-improvement review fork) also flow through your ChatGPT subscription by default**, because Allr's auxiliary client uses the main provider/model when no per-task override is set.
 
 This isn't specific to `codex_app_server` — it's true for the existing `codex_responses` path too — but it's more visible here because you're explicitly opting in for the subscription billing.
 
@@ -283,7 +284,7 @@ auxiliary:
     model: google/gemini-3-flash-preview
 ```
 
-The self-improvement review fork inherits the main runtime via `_current_main_runtime()` and Allr downgrades it from `codex_app_server` to `codex_responses` automatically (so the fork can actually call `memory` and `skill_manage` — Allr' own agent-loop tools). That fork still uses your subscription auth unless you've routed aux tasks elsewhere.
+The self-improvement review fork inherits the main runtime via `_current_main_runtime()` and Allr downgrades it from `codex_app_server` to `codex_responses` automatically (so the fork can actually call `memory` and `skill_manage` — Allr's own agent-loop tools). That fork still uses your subscription auth unless you've routed aux tasks elsewhere.
 
 ## Editing `~/.codex/config.toml` safely
 
@@ -310,7 +311,7 @@ Anything you add **inside** the managed block will get clobbered on the next mig
 
 ## Multi-profile / multi-tenant setups
 
-By default, Allr points the codex subprocess at `~/.codex/` regardless of which Allr profile is active. This means `hermes -p work` and `hermes -p personal` share the same Codex auth, plugins, and config. For most users this is the right behavior — it matches what running `codex` CLI directly would do.
+By default, Allr points the codex subprocess at `~/.codex/` regardless of which Allr profile is active. This means `allr -p work` and `allr -p personal` share the same Codex auth, plugins, and config. For most users this is the right behavior — it matches what running `codex` CLI directly would do.
 
 If you want per-profile Codex isolation (separate auth, separate installed plugins, separate config), set `CODEX_HOME` explicitly per profile. The cleanest way is to point at a directory under your `ALLR_HOME`:
 
@@ -319,7 +320,7 @@ If you want per-profile Codex isolation (separate auth, separate installed plugi
 CODEX_HOME=~/.allr/profiles/work/codex allr chat
 ```
 
-You'll need to re-run `codex login` once with that `CODEX_HOME` set so the OAuth tokens land in the profile-scoped location. After that, `hermes -p work` will operate on isolated Codex state.
+You'll need to re-run `codex login` once with that `CODEX_HOME` set so the OAuth tokens land in the profile-scoped location. After that, `allr -p work` will operate on isolated Codex state.
 
 We don't auto-scope this because moving an existing user's `~/.codex/` would silently invalidate their Codex CLI auth — anyone who already ran `codex login` would have to re-authenticate. Opt-in feels safer than surprising users.
 
@@ -353,7 +354,7 @@ What's not migrated:
 
 Plugins installed via `codex plugin` (Linear, GitHub, Gmail, Calendar, Canva, etc.) are discovered through Codex's `plugin/list` RPC. For each plugin where `installed: true`, Allr writes a `[plugins."<name>@openai-curated"]` block enabling it in your Allr session.
 
-This means: when your friend says "I have Calendar and GitHub set up in my Codex CLI" and they enable Allr' codex runtime, Allr activates those automatically. No re-configuration needed.
+This means: when your friend says "I have Calendar and GitHub set up in my Codex CLI" and they enable Allr's codex runtime, Allr activates those automatically. No re-configuration needed.
 
 What's NOT migrated:
 - Plugins you haven't installed yet — install them in Codex first.
@@ -410,7 +411,7 @@ Known limitations:
 - **No inline patch preview in approval prompts when codex doesn't track the changeset.** Codex's `fileChange` approval params don't always carry the changeset. Allr caches the data from the corresponding `item/started` notification when possible, but if approval arrives before the item has streamed, the prompt falls back to whatever `reason` codex provides.
 - **Sub-second cancellation isn't guaranteed.** Mid-stream interrupts (Ctrl+C while codex is responding) are sent via `turn/interrupt`, but if codex has already flushed the final message, you get the response anyway.
 
-If you find a bug, [open an issue](https://github.com/NousResearch/hermes-agent/issues) with the output of `allr logs --since 5m`. Mention `codex-runtime` in the title so it's easy to triage.
+If you find a bug, [open an issue](https://github.com/allr-ajmx/allr-agent/issues) with the output of `allr logs --since 5m`. Mention `codex-runtime` in the title so it's easy to triage.
 
 ## Architecture
 
@@ -444,7 +445,7 @@ If you find a bug, [open an issue](https://github.com/NousResearch/hermes-agent/
         │   │  │    canva, ...)       │     │
         │   │  └─ hermes-tools ───────┼─────────────────┐
         │   │       (callback to     │     │           │
-        │   │        Allr' richer  │     │           │
+        │   │        Allr's richer  │     │           │
         │   │        tools)          │     │           │
         │   └─────────────────────────┘     │           │
         └──────────────────────────────────┘           │

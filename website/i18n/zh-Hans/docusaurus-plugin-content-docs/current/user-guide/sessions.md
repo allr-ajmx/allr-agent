@@ -49,7 +49,7 @@ Allr 存储 session 历史以便恢复对话，但不会在每次对话时重新
 
 | 来源 | 描述 |
 |--------|-------------|
-| `cli` | 交互式 CLI（`hermes` 或 `allr chat`） |
+| `cli` | 交互式 CLI（`allr` 或 `allr chat`） |
 | `telegram` | Telegram 消息 |
 | `discord` | Discord 服务器/私信 |
 | `slack` | Slack 工作区 |
@@ -80,8 +80,8 @@ Allr 存储 session 历史以便恢复对话，但不会在每次对话时重新
 
 ```bash
 # 恢复最近的 CLI session
-hermes --continue
-hermes -c
+allr --continue
+allr -c
 
 # 或使用 chat 子命令
 allr chat --continue
@@ -96,22 +96,22 @@ allr chat -c
 
 ```bash
 # 恢复一个命名 session
-hermes -c "my project"
+allr -c "my project"
 
 # 如果存在谱系变体（my project、my project #2、my project #3），
 # 会自动恢复最新的一个
-hermes -c "my project"   # → 恢复 "my project #3"
+allr -c "my project"   # → 恢复 "my project #3"
 ```
 
 ### 恢复特定 Session
 
 ```bash
 # 按 ID 恢复特定 session
-hermes --resume 20250305_091523_a1b2c3d4
-hermes -r 20250305_091523_a1b2c3d4
+allr --resume 20250305_091523_a1b2c3d4
+allr -r 20250305_091523_a1b2c3d4
 
 # 按标题恢复
-hermes --resume "refactoring auth"
+allr --resume "refactoring auth"
 
 # 或使用 chat 子命令
 allr chat --resume 20250305_091523_a1b2c3d4
@@ -173,7 +173,7 @@ Session ID 格式为 `YYYYMMDD_HHMMSS_<hex>`——CLI/TUI session 使用 6 位�
 
 6. 从此时起，对话在该平台上继续。在新线程中回复——该频道中任何已授权的用户共享同一 session，之后线程中任何真实用户消息都能无缝加入，因为线程 session 的键不含 `user_id`。
 
-**恢复到 CLI：** 当你想回到桌面时，只需运行 `/resume <title>`（或在 shell 中运行 `hermes -r "<title>"`），从平台停止的地方继续。
+**恢复到 CLI：** 当你想回到桌面时，只需运行 `/resume <title>`（或在 shell 中运行 `allr -r "<title>"`），从平台停止的地方继续。
 
 **故障模式：**
 - 未配置主频道 → CLI 拒绝并提示 `/sethome`。
@@ -224,7 +224,7 @@ allr sessions rename 20250305_091523_a1b2c3d4 "refactoring auth module"
 "my project" → "my project #2" → "my project #3"
 ```
 
-按名称恢复时（`hermes -c "my project"`），会自动选取谱系中最新的 session。
+按名称恢复时（`allr -c "my project"`），会自动选取谱系中最新的 session。
 
 ### 在消息平台中使用 /title
 

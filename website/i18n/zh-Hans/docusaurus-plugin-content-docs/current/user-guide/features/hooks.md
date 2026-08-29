@@ -1343,7 +1343,7 @@ printf '{}\n'
 
 三种方式可绕过交互式提示——满足其一即可：
 
-1. CLI 上的 `--accept-hooks` 标志（如 `hermes --accept-hooks chat`）
+1. CLI 上的 `--accept-hooks` 标志（如 `allr --accept-hooks chat`）
 2. `ALLR_ACCEPT_HOOKS=1` 环境变量
 3. `cli-config.yaml` 中的 `hooks_auto_accept: true`
 

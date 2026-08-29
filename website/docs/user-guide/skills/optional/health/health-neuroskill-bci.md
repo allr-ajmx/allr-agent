@@ -17,7 +17,7 @@ Use live BCI cognitive and mood state from NeuroSkill.
 | Source | Optional — install with `allr skills install official/health/neuroskill-bci` |
 | Path | `optional-skills/health/neuroskill-bci` |
 | Version | `1.0.0` |
-| Author | Allr + Nous Research |
+| Author | Hermes Agent + Nous Research |
 | License | MIT |
 | Platforms | linux, macos, windows |
 | Tags | `BCI`, `neurofeedback`, `health`, `focus`, `EEG`, `cognitive-state`, `biometrics`, `neuroskill` |

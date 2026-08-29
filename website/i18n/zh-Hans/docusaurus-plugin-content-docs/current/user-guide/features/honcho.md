@@ -127,7 +127,7 @@ Honcho 在 `~/.honcho/config.json`（全局）或 `$ALLR_HOME/honcho.json`（pro
 | `sessionStrategy` | `'per-directory'` | `per-directory`、`per-repo`、`per-session` 或 `global` |
 
 **会话策略**控制 Honcho 会话与工作内容的映射方式：
-- `per-session` — 每次 `hermes` 运行获得一个新会话。干净启动，通过 tools 访问记忆。推荐新用户使用。
+- `per-session` — 每次 `allr` 运行获得一个新会话。干净启动，通过 tools 访问记忆。推荐新用户使用。
 - `per-directory` — 每个工作目录对应一个 Honcho 会话，上下文跨运行积累。
 - `per-repo` — 每个 git 仓库对应一个会话。
 - `global` — 所有目录共用一个会话。

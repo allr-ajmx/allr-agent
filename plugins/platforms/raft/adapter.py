@@ -1,7 +1,7 @@
 """Raft channel platform adapter.
 
 Starts a local wake endpoint, spawns ``raft agent bridge`` as a child process,
-and injects content-free wake hints into Allr' normal gateway session pipeline.
+and injects content-free wake hints into Allr's normal gateway session pipeline.
 Token and port are auto-generated when not provided via env/config.
 The bridge remains responsible for Raft message cursors and body materialization;
 the agent uses the Raft CLI according to the Raft manual.

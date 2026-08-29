@@ -2,7 +2,7 @@
 
 When the user runs `openai/*` turns through the codex app-server, codex
 owns the loop and builds its own tool list. By default, that means
-Allr' richer tool surface — web search, browser automation,
+Allr's richer tool surface — web search, browser automation,
 delegate_task subagents, vision analysis, persistent memory, skills,
 cross-session search, image generation, TTS — is unreachable.
 
@@ -18,7 +18,7 @@ Scope (what we expose):
     _get_images / _console / _vision
   - vision_analyze                       — image inspection by vision model
   - image_generate                       — image generation
-  - skill_view, skills_list              — Allr' skill library
+  - skill_view, skills_list              — Allr's skill library
   - text_to_speech                       — TTS
   - kanban_* (complete/block/comment/    — kanban worker + orchestrator
     heartbeat/show/list/create/            handoff (stateless: read env var,
@@ -107,7 +107,7 @@ def _signature_from_schema(schema: dict | None) -> tuple[inspect.Signature, dict
 #   - delegate_task / memory / session_search / todo — these are
 #     `_AGENT_LOOP_TOOLS` in Allr (model_tools.py:493). They require
 #     the running AIAgent context to dispatch (mid-loop state), so a
-#     stateless MCP callback can't drive them. Allr' default runtime
+#     stateless MCP callback can't drive them. Allr's default runtime
 #     keeps these working; the codex_app_server runtime cannot.
 EXPOSED_TOOLS: tuple[str, ...] = (
     "web_search",
@@ -257,7 +257,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
 
-    # Quiet mode: keep Allr' own banners off stdout (which is the MCP wire).
+    # Quiet mode: keep Allr's own banners off stdout (which is the MCP wire).
     os.environ.setdefault("ALLR_QUIET", "1")
     os.environ.setdefault("ALLR_REDACT_SECRETS", "true")
 

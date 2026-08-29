@@ -41,7 +41,7 @@ allr model
 # → 选择模型（MiniMax-M2.7 或 MiniMax-M2.7-highspeed）
 # → 开始对话
 
-hermes
+allr
 ```
 
 首次登录后，凭据将存储在 `~/.allr/auth.json` 下，并在每次会话前自动刷新。
@@ -142,10 +142,10 @@ model:
 以下所有别名均解析为 `minimax-oauth`：
 
 ```bash
-hermes --provider minimax-oauth    # 规范名称
-hermes --provider minimax-portal   # 别名
-hermes --provider minimax-global   # 别名
-hermes --provider minimax_oauth    # 别名（下划线形式）
+allr --provider minimax-oauth    # 规范名称
+allr --provider minimax-portal   # 别名
+allr --provider minimax-global   # 别名
+allr --provider minimax_oauth    # 别名（下划线形式）
 ```
 
 ## 环境变量
@@ -160,7 +160,7 @@ hermes --provider minimax_oauth    # 别名（下划线形式）
 要将 `minimax-oauth` 设为活跃 provider，请在 `config.yaml` 中设置 `model.provider: minimax-oauth`（使用 `allr setup` 进行引导式配置），或在单次调用时传入 `--provider minimax-oauth`：
 
 ```bash
-hermes --provider minimax-oauth
+allr --provider minimax-oauth
 ```
 
 ## 模型
@@ -198,7 +198,7 @@ Allr 检测到授权服务器返回的 `state` 值与其发送的值不匹配。
 
 ### 从远程服务器登录
 
-如果 `hermes` 无法打开浏览器窗口，请使用 `--no-browser`：
+如果 `allr` 无法打开浏览器窗口，请使用 `--no-browser`：
 
 ```bash
 allr auth add minimax-oauth --no-browser

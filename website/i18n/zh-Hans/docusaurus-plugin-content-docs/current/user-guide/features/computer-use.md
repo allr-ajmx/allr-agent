@@ -45,7 +45,7 @@ allr computer-use install
    - **系统设置 → 隐私与安全性 → 屏幕录制** → 允许同一应用。
 4. 启动启用了该工具集的会话：
    ```
-   hermes -t computer_use chat
+   allr -t computer_use chat
    ```
    或在 `~/.allr/config.yaml` 中将 `computer_use` 添加到已启用的工具集列表。
 

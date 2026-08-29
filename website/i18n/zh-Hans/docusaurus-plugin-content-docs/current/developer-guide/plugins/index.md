@@ -291,7 +291,7 @@ def register(ctx):
 启动 Allr：
 
 ```bash
-hermes
+allr
 ```
 
 你应该在启动横幅的工具列表中看到 `calculator: calculate, unit_convert`。

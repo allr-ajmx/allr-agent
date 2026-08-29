@@ -17,7 +17,7 @@ Give the agent its own inbox: send and receive email.
 | Source | Optional — install with `allr skills install official/email/agentmail` |
 | Path | `optional-skills/email/agentmail` |
 | Version | `1.0.0` |
-| Author | teyrebaz33, Allr |
+| Author | teyrebaz33, Hermes Agent |
 | License | MIT |
 | Platforms | linux, macos, windows |
 | Tags | `email`, `communication`, `agentmail`, `mcp` |

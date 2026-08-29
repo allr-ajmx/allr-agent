@@ -63,7 +63,7 @@ Use `deliver: "local"` to save reviews to `~/.allr/cron/output/`. Great for test
 Make sure Allr can access GitHub. Start a chat:
 
 ```bash
-hermes
+allr
 ```
 
 Test with a simple command:
@@ -137,7 +137,7 @@ For each finding:
 - End with: APPROVE / REQUEST_CHANGES / COMMENT
 ```
 
-Verify it loaded — start `hermes` and you should see `code-review` in the skills list at startup.
+Verify it loaded — start `allr` and you should see `code-review` in the skills list at startup.
 
 ---
 

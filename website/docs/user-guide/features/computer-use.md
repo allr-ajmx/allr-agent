@@ -1,6 +1,7 @@
 ---
 title: Computer Use
 sidebar_position: 16
+description: "Let Allr drive your desktop — clicking, typing, scrolling and dragging — in the background on macOS, Windows and Linux"
 ---
 
 # Computer Use
@@ -70,7 +71,7 @@ platform-appropriate prereqs:
 Then start a session with the toolset enabled:
 
 ```
-hermes -t computer_use chat
+allr -t computer_use chat
 ```
 
 or add `computer_use` to your enabled toolsets in `~/.allr/config.yaml`.

@@ -17,7 +17,7 @@ Build creative browser demos with DOM-free text layout.
 | Source | Bundled (installed by default) |
 | Path | `skills/creative/pretext` |
 | Version | `1.0.0` |
-| Author | Allr |
+| Author | Hermes Agent |
 | License | MIT |
 | Platforms | linux, macos, windows |
 | Tags | `creative-coding`, `typography`, `pretext`, `ascii-art`, `canvas`, `generative`, `text-layout`, `kinetic-typography` |

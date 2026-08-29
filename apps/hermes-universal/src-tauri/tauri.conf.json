@@ -34,7 +34,7 @@
     "targets": "all",
     "category": "DeveloperTool",
     "publisher": "Allr",
-    "copyright": "Copyright © 2026 Nous Research",
+    "copyright": "Copyright © 2026 Allr. Built on Hermes Agent by Nous Research (MIT).",
     "shortDescription": "Allr",
     "longDescription": "Allr — an AI agent client for desktop and mobile.",
     "createUpdaterArtifacts": true,

@@ -1,3 +1,8 @@
+---
+title: "Secrets"
+description: "Load provider API keys from external secret managers at startup, with source precedence and profile-safe shared vaults."
+---
+
 # Secrets
 
 Allr can pull API keys from external secret managers at process startup instead of storing them in `~/.allr/.env`. The bootstrap token for the secret manager lives in `.env`; every other provider key (OpenAI, Anthropic, OpenRouter, etc.) can stay in the manager and rotate centrally.

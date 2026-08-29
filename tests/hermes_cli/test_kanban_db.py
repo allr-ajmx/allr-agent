@@ -647,7 +647,7 @@ def test_dir_child_completion_unblocks_deferred_scratch_parent(kanban_home, tmp_
 
 
 def test_is_managed_scratch_path_rejects_kanban_metadata_subtrees(kanban_home):
-    """Allr' own DB/metadata/log subtrees under ``<kanban_home>/kanban`` are NOT managed.
+    """Allr's own DB/metadata/log subtrees under ``<kanban_home>/kanban`` are NOT managed.
 
     Regression guard for the Copilot finding on #28819: a scratch task whose
     ``workspace_path`` was mis-set to the kanban home, the logs dir, or a

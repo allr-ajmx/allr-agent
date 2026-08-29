@@ -2,7 +2,7 @@
 name = "hermes-bootstrap"
 version = "0.0.7"
 description = "Allr Setup — signed installer that drives scripts/install.ps1"
-authors = ["Nous Research <info@nousresearch.com>"]
+authors = ["Allr", "Nous Research <info@nousresearch.com>"]
 edition = "2021"
 rust-version = "1.77"
 

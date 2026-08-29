@@ -684,7 +684,7 @@ The context is appended to the job's stored prompt under a `## Run Context`
 header for that single fire only — it is never persisted to the job
 definition, and it passes the same prompt-injection scan as stored prompts.
 
-Runtimes that can't receive detached results (one-shot `hermes -z`, `hermes
+Runtimes that can't receive detached results (one-shot `allr -z`, `hermes
 cron run` from the CLI, cron child sessions, Kanban workers) fall back to
 synchronous execution automatically.
 

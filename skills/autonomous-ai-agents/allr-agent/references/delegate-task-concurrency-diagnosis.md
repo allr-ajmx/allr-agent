@@ -42,7 +42,7 @@ When a user says "delegate is capped at N":
 # 1. What does the loaded config actually say?
 allr config get delegation.max_concurrent_children
 
-# 2. Did Allr' truncator or rejector actually fire?
+# 2. Did Allr's truncator or rejector actually fire?
 grep -E "Truncated.*delegate_task|Too many tasks" ~/.allr/logs/agent.log | tail
 # If neither line appears, neither cap path executed.
 

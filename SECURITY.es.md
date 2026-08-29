@@ -47,7 +47,7 @@ operadores deben razonar sobre ellas en los mismos términos.
   contexto del agente: entrada del operador, fetches web, email, mensajes del gateway,
   lecturas de archivos, respuestas del servidor MCP, resultados de herramientas.
 - **Envolvente de confianza.** El conjunto de recursos a los que un operador ha otorgado
-  implícitamente acceso an Allr al ejecutarlo — típicamente, todo lo que
+  implícitamente acceso a Allr al ejecutarlo — típicamente, todo lo que
   la propia cuenta de usuario del operador puede alcanzar en el host.
 - **Postura.** Una declaración explícita en la documentación o código de Allr
   sobre cómo una capa consumidora (adaptador, UI, escritor de archivos,

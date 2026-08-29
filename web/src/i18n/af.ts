@@ -51,7 +51,7 @@ export const af: Translations = {
 
   app: {
     brand: "Allr",
-    brandShort: "HA",
+    brandShort: "AA",
     closeNavigation: "Maak navigasie toe",
     closeModelTools: "Maak model en gereedskap toe",
     footer: {

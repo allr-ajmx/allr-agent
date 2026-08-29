@@ -17,7 +17,7 @@ Carry a GitHub issue to a verified PR with honest CI state.
 | Source | Bundled (installed by default) |
 | Path | `skills/github/github-issue-to-pr` |
 | Version | `0.1.0` |
-| Author | Ben Barclay (benbarclay), Allr |
+| Author | Ben Barclay (benbarclay), Hermes Agent |
 | License | MIT |
 | Platforms | linux, macos, windows |
 | Tags | `GitHub`, `Issues`, `Coding`, `Pull-Requests`, `CI` |

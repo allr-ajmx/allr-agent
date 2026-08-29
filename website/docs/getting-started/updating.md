@@ -26,7 +26,7 @@ When you run `allr update`, the following steps occur:
 
 1. **Pre-update snapshot** — a lightweight state snapshot is saved by default (covers pairing data, cron jobs, `config.yaml`, `.env`, `auth.json`, and other state files that get modified at runtime; individual files over 1 GiB are skipped so a large sessions DB never slows the update down). Controlled by `updates.pre_update_backup` (`quick` by default, `full` for a zip of all of `ALLR_HOME`, `off` to disable). Recoverable via the snapshot restore flow described under [Snapshots and rollback](../user-guide/checkpoints-and-rollback.md).
 2. **Git pull** — pulls the latest code from the `main` branch and updates submodules
-3. **Post-pull syntax validation + auto-rollback** — after the pull, Allr compiles the nine critical files every `hermes` invocation imports at startup. If any fails to parse (e.g. an orphan merge-conflict marker, an accidentally truncated file), Allr runs `git reset --hard <pre-pull-sha>` to roll the install back so your shell stays bootable. Re-run `allr update` once the upstream fix lands.
+3. **Post-pull syntax validation + auto-rollback** — after the pull, Allr compiles the nine critical files every `allr` invocation imports at startup. If any fails to parse (e.g. an orphan merge-conflict marker, an accidentally truncated file), Allr runs `git reset --hard <pre-pull-sha>` to roll the install back so your shell stays bootable. Re-run `allr update` once the upstream fix lands.
 4. **Dependency install** — runs `uv pip install -e ".[all]"` to pick up new or changed dependencies
 5. **Config migration** — detects new config options added since your version and prompts you to set them
 6. **Gateway auto-restart** — running gateways are refreshed after the update completes so the new code takes effect immediately. Service-managed gateways (systemd on Linux, launchd on macOS) are restarted through the service manager. Manual gateways are relaunched automatically when Allr can map the running PID back to a profile.
@@ -88,7 +88,7 @@ Update backups protect an in-place update. If you're migrating your whole setup 
 
 ### Windows: another `allr.exe` is running
 
-On Windows, `allr update` will refuse to run if it detects another `allr.exe` process holding the venv's entry-point executable open — most commonly the Allr Desktop app's spawned backend, an open `hermes` REPL in another terminal, or a running gateway:
+On Windows, `allr update` will refuse to run if it detects another `allr.exe` process holding the venv's entry-point executable open — most commonly the Allr Desktop app's spawned backend, an open `allr` REPL in another terminal, or a running gateway:
 
 ```
 $ allr update
@@ -98,7 +98,7 @@ $ allr update
   Updating now would fail to overwrite ...\venv\Scripts\allr.exe because
   Windows blocks REPLACE on a running executable.
 
-  Close Allr Desktop, exit any open `hermes` REPLs, and
+  Close Allr Desktop, exit any open `allr` REPLs, and
   stop the gateway (`allr gateway stop`) before retrying.
   Override with `allr update --force` if you've already
   confirmed those processes will not write to the venv.
@@ -130,7 +130,7 @@ Already up to date.  (or: Updating abc1234..def5678)
 
 1. `git status --short` — if the tree is unexpectedly dirty, inspect before continuing
 2. `allr doctor` — checks config, dependencies, and service health
-3. `hermes --version` — confirm the version bumped as expected
+3. `allr --version` — confirm the version bumped as expected
 4. If you use the gateway: `allr gateway status`
 5. If `doctor` reports npm audit issues: run `npm audit fix` in the flagged directory
 

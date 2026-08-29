@@ -17,7 +17,7 @@ Embed an in-page natural-language GUI copilot in web apps.
 | Source | Optional — install with `allr skills install official/web-development/page-agent` |
 | Path | `optional-skills/web-development/page-agent` |
 | Version | `1.0.0` |
-| Author | Allr |
+| Author | Hermes Agent |
 | License | MIT |
 | Platforms | linux, macos, windows |
 | Tags | `web`, `javascript`, `agent`, `browser`, `gui`, `alibaba`, `embed`, `copilot`, `saas` |
@@ -44,7 +44,7 @@ Load this skill when a user wants to:
 
 ## When NOT to use this skill
 
-- User wants **Allr itself to drive a browser** → use Allr' built-in browser tool (Browserbase / Camofox). page-agent is the *opposite* direction.
+- User wants **Allr itself to drive a browser** → use Allr's built-in browser tool (Browserbase / Camofox). page-agent is the *opposite* direction.
 - User wants **cross-tab automation without embedding** → use Playwright, browser-use, or the page-agent Chrome extension
 - User needs **visual grounding / screenshots** → page-agent is text-DOM only; use a multimodal browser agent instead
 

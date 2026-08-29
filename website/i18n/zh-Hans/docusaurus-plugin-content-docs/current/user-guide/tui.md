@@ -14,18 +14,18 @@ TUI 是 Allr 的现代前端——一个终端 UI（用户界面），与 [Class
 
 ```bash
 # 启动 TUI
-hermes --tui
+allr --tui
 
 # 恢复最近的 TUI 会话（若无则回退到最近的 classic 会话）
-hermes --tui -c
-hermes --tui --continue
+allr --tui -c
+allr --tui --continue
 
 # 通过 ID 或标题恢复指定会话
-hermes --tui -r 20260409_000000_aa11bb
-hermes --tui --resume "my t0p session"
+allr --tui -r 20260409_000000_aa11bb
+allr --tui --resume "my t0p session"
 
 # 直接运行源码——跳过预构建步骤（供 TUI 贡献者使用）
-hermes --tui --dev
+allr --tui --dev
 ```
 
 也可以通过环境变量启用：
@@ -76,7 +76,7 @@ TUI 启动 banner 将运行时信息分为四个可折叠区块，每个区块�
 
 ```bash
 export ALLR_TUI_DIR=/path/to/prebuilt/ui-tui
-hermes --tui
+allr --tui
 ```
 
 该目录必须包含 `dist/entry.js`。
@@ -143,7 +143,7 @@ display:
 
 ## 自动恢复
 
-默认情况下，`hermes --tui` 每次启动都会开启新会话。若要自动重新连接到最近的 TUI 会话（在终端或 SSH 连接意外断开时很有用），可选择启用：
+默认情况下，`allr --tui` 每次启动都会开启新会话。若要自动重新连接到最近的 TUI 会话（在终端或 SSH 连接意外断开时很有用），可选择启用：
 
 ```bash
 export ALLR_TUI_RESUME=1          # 最近的 TUI 会话
@@ -173,7 +173,7 @@ TUI 的状态栏实时跟踪 agent 状态：
 - **每条 prompt 的耗时** — 轮次运行时显示 `⏱ 12s/3m 45s`（实时），轮次完成后冻结为 `⏲ 32s / 3m 45s`。第一个数字是自上次用户消息以来的时间；第二个是会话总时长。每次新 prompt 时重置。
 - **`🗜️ N`** — 当前会话被自动压缩的次数。首次压缩触发后显示。
 - **`▶ N`** — 当前会话中正在运行的 `/background` 任务数量。至少有一个任务在执行时显示。
-- **`⚠ YOLO`** — 每当 YOLO 模式开启时（`hermes --yolo`、`/yolo` 或 `ALLR_YOLO_MODE=1`）显示的可见警告。同一徽章也出现在启动 banner 中，确保你不会在未注意到的情况下启动自动审批会话。
+- **`⚠ YOLO`** — 每当 YOLO 模式开启时（`allr --yolo`、`/yolo` 或 `ALLR_YOLO_MODE=1`）显示的可见警告。同一徽章也出现在启动 banner 中，确保你不会在未注意到的情况下启动自动审批会话。
 
 ## 配置
 
@@ -241,7 +241,7 @@ TUI 附带有主见的按区块默认值，将轮次以实时转录形式流式�
 
 ## 回退到 Classic CLI
 
-不带 `--tui` 启动 `hermes` 将继续使用 classic CLI。若要让某台机器默认使用 TUI，在 shell profile 中设置 `ALLR_TUI=1`。若要回退，取消设置即可。
+不带 `--tui` 启动 `allr` 将继续使用 classic CLI。若要让某台机器默认使用 TUI，在 shell profile 中设置 `ALLR_TUI=1`。若要回退，取消设置即可。
 
 如果 TUI 启动失败（无 Node、缺少 bundle、TTY 问题），Allr 会打印诊断信息并回退——而不是让你陷入困境。
 

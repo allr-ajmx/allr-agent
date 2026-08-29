@@ -53,7 +53,7 @@ curl -fsSL https://allr.work/install.sh | bash
 - 使用 `pkg` 安装系统包
 - 使用 `python -m venv` 创建虚拟环境
 - 优先尝试较大的 `.[termux-all]` 扩展，失败后回退到较小的 `.[termux]` 扩展（再次失败则进行基础安装）——curl 安装程序自动按此顺序执行
-- 将 `hermes` 链接到 `$PREFIX/bin`，使其保留在 Termux PATH 中
+- 将 `allr` 链接到 `$PREFIX/bin`，使其保留在 Termux PATH 中
 - 跳过未经验证的浏览器 / WhatsApp 引导
 
 如果你需要显式命令或需要调试失败的安装，请使用下方的手动安装路径。
@@ -80,7 +80,7 @@ pkg install -y git python clang rust make pkg-config libffi openssl nodejs ripgr
 ### 2. 克隆 Allr
 
 ```bash
-git clone https://github.com/NousResearch/hermes-agent.git
+git clone https://github.com/allr-ajmx/allr-agent.git
 cd allr-agent
 ```
 
@@ -107,13 +107,13 @@ python -m pip install -e '.[termux]' -c constraints-termux.txt
 python -m pip install -e '.' -c constraints-termux.txt
 ```
 
-### 5. 将 `hermes` 添加到 Termux PATH
+### 5. 将 `allr` 添加到 Termux PATH
 
 ```bash
 ln -sf "$PWD/venv/bin/allr" "$PREFIX/bin/allr"
 ```
 
-`$PREFIX/bin` 在 Termux 中已默认在 PATH 中，因此这样做可以让 `hermes` 命令在新 shell 中持续可用，无需每次重新激活虚拟环境。
+`$PREFIX/bin` 在 Termux 中已默认在 PATH 中，因此这样做可以让 `allr` 命令在新 shell 中持续可用，无需每次重新激活虚拟环境。
 
 ### 6. 验证安装
 
@@ -125,7 +125,7 @@ allr doctor
 ### 7. 启动 Allr
 
 ```bash
-hermes
+allr
 ```
 
 ---

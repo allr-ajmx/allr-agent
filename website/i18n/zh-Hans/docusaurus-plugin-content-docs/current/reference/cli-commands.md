@@ -113,7 +113,7 @@ allr chat [options]
 示例：
 
 ```bash
-hermes
+allr
 allr chat -q "Summarize the latest PRs"
 allr chat --provider openrouter --model anthropic/claude-sonnet-4.6
 allr chat --toolsets web,terminal,skills
@@ -122,16 +122,16 @@ allr chat --worktree -q "Review this repo and open a PR"
 allr chat --ignore-user-config --ignore-rules -q "Repro without my personal setup"
 ```
 
-### `hermes -z <prompt>` — 脚本化单次调用
+### `allr -z <prompt>` — 脚本化单次调用
 
-对于程序化调用方（shell 脚本、CI、cron、通过管道传入 prompt 的父进程），`hermes -z` 是最纯粹的单次入口：**单个 prompt 输入，最终响应文本输出，stdout 和 stderr 上不输出任何其他内容。** 无横幅、无 spinner、无工具预览、无 `Session:` 行——只有 agent 的最终回复纯文本。
+对于程序化调用方（shell 脚本、CI、cron、通过管道传入 prompt 的父进程），`allr -z` 是最纯粹的单次入口：**单个 prompt 输入，最终响应文本输出，stdout 和 stderr 上不输出任何其他内容。** 无横幅、无 spinner、无工具预览、无 `Session:` 行——只有 agent 的最终回复纯文本。
 
 ```bash
-hermes -z "What's the capital of France?"
+allr -z "What's the capital of France?"
 # → Paris.
 
 # 父脚本可以干净地捕获响应：
-answer=$(hermes -z "summarize this" < /path/to/file.txt)
+answer=$(allr -z "summarize this" < /path/to/file.txt)
 ```
 
 单次运行覆盖（不修改 `~/.allr/config.yaml`）：
@@ -142,9 +142,9 @@ answer=$(hermes -z "summarize this" < /path/to/file.txt)
 | `--provider <provider>` | _(无)_ | 覆盖本次运行的 provider |
 
 ```bash
-hermes -z "…" --provider openrouter --model openai/gpt-5.5
+allr -z "…" --provider openrouter --model openai/gpt-5.5
 # 或：
-ALLR_INFERENCE_MODEL=anthropic/claude-sonnet-4.6 hermes -z "…"
+ALLR_INFERENCE_MODEL=anthropic/claude-sonnet-4.6 allr -z "…"
 ```
 
 相同的 agent、相同的工具、相同的 skill——只是剥离了所有交互式/装饰性层。如果你还需要在记录中包含工具输出，请改用 `allr chat -q`；`-z` 专门用于"我只需要最终答案"的场景。
@@ -954,7 +954,7 @@ allr memory <subcommand>
 | `off` | 禁用外部 provider（仅使用内置）。 |
 
 :::info Provider 特定子命令
-当外部 memory provider 处于活跃状态时，它可能会注册自己的顶级 `hermes <provider>` 命令用于 provider 特定管理（例如 Honcho 激活时的 `allr honcho`）。未激活的 provider 不暴露其子命令。运行 `hermes --help` 查看当前已连接的命令。
+当外部 memory provider 处于活跃状态时，它可能会注册自己的顶级 `hermes <provider>` 命令用于 provider 特定管理（例如 Honcho 激活时的 `allr honcho`）。未激活的 provider 不暴露其子命令。运行 `allr --help` 查看当前已连接的命令。
 :::
 
 ## `allr acp`
@@ -998,7 +998,7 @@ allr mcp <subcommand>
 | `configure <name>`（别名：`config`） | 切换服务器的工具选择。 |
 | `login <name>` | 强制重新认证基于 OAuth 的 MCP 服务器。 |
 
-参见 [MCP 配置参考](./mcp-config-reference.md)、[在 Allr 中使用 MCP](../guides/use-mcp-with-hermes.md) 和 [MCP 服务器模式](../user-guide/features/mcp.md#running-hermes-as-an-mcp-server)。
+参见 [MCP 配置参考](./mcp-config-reference.md)、[在 Allr 中使用 MCP](../guides/use-mcp-with-allr.md) 和 [MCP 服务器模式](../user-guide/features/mcp.md#running-hermes-as-an-mcp-server)。
 
 ## `allr plugins`
 
@@ -1198,7 +1198,7 @@ allr profile export work -o work-backup.tar.gz
 allr profile import work-backup.tar.gz --name restored
 allr profile install github.com/user/my-distro --alias
 allr profile update work
-hermes -p work chat -q "Hello from work profile"
+allr -p work chat -q "Hello from work profile"
 ```
 
 ## `allr completion`

@@ -50,7 +50,7 @@ allr model
 # → Pick a model (grok-build-0.1 is at the top)
 # → Start chatting
 
-hermes
+allr
 ```
 
 After the first login, credentials are stored under `~/.allr/auth.json` and refreshed automatically before they expire.
@@ -120,10 +120,10 @@ model:
 All of the following resolve to `xai-oauth`:
 
 ```bash
-hermes --provider xai-oauth        # canonical
-hermes --provider grok-oauth       # alias
-hermes --provider x-ai-oauth       # alias
-hermes --provider xai-grok-oauth   # alias
+allr --provider xai-oauth        # canonical
+allr --provider grok-oauth       # alias
+allr --provider x-ai-oauth       # alias
+allr --provider xai-grok-oauth   # alias
 ```
 
 ## Direct-to-xAI Tools (TTS / Image / Video / Transcription / X Search)

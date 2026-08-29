@@ -17,7 +17,7 @@ Stock quotes, history, search, compare, crypto via Yahoo.
 | Source | Optional — install with `allr skills install official/finance/stocks` |
 | Path | `optional-skills/finance/stocks` |
 | Version | `0.1.0` |
-| Author | Mibay (Mibayy), Allr |
+| Author | Mibay (Mibayy), Hermes Agent |
 | License | MIT |
 | Platforms | linux, macos, windows |
 | Tags | `Stocks`, `Finance`, `Market`, `Crypto`, `Investing` |

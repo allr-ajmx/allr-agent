@@ -117,7 +117,7 @@ model:
 ## Step 4: Start Using Allr
 
 ```bash
-hermes
+allr
 ```
 
 That's it. You're now running a fully local agent. Try it out:

@@ -1,5 +1,7 @@
 ---
 sidebar_position: 2
+title: "Profiles"
+description: "Run multiple independent Allr agents on one machine, each with its own config, keys, memory, and sessions."
 ---
 
 # Profiles: Running Multiple Agents
@@ -95,15 +97,15 @@ coder skills list             # list coder's skills
 coder config set model.default anthropic/claude-sonnet-4
 ```
 
-The alias works with every hermes subcommand — it's just `hermes -p <name>` under the hood.
+The alias works with every allr subcommand — it's just `allr -p <name>` under the hood.
 
 ### The `-p` flag
 
 You can also target a profile explicitly with any command:
 
 ```bash
-hermes -p coder chat
-hermes --profile=coder doctor
+allr -p coder chat
+allr --profile=coder doctor
 allr chat -p coder -q "hello"    # works in any position
 ```
 
@@ -116,7 +118,7 @@ allr tools                  # configures coder's tools
 allr profile use default    # switch back
 ```
 
-Sets a default so plain `hermes` commands target that profile. Like `kubectl config use-context`.
+Sets a default so plain `allr` commands target that profile. Like `kubectl config use-context`.
 
 ### Knowing where you are
 
@@ -187,7 +189,7 @@ assistant gateway install     # creates allr-gateway-assistant service
 Each profile gets its own service name. They run independently.
 
 :::note Inside the official Docker image
-Per-profile gateways are supervised by [s6-overlay](https://github.com/just-containers/s6-overlay) (PID 1 in the container), so `allr profile create <name>` automatically registers an s6 service slot at `/run/service/gateway-<name>/`. `hermes -p <name> gateway start/stop/restart` dispatches to `s6-svc` instead of spawning a bare process — crashes are auto-restarted and `docker restart` preserves the previously-running set of gateways. See [Per-profile gateway supervision](/user-guide/docker#per-profile-gateway-supervision) for details.
+Per-profile gateways are supervised by [s6-overlay](https://github.com/just-containers/s6-overlay) (PID 1 in the container), so `allr profile create <name>` automatically registers an s6 service slot at `/run/service/gateway-<name>/`. `allr -p <name> gateway start/stop/restart` dispatches to `s6-svc` instead of spawning a bare process — crashes are auto-restarted and `docker restart` preserves the previously-running set of gateways. See [Per-profile gateway supervision](/user-guide/docker#per-profile-gateway-supervision) for details.
 :::
 
 ## Configuring profiles
