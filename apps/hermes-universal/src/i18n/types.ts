@@ -504,6 +504,7 @@ export interface Translations {
     fieldDescriptions: Record<string, string>
     about: {
       heading: string
+      description: string
       version: (value: string) => string
       versionUnavailable: string
       updates: string

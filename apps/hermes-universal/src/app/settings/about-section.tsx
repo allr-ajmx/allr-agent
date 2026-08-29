@@ -1,6 +1,7 @@
 import { getVersion } from '@tauri-apps/api/app'
 import { useEffect, useState } from 'react'
 
+import { BRAND_TAGLINE } from '@/brand'
 import { Wordmark } from '@/components/brand/wordmark'
 import { Button } from '@/components/ui/button'
 import { type Translations, useI18n } from '@/i18n'
@@ -120,6 +121,8 @@ export function AboutSection() {
       <div className="flex flex-col items-center gap-1 pt-8 pb-4 text-center">
         <Wordmark size="md" />
         <div className="text-sm text-muted-foreground">{appVersion ? a.version(appVersion) : a.versionUnavailable}</div>
+        <p className="mt-1 text-xs tracking-wide text-muted-foreground uppercase">{BRAND_TAGLINE}</p>
+        <p className="mt-3 max-w-prose text-sm leading-5 text-muted-foreground">{a.description}</p>
       </div>
 
       {status?.version && <ListRow description={String(status.version)} title="Gateway" />}
