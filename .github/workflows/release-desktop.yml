@@ -245,7 +245,7 @@ jobs:
             rustup target add x86_64-apple-darwin aarch64-apple-darwin
           fi
 
-      - uses: Swatinem/rust-cache@bc2d2e71bd35c5549942babaa51a89c586b981d1 # v2.8.1
+      - uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
         with:
           workspaces: apps/hermes-universal/src-tauri
           key: ${{ matrix.target }}
