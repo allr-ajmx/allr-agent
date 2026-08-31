@@ -52,8 +52,8 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        CFBundleShortVersionString: 0.0.7
-        CFBundleVersion: "0.0.7"
+        CFBundleShortVersionString: 0.0.8
+        CFBundleVersion: "0.0.8"
     entitlements:
       path: hermes-universal_iOS/hermes-universal_iOS.entitlements
     scheme:

@@ -1,6 +1,6 @@
 [package]
 name = "hermes-bootstrap"
-version = "0.0.7"
+version = "0.0.8"
 description = "Allr Setup — signed installer that drives scripts/install.ps1"
 authors = ["Allr", "Nous Research <info@nousresearch.com>"]
 edition = "2021"
