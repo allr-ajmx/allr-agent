@@ -15,7 +15,15 @@ platform-gated features are supported), see **[Platform Support](./platform-supp
 
 ## Quick Install
 ### With the Allr Desktop installer on macOS or Windows (recommended)
-To easily install the command-line and desktop applications, [download the Allr Desktop installer](https://allr.work/) from our website and run it. Builds for every platform are also attached to the [`desktop-v*` releases](https://github.com/allr-ajmx/allr-agent/releases) — `.dmg` for macOS, `.exe` / `.msi` for Windows, `.AppImage` / `.deb` / `.rpm` for Linux.
+To easily install the command-line and desktop applications, [download the Allr Desktop installer](https://allr.work/) from our website and run it. Builds for every platform are also attached to the [`desktop-v*` releases](https://github.com/allr-ajmx/allr-agent/releases) — `.dmg` for macOS, `.exe` / `.msi` for Windows, and `.deb` / `.rpm` / `.tar.gz` for Linux.
+
+On Linux you can install the desktop app in one line, into your home directory, with no root:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/allr-ajmx/allr-agent/main/scripts/install-desktop-linux.sh | bash
+```
+
+It resolves the current desktop version, verifies the download against the release's published `SHA256SUMS.txt`, installs to `~/.local`, and writes a `.desktop` entry so Allr shows up in your application launcher. `--system` installs to `/usr/local` instead, and `--uninstall` reverses it. Prefer the `.deb` or `.rpm` if your distribution uses one — they declare their dependencies, and the tarball cannot.
 
 Two things worth knowing before you run it:
 

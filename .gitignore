@@ -76,9 +76,22 @@ AuthKey_*.p8
 # unrecoverable failure in the desktop release pipeline: the matching public key
 # is compiled into every shipped binary, so a new keypair orphans every existing
 # install from the update channel permanently. Back it up before the first tag.
-allr-updater.key
-allr-updater.key.pub
+#
+# Globbed rather than named exactly: the key was rotated on 2026-08-28 to
+# allr-updater-2026-08.key, and the literal `allr-updater.key` that used to be
+# listed here would not have matched it. A key that is not matched is a key that
+# gets committed. The password file is covered for the same reason.
+allr-updater*.key
+allr-updater*.key.pub
+allr-updater*.password
 *.tauri-key
+
+# Release credential files for scripts/release-desktop-local.py --env-file.
+# These normally live in $HOME, but one landing in a checkout would carry the
+# updater private key and the Apple key id in plaintext.
+*.release.env
+release.env
+.allr-release.env
 images/
 __pycache__/
 hermes_agent.egg-info/

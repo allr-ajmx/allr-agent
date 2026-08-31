@@ -326,7 +326,7 @@ allr-agent/
 ├── apps/                 # npm workspaces for the shipped GUI apps
 │   ├── hermes-universal/ # Tauri app (desktop + Android/iOS from one React app).
 │   │                     #   Has its own AGENTS.md and README; `src-tauri/` is the Rust half.
-│   ├── bootstrap-installer/ # Tauri installer ("Allr Setup"); ships on the same release
+│   ├── bootstrap-installer/ # Tauri installer ("Allr Setup"); Windows-only, NOT in the desktop release
 │   └── shared/           # Code both apps import
 ├── ui-tui/               # Ink (React) terminal UI — `hermes --tui`
 │   └── src/              # entry.tsx, app.tsx, gatewayClient.ts + app/components/hooks/lib
