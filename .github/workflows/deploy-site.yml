@@ -50,10 +50,24 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Trigger Vercel Deploy
-        run: curl -fsS --retry 3 --retry-delay 10 -X POST "${{ secrets.VERCEL_DEPLOY_HOOK }}"
+        env:
+          HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK }}
+        run: |
+          # allr.work is a Vercel project built from the marketing repo
+          # (allr-ajmx/allr.github.io) and redeploys on its own pushes; the docs
+          # ship through the Pages job below. With no hook configured this is a
+          # no-op, and an empty secret must not fail a release.
+          set -euo pipefail
+          if [ -z "$HOOK" ]; then
+            echo "::notice::VERCEL_DEPLOY_HOOK is not set; nothing to trigger"
+            exit 0
+          fi
+          curl -fsS --retry 3 --retry-delay 10 -X POST "$HOOK"
 
   deploy-docs:
-    if: github.repository == 'NousResearch/hermes-agent'
+    # The docs are the fork's own: allr.work/docs proxies this Pages site
+    # (see the rewrite in allr-ajmx/allr.github.io's vercel.json).
+    if: github.repository == 'allr-ajmx/allr-agent'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment:
@@ -161,8 +175,17 @@ jobs:
 
           echo "::warning::Live skills index unavailable or unhealthy; falling back to a fresh crawl"
           rm -f "$INDEX_PATH"
-          python3 scripts/build_skills_index.py
-          validate_index
+          # The external catalog is a nice-to-have here, not a gate. It feeds
+          # only the Skills Hub's listing of skills from other sources, and the
+          # site builds without it (website/scripts/prebuild.mjs degrades to the
+          # bundled catalog). A crawl that fails or comes back degenerate must
+          # not keep the documentation itself off the site, so unlike the forced
+          # rebuild above this path warns and ships.
+          if python3 scripts/build_skills_index.py && validate_index; then
+            exit 0
+          fi
+          echo "::warning::No healthy skills index; deploying without the external catalog"
+          rm -f "$INDEX_PATH"
 
       - name: Extract skill metadata for dashboard
         run: python3 website/scripts/extract-skills.py
