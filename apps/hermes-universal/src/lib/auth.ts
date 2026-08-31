@@ -143,8 +143,19 @@ export async function fetchAuthProviders(base: string): Promise<AuthProvider[]> 
  * Neither platform uses the system browser: nothing in this project registers a URL
  * scheme, so a browser that fails to reach our loopback listener has no way back.
  */
-export async function oauthLogin(base: string, provider?: string): Promise<void> {
-  await invoke('oauth_login', { base, provider: provider ?? null })
+export interface SignInOutcome {
+  /**
+   * Another sign-in already owned this webview, so the call did nothing.
+   *
+   * Not an error, and the distinction is load-bearing: the flow the user asked
+   * for is still running, and a caller that mistakes this for a failure will tear
+   * down state that belongs to the winner — see `beginOAuthLogin`.
+   */
+  busy: boolean
+}
+
+export async function oauthLogin(base: string, provider?: string): Promise<SignInOutcome> {
+  return invoke<SignInOutcome>('oauth_login', { base, provider: provider ?? null })
 }
 
 /** Which credential backs a live gateway session. `native` is the RFC 8252

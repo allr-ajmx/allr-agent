@@ -365,6 +365,8 @@ describe('beginOAuthLogin — the mobile resume marker', () => {
 
     vi.mocked(auth.oauthLogin).mockImplementation(async () => {
       parkedAtHandoff = localStorage.getItem(PENDING_OAUTH_KEY)
+
+      return { busy: false }
     })
 
     await conn.connect({ url: 'gw.example.com' })
@@ -387,7 +389,7 @@ describe('beginOAuthLogin — the mobile resume marker', () => {
   it('parks nothing on desktop, where the promise resolves normally', async () => {
     const { auth, conn } = await loadOn(false)
 
-    vi.mocked(auth.oauthLogin).mockResolvedValue(undefined)
+    vi.mocked(auth.oauthLogin).mockResolvedValue({ busy: false })
 
     await conn.connect({ url: 'gw.example.com' })
 

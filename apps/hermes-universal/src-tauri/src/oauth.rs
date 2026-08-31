@@ -249,22 +249,32 @@ pub(crate) fn sign_in_active() -> bool {
         .unwrap_or(true)
 }
 
-/// Claim `label`'s sign-in slot, or report that one is already running.
-pub(crate) fn claim_sign_in(label: &str) -> Result<SignInLease, String> {
-    let mut in_flight = SIGN_IN_IN_FLIGHT
-        .lock()
-        .map_err(|_| "the sign-in registry is unusable".to_string())?;
+/// Claim `label`'s sign-in slot. `None` means one is already running.
+///
+/// `None` and not `Err`, because losing this race is a NORMAL outcome, not a
+/// failure: it means a sign-in the user asked for is already under way and this
+/// caller should simply defer to it. Reporting it as an error had a consequence
+/// far worse than the noise — `beginOAuthLogin` treats a rejection as proof that
+/// it never navigated, and clears the one-shot resume marker. Since that marker is
+/// global, the LOSER was deleting the WINNER's. The user completed a sign-in, the
+/// SPA reloaded, found no marker, and dropped them on the connect screen holding a
+/// login they had just finished.
+pub(crate) fn claim_sign_in(label: &str) -> Option<SignInLease> {
+    // A poisoned registry is recovered, not propagated: the guarded value is a set
+    // of labels with no invariant to corrupt, and refusing every sign-in for the
+    // rest of the process is a far worse outcome than the panic that poisoned it.
+    let mut in_flight = match SIGN_IN_IN_FLIGHT.lock() {
+        Ok(in_flight) => in_flight,
+        Err(poisoned) => poisoned.into_inner(),
+    };
 
     if !in_flight.insert(label.to_string()) {
-        log::warn!("[oauth] refusing a second sign-in for webview {label:?}");
+        log::info!("[oauth] a sign-in already owns webview {label:?}; deferring to it");
 
-        return Err(
-            "A sign-in is already in progress. Finish or cancel it before starting another."
-                .to_string(),
-        );
+        return None;
     }
 
-    Ok(SignInLease(label.to_string()))
+    Some(SignInLease(label.to_string()))
 }
 
 /// Is the webview already sitting on the sign-in host?
@@ -1895,11 +1905,53 @@ pub async fn oauth_login(
     state: State<'_, TransportState>,
     base: String,
     provider: Option<String>,
-) -> Result<(), String> {
+) -> Result<SignInOutcome, String> {
     // Before anything else, and held for the whole command: three callers can drive a
     // sign-in and none of them coordinate. See `SIGN_IN_IN_FLIGHT`.
-    let _lease = claim_sign_in(webview.label())?;
+    //
+    // Losing the race is reported, not raised. The caller must be able to tell "another
+    // flow owns this" from "your sign-in failed", because the two demand opposite
+    // reactions — defer quietly, versus tear down the resume state and surface an error.
+    let Some(_lease) = claim_sign_in(webview.label()) else {
+        return Ok(SignInOutcome::busy());
+    };
 
+    run_oauth_login(app, webview, state, base, provider).await?;
+
+    Ok(SignInOutcome::started())
+}
+
+/// What an `oauth_login` call actually did.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SignInOutcome {
+    /// True when another sign-in already owned this webview, so this call did
+    /// nothing at all. Not an error: the flow the user asked for is still running,
+    /// and the caller must leave its state — above all the resume marker — alone.
+    busy: bool,
+}
+
+impl SignInOutcome {
+    fn busy() -> Self {
+        Self { busy: true }
+    }
+
+    fn started() -> Self {
+        Self { busy: false }
+    }
+}
+
+/// The sign-in itself, once the lease is held.
+///
+/// Split from the command purely so the lease has exactly one claim site and one
+/// scope — this body has a dozen early returns across two platform arms.
+async fn run_oauth_login(
+    app: AppHandle,
+    webview: WebviewWindow,
+    state: State<'_, TransportState>,
+    base: String,
+    provider: Option<String>,
+) -> Result<(), String> {
     let base = normalize_base(&base);
     let provider = provider.unwrap_or_else(|| "nous".to_string());
     let base_url = Url::parse(&base).map_err(|e| format!("invalid gateway URL {base:?}: {e}"))?;
@@ -2369,13 +2421,41 @@ mod tests {
 
         // The regression this exists for: two flows driving one webview, the second
         // capturing the first's login page as its return target.
-        assert!(claim_sign_in("lease-test-main").is_err());
+        assert!(claim_sign_in("lease-test-main").is_none());
 
         drop(first);
 
         // And the slot is usable again afterwards — a lease that leaked on any of
         // `oauth_login`'s early returns would wedge sign-in for the whole process.
-        assert!(claim_sign_in("lease-test-main").is_ok());
+        assert!(claim_sign_in("lease-test-main").is_some());
+    }
+
+    /// Losing the race is `None`, never an `Err`, and the difference is the whole
+    /// reason `SignInOutcome` exists.
+    ///
+    /// `beginOAuthLogin` reads a rejection as proof that it never navigated, and
+    /// responds by clearing the one-shot resume marker. That marker is global, so
+    /// the loser was deleting the WINNER's: the user finished signing in, the SPA
+    /// reloaded, found nothing to resume, and landed back on the connect screen.
+    #[test]
+    fn losing_the_race_is_reported_as_busy_rather_than_as_a_failure() {
+        let _held = claim_sign_in("lease-test-busy").expect("the first claim wins");
+
+        let outcome = match claim_sign_in("lease-test-busy") {
+            Some(_) => SignInOutcome::started(),
+            None => SignInOutcome::busy(),
+        };
+
+        let json = serde_json::to_string(&outcome).unwrap();
+
+        assert_eq!(json, r#"{"busy":true}"#);
+    }
+
+    #[test]
+    fn a_sign_in_that_actually_ran_is_not_busy() {
+        let json = serde_json::to_string(&SignInOutcome::started()).unwrap();
+
+        assert_eq!(json, r#"{"busy":false}"#);
     }
 
     #[test]
