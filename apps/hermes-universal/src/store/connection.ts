@@ -1,24 +1,37 @@
-import { isGatewayReauthRequired } from '@/gateway'
+import { GatewaySignInBusyError, GatewaySignInRequiredError, isGatewayReauthRequired } from '@/gateway'
 import {
   fetchAuthProviders,
   oauthLogin,
   oauthLogout,
+  type OauthStatus,
   oauthStatus,
+  oauthStatusIsUnknown,
   passwordLogin,
   portalAgentSignIn,
-  portalLogout
+  portalLogout,
+  type SignInOutcome
 } from '@/lib/auth'
 import { errorText } from '@/lib/error-text'
+import { isGatewayAuthFailure } from '@/lib/gateway-auth-failure'
 import { loadString, saveString } from '@/lib/persist'
 import { IS_NATIVE_MOBILE } from '@/lib/platform'
 import { reconnectBackoffDelayMs } from '@/lib/reconnect-backoff'
 import { clearSecrets, loadSecrets, loadSshSecrets, saveSecrets, type Secrets } from '@/lib/secure-store'
-import { forgetPersistedSessionCookies, persistSessionCookies } from '@/lib/session-persist'
+import {
+  clearSessionJar,
+  forgetPersistedSessionCookies,
+  persistSessionCookies,
+  resumeSessionCookiePersistence,
+  suspendSessionCookiePersistence
+} from '@/lib/session-persist'
 import { onBackground, onForeground } from '@/store/app-lifecycle'
 import { atom } from '@/store/atom'
-import { $gatewayState, closeGateway, connectGateway } from '@/store/gateway'
+import { $gatewayState, closeGateway, connectGateway, lastGatewayCloseCode } from '@/store/gateway'
 import { chooseGatedAuth, type Connection } from '@/store/gateway-config'
 import {
+  clearGatewayTarget,
+  clearPendingOAuth,
+  clearPendingPortal,
   loadGatewayTarget,
   saveGatewayTarget,
   savePendingOAuth,
@@ -75,6 +88,18 @@ export interface ConnectInput {
   token?: string
   username?: string
   password?: string
+  /**
+   * May this connect hand the user to a login page?
+   *
+   * **Defaults to false, and that default is the point.** An interactive sign-in
+   * is a one-way door on mobile — it navigates the app's only webview away — and
+   * an unrequested window on desktop. It must only ever happen because a person
+   * pressed something, so the single caller that passes `true` is the gateway
+   * configurator's connect button. Everything else (boot restore, the reconnect
+   * supervisor, a peer's gateway-switch broadcast) leaves it false and gets a
+   * {@link GatewaySignInRequiredError} it can surface as a CTA instead.
+   */
+  allowInteractive?: boolean
 }
 
 // Non-secret conveniences live in localStorage for a synchronous prefill; the
@@ -157,15 +182,21 @@ export async function probeStatus(rawUrl: string): Promise<StatusInfo> {
  */
 async function beginOAuthLogin(base: string, provider?: string, username?: string): Promise<void> {
   if (!IS_NATIVE_MOBILE) {
-    await oauthLogin(base, provider)
+    const outcome = await oauthLogin(base, provider)
+
+    if (outcome?.busy) {
+      throw new GatewaySignInBusyError('A sign-in is already in progress')
+    }
 
     return
   }
 
   savePendingOAuth({ base, provider, username })
 
+  let outcome: SignInOutcome
+
   try {
-    await oauthLogin(base, provider)
+    outcome = await oauthLogin(base, provider)
   } catch (err) {
     // A REJECTION on mobile means we never navigated (Rust failed to bind the loopback
     // listener, or the webview refused the load) — this JS context is still alive and
@@ -173,10 +204,44 @@ async function beginOAuthLogin(base: string, provider?: string, username?: strin
     // that would otherwise sit in localStorage and fire on some unrelated later launch,
     // seeding `$restoring` and sending the boot down the resume branch for a sign-in
     // that never happened.
+    //
+    // This reasoning is only sound because losing the sign-in race is NO LONGER a
+    // rejection. It used to be, and the assumption above was then flatly false: the
+    // winner HAD navigated, and this line — `takePendingOAuth` is a global
+    // read-and-clear — deleted the winner's marker. The user completed the sign-in,
+    // the SPA reloaded, `autoRestoreConnection` found nothing to resume, and dropped
+    // them on the connect screen holding a login they had just finished.
     takePendingOAuth()
 
     throw err
   }
+
+  if (outcome?.busy) {
+    // Someone else owns the flow and has already navigated this webview. Leave their
+    // marker exactly where it is — it is the only thing that will finish the connect
+    // after the reload — and stop without reporting a failure, because none happened.
+    throw new GatewaySignInBusyError('A sign-in is already in progress')
+  }
+}
+
+/** The reply shape for "the probe never got an answer", so callers branch on one thing. */
+function unknownOauthStatus(): OauthStatus {
+  return { signedIn: false, reachable: false }
+}
+
+/**
+ * Refuse to open a login page unless someone asked for one.
+ *
+ * Throws {@link GatewaySignInRequiredError}, which no retry ladder treats as
+ * retryable — a missing credential does not come back on its own, so spinning on
+ * it only delays the CTA the user actually needs.
+ */
+function requireInteractive(input: ConnectInput, base: string): void {
+  if (input.allowInteractive) {
+    return
+  }
+
+  throw new GatewaySignInRequiredError(`Sign in to ${base} to continue`)
 }
 
 export async function connect(input: ConnectInput): Promise<void> {
@@ -213,9 +278,19 @@ export async function connect(input: ConnectInput): Promise<void> {
         oauthProvider = choice.provider
         // Reuse a still-live session (e.g. a restored cookie jar, R2b) rather than
         // forcing an interactive sign-in; only open the webview when signed out.
-        const live = await oauthStatus(base).catch(() => ({ signedIn: false }))
+        const live = await oauthStatus(base).catch(() => unknownOauthStatus())
+
+        // "Could not tell" is not "signed out". A gateway we cannot reach says
+        // nothing about the credential we hold, and treating it as signed out is
+        // what sent users with perfectly good sessions to a login page whenever
+        // the network wobbled. Fail as a network fault so the caller's retry
+        // ladder handles it.
+        if (oauthStatusIsUnknown(live)) {
+          throw new Error(live.error || 'Could not reach the gateway')
+        }
 
         if (!live.signedIn) {
+          requireInteractive(input, base)
           // On mobile this navigates the app away and never returns here — the reload
           // resumes via the pending marker (see beginOAuthLogin / autoRestoreConnection).
           await beginOAuthLogin(base, oauthProvider, input.username)
@@ -233,13 +308,16 @@ export async function connect(input: ConnectInput): Promise<void> {
     $connectionPhase.set('connecting')
 
     try {
-      await connectGateway(conn)
+      await dial(conn)
     } catch (err) {
       // An OAuth session that expired between the status check and the ws-ticket
-      // mint surfaces as GatewayReauthRequiredError — re-run sign-in once.
+      // mint surfaces as GatewayReauthRequiredError — re-run sign-in once. This
+      // honours `allowInteractive` too: the expiry is real either way, but only a
+      // user-driven connect may answer it by opening a login page.
       if (conn.authMode === 'oauth' && isGatewayReauthRequired(err)) {
+        requireInteractive(input, base)
         await beginOAuthLogin(base, oauthProvider, input.username)
-        await connectGateway(conn)
+        await dial(conn)
       } else {
         throw err
       }
@@ -285,7 +363,7 @@ export async function connectLocal(profile?: null | string): Promise<void> {
     }
 
     $connection.set(conn)
-    await connectGateway(conn)
+    await dial(conn)
     $connectionPhase.set('ready')
     // Remember this target so the next launch auto-reconnects (D8).
     saveGatewayTarget({ mode: 'local', profile: profile ?? null })
@@ -371,7 +449,7 @@ export async function connectSsh(
     }
 
     $connection.set(conn)
-    await connectGateway(conn)
+    await dial(conn)
     $connectionPhase.set('ready')
 
     // Persist the token so the NEXT launch can reattach rather than respawn.
@@ -421,13 +499,13 @@ export async function connectCloud(baseUrl: string, profile?: null | string): Pr
     $connection.set(conn)
 
     try {
-      await connectGateway(conn)
+      await dial(conn)
     } catch (err) {
       // An already-expired agent session surfaces as GatewayReauthRequiredError —
       // re-run the silent SSO once, mirroring connect()'s oauth retry.
       if (isGatewayReauthRequired(err)) {
         await portalAgentSignIn(conn.baseUrl)
-        await connectGateway(conn)
+        await dial(conn)
       } else {
         throw err
       }
@@ -483,14 +561,34 @@ export function disconnect(): void {
 
 /**
  * Sign out: unlike disconnect() (which only drops the socket), this invalidates
- * the session — revokes the gateway OAuth cookie, clears the portal (Privy)
- * session for cloud, forgets stored secrets (incl. the persisted cookie jar),
- * then disconnects.
+ * the session — tells the gateway to revoke it, clears the portal (Privy) session
+ * for cloud, forgets stored secrets (incl. the persisted cookie jar), drops the
+ * auto-dial target, then disconnects.
+ *
+ * The three things this has to get right, each of which it previously got wrong:
+ *
+ *  1. **Every gated session is revoked, not just `oauth`.** A `ticket` session is
+ *     a password login whose cookie lives in the same Rust jar; skipping the
+ *     logout POST for it meant the gateway never heard about the sign-out and the
+ *     cookie stayed live. `oauth_logout` is the right call for both — it drops any
+ *     native tokens (a no-op when there are none) and POSTs `/auth/logout`, whose
+ *     clearing `Set-Cookie` reqwest applies to the jar.
+ *  2. **The jar is emptied locally too**, because (1) needs a network. A sign-out
+ *     on a plane must not come back signed in.
+ *  3. **The auto-dial target goes.** Leaving `hermes.connection.last` behind is
+ *     what made the next launch seed `$restoring`, paint "Reconnecting", and dial
+ *     a gateway with no credential — which then opened an interactive sign-in
+ *     nobody asked for. The URL and username stay: they are the prefill, so the
+ *     user lands on a sign-in screen that already knows where they were going.
  */
 export async function signOut(): Promise<void> {
   const conn = $connection.get()
 
-  if (conn?.authMode === 'oauth') {
+  // Before the network calls, not after: everything below can fail or hang, and a
+  // sign-out must not be able to leave persistence armed behind it.
+  suspendSessionCookiePersistence()
+
+  if (conn && (conn.authMode === 'oauth' || conn.authMode === 'ticket')) {
     await oauthLogout(conn.baseUrl).catch(() => {})
   }
 
@@ -498,7 +596,14 @@ export async function signOut(): Promise<void> {
     await portalLogout().catch(() => {})
   }
 
+  await clearSessionJar()
   await forgetSavedLogin().catch(() => {})
+
+  // Nothing to auto-dial and nothing to resume.
+  clearGatewayTarget()
+  clearPendingOAuth()
+  clearPendingPortal()
+
   disconnect()
 }
 
@@ -594,8 +699,37 @@ let reconnecting = false
 let switching = false
 
 /** Allow auto-reconnect after a fresh (re)connect attempt. */
+/**
+ * How many deliberate dials are in flight.
+ *
+ * `connectGateway` starts with `client?.close()`, which drives `$gatewayState` to
+ * `closed` synchronously — and every `connect*` sets `$connection` BEFORE awaiting
+ * it. So the supervisor's subscriber fired *inside* a dial that was still running,
+ * and a boot restore ended up with two ladders racing the same gateway: its own,
+ * bounded at three attempts, and the supervisor's, which is unbounded.
+ *
+ * A counter rather than a flag because a gateway switch can legitimately overlap
+ * two dials, and a flag would be cleared by whichever finished first.
+ */
+let dialInFlight = 0
+
+/** Run a deliberate dial, holding the supervisor off for its duration. */
+async function dial(conn: Connection): Promise<void> {
+  dialInFlight++
+
+  try {
+    await connectGateway(conn)
+  } finally {
+    dialInFlight--
+  }
+}
+
 function armReconnect(): void {
   intentionalClose = false
+  // A deliberate dial is the one thing that undoes a sign-out's persistence
+  // latch: the user is asking for a session again, so the jar this connect
+  // produces is theirs to keep. Every connect* path comes through here.
+  resumeSessionCookiePersistence()
 }
 
 /**
@@ -681,12 +815,18 @@ function sleep(ms: number): Promise<void> {
 // FIXME above.
 async function reauthForReconnect(conn: Connection): Promise<void> {
   if (conn.mode === 'cloud') {
+    // Silent: `portalAgentSignIn` walks the SSO cascade over reqwest. Nothing
+    // navigates and no window opens, so a background actor may drive it.
     await portalAgentSignIn(conn.baseUrl)
-  } else {
-    // Opens a dedicated sign-in window beside the app and resolves when the session
-    // lands, so the dial below can simply continue.
-    await beginOAuthLogin(conn.baseUrl)
+
+    return
   }
+
+  // Everything else needs a login page, and this is a background actor — the loop
+  // wakes on any dropped socket, with no user intent behind it. Opening one from
+  // here is the mobile crash-and-strand described at the call site, and on desktop
+  // it is a window the user never asked for. Stop and let them decide.
+  throw new GatewaySignInRequiredError('Session expired — sign in again')
 }
 
 // Set by `wakeReconnect`, consumed at the top of each loop iteration: it skips the
@@ -694,6 +834,52 @@ async function reauthForReconnect(conn: Connection): Promise<void> {
 // `wakeReconnect` sets it and only the loop clears it, so a wake that arrives while
 // no loop is running is still honoured by the loop it starts.
 let wakeRequested = false
+
+/**
+ * When the socket last reached `ready`, across loop episodes.
+ *
+ * Module-scoped on purpose: every counter inside `runReconnectLoop` is created
+ * fresh per episode, and a flap ENDS an episode (the loop breaks on success) and
+ * starts a new one. So there was nothing left to notice that the previous
+ * "success" had lasted 40ms. This is the one fact that has to outlive the loop.
+ */
+let lastReadyAt = 0
+
+/**
+ * `failingSince`, carried across loop episodes.
+ *
+ * Reset only by a connection that survived {@link MIN_UPTIME_MS}. Without it a
+ * gateway that accepts and immediately closes never escalates: each flap breaks
+ * the loop as a "success" and the next episode starts the clock again from zero.
+ */
+let sustainedFailingSince: null | number = null
+
+/**
+ * How long a connection has to survive before it counts as one.
+ *
+ * `connectGateway` resolves on the socket OPEN — the JSON-RPC `gateway.ready`
+ * handshake is not awaited — so a server that accepts and immediately closes
+ * produced a "success" that cleared the error and reset every counter, over and
+ * over, with nothing ever escalating. Five seconds is far longer than a real
+ * handshake and far shorter than any usable session.
+ */
+const MIN_UPTIME_MS = 5_000
+
+/**
+ * Stop retrying and say so.
+ *
+ * The loop used to leave `$connectionPhase` at `'connecting'` on every terminal
+ * break, so a supervisor that had definitively given up still rendered the
+ * connecting spinner — indistinguishable from one still trying. Publishing the
+ * error reveals the inline configurator; the phase is what lets the UI say
+ * "stopped" rather than "working on it".
+ *
+ * `$hasConnected` stays latched deliberately — see the call site.
+ */
+function standDown(message: string): void {
+  $connectionError.set(message)
+  $connectionPhase.set('error')
+}
 
 /**
  * Wake a backed-off reconnect loop and give it a fresh budget.
@@ -733,16 +919,28 @@ export function wakeReconnect(): void {
 
 async function runReconnectLoop(): Promise<void> {
   reconnecting = true
+
   let attempt = 0
   // Consecutive AUTH failures this episode (401 / reauth-required), tracked apart
   // from `attempt` because the two get different budgets — see MAX_AUTH_ATTEMPTS.
   // Episode-scoped like `failingSince`: every success leaves the loop, so a later
   // drop starts a fresh count. A foreground wake refunds it mid-episode.
   let authAttempts = 0
+
+  // A session that actually held ends the previous failing streak. A session that
+  // did NOT — one that opened and died inside `MIN_UPTIME_MS` — carries it
+  // forward, which is the whole point: the loop BREAKS on success, so a flap ends
+  // one episode and starts another, and the escalation clock used to be reborn at
+  // null every single time. An accept-then-close gateway could therefore flap
+  // forever without ever escalating, silently, while the user watched a spinner.
+  if (lastReadyAt !== 0 && Date.now() - lastReadyAt >= MIN_UPTIME_MS) {
+    sustainedFailingSince = null
+  }
+
   // Wall-clock start of this disconnect episode (the first FAILED reconnect),
-  // null while we have not failed yet. Drives the escalation below. Episode-
-  // scoped by construction: the loop is re-entered fresh per episode.
-  let failingSince: null | number = null
+  // null while we have not failed yet. Drives the escalation below. Seeded from
+  // the cross-episode value so a flap cannot reset it.
+  let failingSince: null | number = sustainedFailingSince
 
   while (!intentionalClose && !switching) {
     const conn = $connection.get()
@@ -758,7 +956,14 @@ async function runReconnectLoop(): Promise<void> {
       wakeRequested = false
       attempt = 0
       authAttempts = 0
-      failingSince = null
+      // `failingSince` is deliberately NOT refunded. It measures how long this
+      // gateway has been failing, which is what decides when the error — and with
+      // it the configurator — is finally shown. Resetting it here meant a phone
+      // foregrounded more often than every 45s never reached the escalation at
+      // all: the user got an eternal spinner with nothing to act on, for a
+      // gateway that had been dead the whole time. The two budgets above are
+      // about giving the attempt a fresh chance; this one is about telling the
+      // truth, and a wake is not evidence that anything got better.
     } else {
       await sleep(reconnectDelay(attempt))
     }
@@ -791,17 +996,38 @@ async function runReconnectLoop(): Promise<void> {
         break
       }
 
+      // `connectGateway` resolves on the socket OPEN, not on a completed
+      // handshake, so "connected" here can mean a socket the server is about to
+      // close. Treating that as success reset every counter and cleared the
+      // error, which turned a gateway that accepts-then-drops into an unbounded
+      // silent flap: no escalation, no error, no way for the user to see it.
+      // Record when we got here; the guard below decides whether it counted.
+      lastReadyAt = Date.now()
       $connectionError.set(null)
       $connectionPhase.set('ready')
 
       break
     } catch (err) {
+      // A refused credential can arrive three ways, and only one of them used to be
+      // recognised:
+      //
+      //   * `GatewayReauthRequiredError` — the ws-ticket mint answered 401.
+      //   * close code 4401/4403 — the gateway accepted the socket and then closed
+      //     it because the credential was bad or the origin was wrong.
+      //   * `HTTP error: 401|403` — `/api/ws` refuses PRE-ACCEPT, so uvicorn answers
+      //     with a bare HTTP status and tungstenite reports a connect error. There is
+      //     no close frame at all.
+      //
+      // The last two fell through to the network ladder, which is unbounded — so a
+      // login that had genuinely failed was retried forever instead of stopping.
+      const refused = isGatewayReauthRequired(err) || isGatewayAuthFailure(err, lastGatewayCloseCode())
+
       // Auth failures spend their own budget. A credential the gateway refuses does
       // not become valid by being asked again, so this is the counter that has to
       // terminate — otherwise a genuinely expired session is an endless spinner. It
       // is checked BEFORE the mode-specific handling below so every auth path
       // (ticket, oauth, cloud, desktop re-auth) shares one stopping rule.
-      if (isGatewayReauthRequired(err)) {
+      if (refused) {
         authAttempts++
 
         if (authAttempts >= MAX_AUTH_ATTEMPTS) {
@@ -810,7 +1036,12 @@ async function runReconnectLoop(): Promise<void> {
           // what reveals the embedded configurator on the connecting screen
           // (gateway-connecting-screen.tsx). A later `wakeReconnect()` refunds the
           // budget, so this ends the spinner without ending the session forever.
-          $connectionError.set(errorText(err))
+          //
+          // `$hasConnected` is deliberately left latched: clearing it drops the
+          // render to the connect PICKER (app/mobile-controller.tsx), which is a
+          // first-run surface and throws away the context of the gateway that just
+          // failed. The error phase is what the terminal card keys off.
+          standDown(errorText(err))
 
           break
         }
@@ -839,14 +1070,18 @@ async function runReconnectLoop(): Promise<void> {
         // exists to let a transient failure resolve itself, and a refused credential is not
         // transient. Nothing is gained by making the user watch a spinner for 45s first.
         //
-        // Two carve-outs, both because the door is not one-way for them:
-        //   * DESKTOP opens a dedicated sign-in window beside the app and resolves, so the
-        //     supervisor can re-auth without the user ever knowing.
-        //   * CLOUD re-auths through `portalAgentSignIn`, which on mobile is the silent
-        //     reqwest cascade (`cloud.rs::agent_sso`) — nothing navigates, so it is safe to
-        //     drive from the background and blocking it would be a pointless regression.
-        if (IS_NATIVE_MOBILE && conn.mode !== 'cloud') {
-          $connectionError.set(errorText(err))
+        // DESKTOP now stands down too. It used to be carved out on the grounds that a
+        // separate sign-in window cannot strand anyone — true, but it still means a login
+        // window appears on its own while the user is doing something else, and the rule
+        // we settled on is that an interactive sign-in only ever happens because a person
+        // asked for one. `reauthForReconnect` enforces the same rule one level down.
+        //
+        // CLOUD keeps its carve-out, and only cloud: it re-auths through
+        // `portalAgentSignIn`, which is the SILENT reqwest cascade (`cloud.rs::agent_sso`).
+        // Nothing navigates and no window opens, so it is exactly the "recovery may retry"
+        // case — blocking it would be a pointless regression.
+        if (conn.mode !== 'cloud') {
+          standDown(errorText(err))
 
           break
         }
@@ -867,6 +1102,11 @@ async function runReconnectLoop(): Promise<void> {
         failingSince = Date.now()
       }
 
+      // Published across episodes so a flap resumes this streak instead of
+      // starting a new one. Cleared at the top of the next episode, but only by a
+      // session that lasted.
+      sustainedFailingSince = failingSince
+
       // Past the escalation window, stop swallowing the failure: publishing it
       // reveals the configurator on the connecting screen, so a gateway that is
       // never coming back has a way out instead of an endless spinner. The last
@@ -883,7 +1123,7 @@ async function runReconnectLoop(): Promise<void> {
 }
 
 $gatewayState.subscribe(state => {
-  if (state === 'closed' && !intentionalClose && !switching && !reconnecting && $connection.get()) {
+  if (state === 'closed' && !intentionalClose && !switching && !reconnecting && !dialInFlight && $connection.get()) {
     void runReconnectLoop()
   }
 })

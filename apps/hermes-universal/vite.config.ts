@@ -271,10 +271,13 @@ export default defineConfig(({ command }) => ({
     // second copy anywhere in the graph emits the whole set twice — measured at
     // ~19.8 MB of byte-identical chunks, a third of the release bundle. That is
     // exactly what `@streamdown/code` (`shiki: ^3.19.0`) did until the root
-    // package.json pinned it forward with an override — that package is gone from
-    // this app now (see markdown-text.tsx), but `react-shiki` declares the same
-    // kind of range, so this line stays as the guard that keeps a future nested
-    // copy from silently doing it again.
+    // package.json pinned it forward with an override.
+    //
+    // Both packages that brought a nested range are now gone — `@streamdown/code`
+    // (see markdown-text.tsx) and, in ALLR-40, `react-shiki` — so this app is the
+    // only thing that depends on shiki, and `codeToTokens` in diff-lines.tsx is
+    // the only thing that imports it. The entry stays as the guard against the
+    // next package that ships a range, alongside the root override.
     dedupe: ['react', 'react-dom', 'shiki']
   },
   clearScreen: false,
@@ -367,6 +370,11 @@ export default defineConfig(({ command }) => ({
   // entries the first code fence in a conversation would re-run the optimiser and
   // reload the page mid-reply.
   //
+  // `react-shiki` left the list with the dependency in ALLR-40. `shiki` stays:
+  // three of those four seams are gone (the fence and the preview compute their
+  // own colours), but `import('shiki')` in diff-lines.tsx is still there and
+  // still first hit mid-conversation, which is the whole hazard.
+  //
   // MJXHRM-45 then found the seam was still defeated by a fifth importer we do
   // not own — `@streamdown/code` statically imports shiki, and
   // `markdown-text.tsx` statically imported that — and deferred it to first
@@ -394,7 +402,6 @@ export default defineConfig(({ command }) => ({
       '@xterm/xterm',
       'katex',
       'mermaid',
-      'react-shiki',
       'shiki'
     ]
   },

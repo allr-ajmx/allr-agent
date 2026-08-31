@@ -123,7 +123,7 @@ object BiometricGate {
                 }
 
                 val info = BiometricPrompt.PromptInfo.Builder()
-                    .setTitle("Unlock Hermes")
+                    .setTitle("Unlock Allr")
                     .setSubtitle(reason)
                     .setAllowedAuthenticators(authenticators())
                     .build()

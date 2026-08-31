@@ -1,3 +1,8 @@
+---
+title: "Context Compression and Caching"
+description: "The pluggable context engine, gateway and agent compression thresholds, summary generation, and Anthropic prompt cache markers"
+---
+
 # Context Compression and Caching
 
 Allr uses a dual compression system and Anthropic prompt caching to
@@ -116,7 +121,7 @@ auxiliary:
 | `idle_compact_after_seconds` | `0` | ≥0 seconds | Opt-in: compact up front when a session resumes after this many seconds idle (0 = disabled). Skips when context ≤ threshold × target_ratio; honors cooldown/anti-thrash/lock guards |
 | `codex_gpt55_autoraise` | `true` | bool | Raise the trigger to 85% for gpt-5.5 on the ChatGPT Codex OAuth route (see below). Set `false` to keep the global `threshold` |
 | `codex_gpt55_autoraise_notice` | `true` | bool | Show the one-time Codex gpt-5.5 autoraise notice. Set `false` to keep the 85% autoraise but suppress the banner |
-| `codex_app_server_auto` | `native` | `native`, `hermes`, `off` | Thread-compaction mode for Codex app-server sessions (see below) |
+| `codex_app_server_auto` | `native` | `native`, `allr`, `off` | Thread-compaction mode for Codex app-server sessions (see below) |
 | `codex_responses_native` | `false` | bool | Opt in to OpenAI's server-side compaction on the Responses API. Engages only for gpt-5.6-family models on the direct OpenAI API or a ChatGPT Codex subscription (see below) |
 | `codex_responses_compact_threshold` | `200000` | ≥1 tokens | Server-side compaction trigger in input tokens. Clamped below the local compression threshold at request time so the server compacts first |
 | `in_place` | `true` | bool | Compact on the same session id instead of rotating to a new one (see below) |
@@ -194,7 +199,7 @@ allr config set compression.codex_gpt55_autoraise_notice false
 
 Codex app-server sessions (`api_mode: codex_app_server` — the codex CLI/agent
 runtime) are different from every other route: the codex agent owns the backing
-thread context, so Allr' auxiliary summarizer cannot shrink it — rewriting the
+thread context, so Allr's auxiliary summarizer cannot shrink it — rewriting the
 local transcript mirror leaves the real thread growing unbounded until a hard
 context reset. For this runtime, compaction goes through the app-server's own
 mechanism instead:
@@ -204,13 +209,13 @@ mechanism instead:
 - Automatic compaction is controlled by `compression.codex_app_server_auto`:
   the default `native` lets the app-server decide when to compact and Allr
   records the resulting compaction events (compression counters, session
-  events). Set `hermes` to let Allr' compression threshold initiate
+  events). Set `allr` to let Allr's compression threshold initiate
   app-server compaction, or `off` to disable Allr-initiated automatic
   compaction entirely (codex may still compact natively).
 
-Allr' local transcript is never rewritten on this runtime — state.db records
+Allr's local transcript is never rewritten on this runtime — state.db records
 the compaction boundary while the visible transcript stays intact. All other
-routes (including Codex OAuth chat sessions) keep Allr' summary compressor.
+routes (including Codex OAuth chat sessions) keep Allr's summary compressor.
 
 ### Native Responses compaction (gpt-5.6 on direct OpenAI / Codex subscription)
 

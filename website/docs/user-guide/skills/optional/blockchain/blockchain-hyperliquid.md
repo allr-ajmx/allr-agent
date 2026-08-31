@@ -17,7 +17,7 @@ Hyperliquid market data, account history, trade review.
 | Source | Optional — install with `allr skills install official/blockchain/hyperliquid` |
 | Path | `optional-skills/blockchain/hyperliquid` |
 | Version | `0.1.0` |
-| Author | Hugo Sequier (Hugo-SEQUIER), Allr |
+| Author | Hugo Sequier (Hugo-SEQUIER), Hermes Agent |
 | License | MIT |
 | Platforms | linux, macos, windows |
 | Tags | `Hyperliquid`, `Blockchain`, `Crypto`, `Trading`, `Perpetuals`, `Spot`, `DeFi` |

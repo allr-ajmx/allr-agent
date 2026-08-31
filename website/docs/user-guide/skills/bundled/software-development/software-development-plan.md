@@ -17,7 +17,7 @@ Write a markdown plan to .allr/plans/; no execution.
 | Source | Bundled (installed by default) |
 | Path | `skills/software-development/plan` |
 | Version | `2.0.0` |
-| Author | Allr (writing-craft adapted from obra/superpowers) |
+| Author | Hermes Agent (writing-craft adapted from obra/superpowers) |
 | License | MIT |
 | Platforms | linux, macos, windows |
 | Tags | `planning`, `plan-mode`, `implementation`, `workflow`, `design`, `documentation` |

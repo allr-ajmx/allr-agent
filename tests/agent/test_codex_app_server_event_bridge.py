@@ -64,7 +64,7 @@ class TestCodexItemToToolName:
         ) == "web_search"
 
     def test_hermes_tools_mcp_server_emits_bare_tool_name(self):
-        """The hermes-tools MCP server wraps Allr' own tools for codex;
+        """The hermes-tools MCP server wraps Allr's own tools for codex;
         the inner dispatch subprocess can't fire native progress events,
         so the codex-level event IS the display event — shown without the
         mcp.hermes-tools.* namespacing (from #26541 by @simpolism)."""

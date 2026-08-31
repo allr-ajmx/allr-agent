@@ -221,7 +221,7 @@ Memory provider plugins can register their own CLI subcommand tree (e.g. `hermes
 3. The memory plugin system discovers it at startup via `discover_plugin_cli_commands()`
 4. Your commands appear under `hermes <provider-name> <subcommand>`
 
-**Active-provider gating:** Your CLI commands only appear when your provider is the active `memory.provider` in config. If a user hasn't configured your provider, your commands won't show in `hermes --help`.
+**Active-provider gating:** Your CLI commands only appear when your provider is the active `memory.provider` in config. If a user hasn't configured your provider, your commands won't show in `allr --help`.
 
 ### Example
 

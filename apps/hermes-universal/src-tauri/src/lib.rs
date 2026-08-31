@@ -71,7 +71,8 @@ use ssh::{
 use surface::below::read_window_below;
 use surface::{surface_capabilities, surface_set_interactive_rect};
 use transport::{
-    cookies_export, cookies_import, http_request, ws_close, ws_open, ws_send, TransportState,
+    cookies_clear, cookies_export, cookies_import, http_request, ws_close, ws_open, ws_send,
+    TransportState,
 };
 use tray::{tray_set_labels, tray_set_status, TrayState};
 use updates::{update_check, update_install, update_open_download, UpdateState};
@@ -393,6 +394,7 @@ pub fn run() {
             oauth_login,
             oauth_status,
             oauth_logout,
+            cookies_clear,
             cookies_export,
             cookies_import,
             local_backend_spawn,

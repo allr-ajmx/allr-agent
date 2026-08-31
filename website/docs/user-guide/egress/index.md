@@ -1,6 +1,7 @@
 ---
 title: Egress proxy
 sidebar_position: 1
+description: "Outbound credential-injection firewall for remote sandboxes — the sandbox holds only opaque proxy tokens, never real API keys"
 ---
 
 # Egress proxy

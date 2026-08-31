@@ -11,7 +11,7 @@ description: >
   when the token has expired or is absent. Slow LLM responses surface a
   Template Buttons postback bubble so the user can fetch the answer with
   a fresh reply token (free) once it's ready.
-author: Allr contributors
+author: Hermes Agent contributors
 # ``requires_env`` and ``optional_env`` entries are surfaced in the
 # ``allr config`` UI via the platform-plugin env var injector in
 # ``hermes_cli/config.py``.

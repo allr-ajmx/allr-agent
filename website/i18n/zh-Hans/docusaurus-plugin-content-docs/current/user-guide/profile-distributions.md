@@ -545,7 +545,7 @@ Profile 分发默认不带签名。你信任的是：
 - **git 托管平台**（GitHub / GitLab / 其他平台）能够提供作者推送的原始内容。
 - **作者**不会发布恶意的 SOUL、技能或 cron 任务。
 
-来自分发的 cron 任务**不会自动调度**——安装器会打印 `hermes -p <name> cron list`，你需要显式启用它们。SOUL.md 和技能在你开始与 profile 对话后立即生效，因此如果你从不熟悉的来源安装，请在第一次运行前阅读它们。
+来自分发的 cron 任务**不会自动调度**——安装器会打印 `allr -p <name> cron list`，你需要显式启用它们。SOUL.md 和技能在你开始与 profile 对话后立即生效，因此如果你从不熟悉的来源安装，请在第一次运行前阅读它们。
 
 粗略类比：安装分发就像安装浏览器扩展或 VS Code 扩展。低摩擦、高权限，信任来源。对于公司内部分发，使用私有仓库和你现有的 git 认证——无需额外配置。
 
@@ -561,13 +561,13 @@ Profile 分发默认不带签名。你信任的是：
 - manifest 格式为 YAML，schema 极简（仅 `name` 为必填）。
 - 安装器使用你本地的 `git` 二进制文件进行克隆，因此 shell 已处理的任何认证（SSH 密钥、credential helper）都能透明生效。
 - 克隆完成后，`.git/` 会被剥离——已安装的 profile 本身不是 git checkout，避免了"不小心将 `.env` 提交到分发 git 历史"的陷阱。
-- 保留的 profile 名称（`hermes`、`test`、`tmp`、`root`、`sudo`）在安装时会被拒绝，以避免与常见二进制文件冲突。
+- 保留的 profile 名称（`allr`、`test`、`tmp`、`root`、`sudo`）在安装时会被拒绝，以避免与常见二进制文件冲突。
 
 ## 另请参阅
 
 - [Profiles：运行多个 Agent](./profiles.md) — 基础概念
 - [Profile 命令参考](../reference/profile-commands.md) — 每个标志、每个选项
 - [`allr profile export` / `import`](../reference/profile-commands.md#allr-profile-export) — 本地备份 / 恢复（非分发）
-- [在 Allr 中使用 SOUL](../guides/use-soul-with-hermes.md) — 编写个性
+- [在 Allr 中使用 SOUL](../guides/use-soul-with-allr.md) — 编写个性
 - [个性与 SOUL](./features/personality.md) — SOUL 在 agent 中的作用
 - [技能目录](../reference/skills-catalog.md) — 可打包的技能

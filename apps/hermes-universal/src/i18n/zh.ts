@@ -791,6 +791,8 @@ export const zh: Translations = {
     }),
     about: {
       heading: 'Allr',
+      description:
+        'Allr 是一个持续演进的平台，让使用 AI 这件事变得更简单。我们不要求你去学习如何把 AI 用得更好，而是优化它周围的框架——让你以最佳性能获得模型所能给出的最佳输出。同时把整套应用集成到一处，让你专注于想要的结果，而不是达成结果的过程。',
       version: value => `版本 ${value}`,
       versionUnavailable: '版本不可用',
       updates: '更新',
@@ -1026,6 +1028,8 @@ export const zh: Translations = {
       saveFailed: '无法保存网关设置',
       connectingTitle: '正在连接 Allr',
       reconnectingTo: target => `正在重新连接到 ${target}…`,
+      connectStoppedTitle: '无法连接',
+      connectStoppedTo: target => `已停止尝试连接 ${target}。`,
       useDifferentGateway: '使用其他网关',
       startOver: '重新开始'
     },

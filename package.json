@@ -1,7 +1,8 @@
 {
   "name": "allr-agent",
   "version": "1.0.0",
-  "description": "An AI agent with advanced tool-calling capabilities, featuring a flexible toolsets system for organizing and managing tools.",
+  "description": "Allr — one AI workspace that makes finished work. Built on Hermes Agent by Nous Research.",
+  "author": "Allr",
   "private": true,
   "packageManager": "npm@10.9.4",
   "workspaces": [
@@ -33,7 +34,7 @@
   "bugs": {
     "url": "https://github.com/allr-ajmx/allr-agent/issues"
   },
-  "homepage": "https://github.com/allr-ajmx/allr-agent#readme",
+  "homepage": "https://allr.work",
   "dependencies": {
     "@streamdown/math": "1.0.2",
     "agent-browser": "0.26.0"

@@ -249,22 +249,32 @@ pub(crate) fn sign_in_active() -> bool {
         .unwrap_or(true)
 }
 
-/// Claim `label`'s sign-in slot, or report that one is already running.
-pub(crate) fn claim_sign_in(label: &str) -> Result<SignInLease, String> {
-    let mut in_flight = SIGN_IN_IN_FLIGHT
-        .lock()
-        .map_err(|_| "the sign-in registry is unusable".to_string())?;
+/// Claim `label`'s sign-in slot. `None` means one is already running.
+///
+/// `None` and not `Err`, because losing this race is a NORMAL outcome, not a
+/// failure: it means a sign-in the user asked for is already under way and this
+/// caller should simply defer to it. Reporting it as an error had a consequence
+/// far worse than the noise — `beginOAuthLogin` treats a rejection as proof that
+/// it never navigated, and clears the one-shot resume marker. Since that marker is
+/// global, the LOSER was deleting the WINNER's. The user completed a sign-in, the
+/// SPA reloaded, found no marker, and dropped them on the connect screen holding a
+/// login they had just finished.
+pub(crate) fn claim_sign_in(label: &str) -> Option<SignInLease> {
+    // A poisoned registry is recovered, not propagated: the guarded value is a set
+    // of labels with no invariant to corrupt, and refusing every sign-in for the
+    // rest of the process is a far worse outcome than the panic that poisoned it.
+    let mut in_flight = match SIGN_IN_IN_FLIGHT.lock() {
+        Ok(in_flight) => in_flight,
+        Err(poisoned) => poisoned.into_inner(),
+    };
 
     if !in_flight.insert(label.to_string()) {
-        log::warn!("[oauth] refusing a second sign-in for webview {label:?}");
+        log::info!("[oauth] a sign-in already owns webview {label:?}; deferring to it");
 
-        return Err(
-            "A sign-in is already in progress. Finish or cancel it before starting another."
-                .to_string(),
-        );
+        return None;
     }
 
-    Ok(SignInLease(label.to_string()))
+    Some(SignInLease(label.to_string()))
 }
 
 /// Is the webview already sitting on the sign-in host?
@@ -1121,12 +1131,58 @@ async fn await_loopback_code_in_window(
 /// reqwest never puts in an error — but reqwest does embed the request URL, and a
 /// base URL can carry userinfo or query material, so the URL is swapped for its
 /// redacted form the way `transport.rs` does (MJXHRM-217, PR #103).
+/// Why a token POST failed, and — the part that matters — whether the credential
+/// it carried is actually dead.
+///
+/// `status` is `Some(code)` when the gateway ANSWERED and refused. It is `None`
+/// when the request never got an answer at all: DNS, connection refused, TLS,
+/// timeout. Collapsing those two into one `String` is what let a flaky network
+/// delete a perfectly good session: `ensure_native_tokens` cleared the keyring on
+/// any `Err`, so one unreachable moment cost the user an interactive sign-in.
+#[derive(Debug)]
+struct TokenPostError {
+    message: String,
+    /// The HTTP status the gateway answered with, or `None` if it never answered.
+    status: Option<u16>,
+}
+
+impl TokenPostError {
+    fn unreachable(message: String) -> Self {
+        Self {
+            message,
+            status: None,
+        }
+    }
+
+    /// True only when the gateway answered and rejected the credential itself.
+    ///
+    /// 401 is the refusal the auth gate emits for a dead bearer or a refresh token
+    /// it will not rotate; 403 covers a grant that still parses but is no longer
+    /// entitled. Everything else — 5xx from a restarting gateway, 502 from a proxy,
+    /// 429 — says nothing about the credential and must leave it alone.
+    fn credential_rejected(&self) -> bool {
+        matches!(self.status, Some(401) | Some(403))
+    }
+}
+
+impl From<TokenPostError> for String {
+    fn from(err: TokenPostError) -> Self {
+        err.message
+    }
+}
+
+impl std::fmt::Display for TokenPostError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
 async fn post_native_tokens(
     state: &TransportState,
     base: &str,
     path: &str,
     body: serde_json::Value,
-) -> Result<native::NativeTokenSet, String> {
+) -> Result<native::NativeTokenSet, TokenPostError> {
     let url = format!("{base}{path}");
     // The refresh token rides in the body, so it is scrubbed out of any error
     // too — reqwest has no reason to quote a body back at us, but this error
@@ -1144,13 +1200,13 @@ async fn post_native_tokens(
         .send()
         .await
         .map_err(|e| {
-            format!(
+            TokenPostError::unreachable(format!(
                 "{path} request failed: {}",
                 crate::transport::redact_secret(
                     crate::transport::redact_error(e.to_string(), &url),
                     &secret
                 )
-            )
+            ))
         })?;
 
     let status = resp.status();
@@ -1158,19 +1214,26 @@ async fn post_native_tokens(
     if !status.is_success() {
         // The gateway keeps these deliberately generic (no verifier oracle); pass
         // the status through and nothing else.
-        return Err(format!("{path} rejected the request (HTTP {status})"));
+        return Err(TokenPostError {
+            message: format!("{path} rejected the request (HTTP {status})"),
+            status: Some(status.as_u16()),
+        });
     }
 
     // reqwest appends ` for url (…)` to a decode error too, so this one carries
     // the request URL exactly like the send failure above does.
+    //
+    // Answered-but-unreadable is NOT a credential refusal: the gateway took the
+    // token and replied 2xx, so the fault is the body, not the grant. It keeps
+    // `status: None` so it never reaches `credential_rejected`.
     let parsed: serde_json::Value = resp.json().await.map_err(|e| {
-        format!(
+        TokenPostError::unreachable(format!(
             "{path} returned an unreadable body: {}",
             crate::transport::redact_error(e.to_string(), &url)
-        )
+        ))
     })?;
 
-    native::parse_token_response(&parsed)
+    native::parse_token_response(&parsed).map_err(TokenPostError::unreachable)
 }
 
 /// Why a native login failed, and whether falling back would help or just repeat it.
@@ -1331,7 +1394,8 @@ async fn run_native_login(
             "/auth/native/token",
             serde_json::json!({ "code": code, "code_verifier": pkce.verifier }),
         )
-        .await?;
+        .await
+        .map_err(|e| e.message)?;
 
         // NOT survivable, despite how this read for a long time. A token set that did
         // not reach the keyring cannot be read back by `ensure_native_tokens`, so
@@ -1513,7 +1577,8 @@ async fn native_login_after_navigate(
         "/auth/native/token",
         serde_json::json!({ "code": code, "code_verifier": verifier }),
     )
-    .await?;
+    .await
+    .map_err(|e| e.message)?;
 
     // Written BEFORE the caller navigates back, and a failure here fails the sign-in.
     // The restore reloads the SPA, whose boot calls `oauth_status` — i.e. reads this
@@ -1528,14 +1593,51 @@ async fn native_login_after_navigate(
     Ok(tokens)
 }
 
+/// One refresh at a time, per gateway.
+///
+/// Nothing used to serialise `ensure_native_tokens`, and on boot several callers
+/// reach it at once — `oauth_status`, every `transport::http_request`, every
+/// `files.rs` transfer. Each loaded the SAME refresh token and POSTed it. The
+/// gateway rotates refresh tokens with reuse detection, so the first rotation
+/// invalidated the token the others were already presenting: every loser got a
+/// 401 and (before this change) deleted the winner's freshly stored rotation.
+/// The user then had to sign in interactively on every single launch, which is
+/// exactly what the device log shows — a refresh 401 as line one, every time.
+///
+/// Keyed by base because two gateways have two unrelated grants. A `tokio` mutex,
+/// not a `std` one: it is held across the refresh `.await`.
+static REFRESH_GATES: std::sync::Mutex<
+    std::collections::BTreeMap<String, std::sync::Arc<tokio::sync::Mutex<()>>>,
+> = std::sync::Mutex::new(std::collections::BTreeMap::new());
+
+fn refresh_gate(base: &str) -> std::sync::Arc<tokio::sync::Mutex<()>> {
+    // A poisoned registry is recovered rather than propagated: the guarded value
+    // is a map of handles with no invariant to corrupt, and refusing to refresh
+    // for the rest of the process would be far worse than the panic that poisoned
+    // it. Mirrors `claim_sign_in`.
+    let mut gates = match REFRESH_GATES.lock() {
+        Ok(gates) => gates,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+
+    gates.entry(base.to_string()).or_default().clone()
+}
+
 /// The live token set for this gateway, refreshing first when the stored access
 /// token is at or inside the skew window (or when `force_refresh` says the
 /// gateway just rejected it). `None` means "no native session" — the caller falls
 /// back to the cookie jar, exactly as before.
 ///
-/// A refusal from `/auth/native/refresh` clears the stored set: a refresh token
-/// the gateway will not rotate is dead, and keeping it would make every later call
-/// spend a doomed round trip.
+/// A REFUSAL from `/auth/native/refresh` (401/403) clears the stored set: a
+/// refresh token the gateway will not rotate is dead, and keeping it would make
+/// every later call spend a doomed round trip.
+///
+/// An UNREACHABLE gateway does not. That distinction is the whole point: this
+/// used to clear on any `Err`, so a phone that lost signal for one request threw
+/// away a working session and forced an interactive sign-in to get it back. When
+/// the refresh cannot be completed we hand back the set we already hold — stale
+/// or not, presenting it costs one round trip and `transport.rs`'s 401 ladder is
+/// there to catch it if the gateway really has moved on.
 async fn ensure_native_tokens(
     app: &AppHandle,
     state: &TransportState,
@@ -1580,6 +1682,23 @@ async fn ensure_native_tokens(
         return None;
     }
 
+    // Everything below rotates the grant, so only one caller per gateway may run it.
+    let gate = refresh_gate(base);
+    let _guard = gate.lock().await;
+
+    // Re-read under the gate. If someone rotated while we queued, THAT is the answer —
+    // re-POSTing the refresh token they just consumed is precisely the reuse-detection
+    // cascade this gate exists to stop. The access-token comparison is what keeps a
+    // `force_refresh` caller honest: it was sent here because the gateway rejected a
+    // specific bearer, so it may only accept a set that is demonstrably a different one.
+    if let Some(rotated) = state.cached_bearer_tokens(base) {
+        if rotated.access_token != tokens.access_token
+            && !native::needs_refresh(&rotated, now_secs())
+        {
+            return Some(rotated);
+        }
+    }
+
     match post_native_tokens(
         state,
         base,
@@ -1599,11 +1718,20 @@ async fn ensure_native_tokens(
 
             Some(rotated)
         }
-        Err(e) => {
-            log::info!("[oauth] native refresh failed, dropping the stored session: {e}");
+        Err(e) if e.credential_rejected() => {
+            log::info!("[oauth] native refresh was refused, dropping the stored session: {e}");
             clear_native_tokens(app, state, base);
 
             None
+        }
+        Err(e) => {
+            // Unreachable, 5xx, or an unreadable body. None of those say the grant is
+            // dead, so the session stays exactly where it is and we retry on the next
+            // call. Handing back the set we hold keeps requests flowing the moment the
+            // network returns, instead of stranding a signed-in user on a sign-in CTA.
+            log::info!("[oauth] native refresh could not be completed, keeping the session: {e}");
+
+            Some(tokens)
         }
     }
 }
@@ -1777,11 +1905,53 @@ pub async fn oauth_login(
     state: State<'_, TransportState>,
     base: String,
     provider: Option<String>,
-) -> Result<(), String> {
+) -> Result<SignInOutcome, String> {
     // Before anything else, and held for the whole command: three callers can drive a
     // sign-in and none of them coordinate. See `SIGN_IN_IN_FLIGHT`.
-    let _lease = claim_sign_in(webview.label())?;
+    //
+    // Losing the race is reported, not raised. The caller must be able to tell "another
+    // flow owns this" from "your sign-in failed", because the two demand opposite
+    // reactions — defer quietly, versus tear down the resume state and surface an error.
+    let Some(_lease) = claim_sign_in(webview.label()) else {
+        return Ok(SignInOutcome::busy());
+    };
 
+    run_oauth_login(app, webview, state, base, provider).await?;
+
+    Ok(SignInOutcome::started())
+}
+
+/// What an `oauth_login` call actually did.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SignInOutcome {
+    /// True when another sign-in already owned this webview, so this call did
+    /// nothing at all. Not an error: the flow the user asked for is still running,
+    /// and the caller must leave its state — above all the resume marker — alone.
+    busy: bool,
+}
+
+impl SignInOutcome {
+    fn busy() -> Self {
+        Self { busy: true }
+    }
+
+    fn started() -> Self {
+        Self { busy: false }
+    }
+}
+
+/// The sign-in itself, once the lease is held.
+///
+/// Split from the command purely so the lease has exactly one claim site and one
+/// scope — this body has a dozen early returns across two platform arms.
+async fn run_oauth_login(
+    app: AppHandle,
+    webview: WebviewWindow,
+    state: State<'_, TransportState>,
+    base: String,
+    provider: Option<String>,
+) -> Result<(), String> {
     let base = normalize_base(&base);
     let provider = provider.unwrap_or_else(|| "nous".to_string());
     let base_url = Url::parse(&base).map_err(|e| format!("invalid gateway URL {base:?}: {e}"))?;
@@ -1951,6 +2121,17 @@ pub enum SessionKind {
 #[serde(rename_all = "camelCase")]
 pub struct OauthStatus {
     signed_in: bool,
+    /// Whether we actually got an answer. `false` means "could not tell" — the
+    /// gateway was unreachable or answered a server error — and is NOT the same
+    /// as signed out.
+    ///
+    /// Without this the reply had only two states, so an unreachable gateway was
+    /// indistinguishable from a revoked session and the caller sent a signed-in
+    /// user to an interactive sign-in for what was really a dropped connection.
+    /// Callers must branch on all three: signed in, signed out, or unknown.
+    reachable: bool,
+    /// Why we could not tell, when `reachable` is false. Already redacted.
+    error: Option<String>,
     email: Option<String>,
     display_name: Option<String>,
     /// Which credential backs the live session, or `None` when signed out.
@@ -1966,6 +2147,21 @@ impl OauthStatus {
     fn signed_out() -> Self {
         Self {
             signed_in: false,
+            reachable: true,
+            error: None,
+            email: None,
+            display_name: None,
+            session_kind: None,
+        }
+    }
+
+    /// We hold (or held) a session but could not confirm it. The caller must treat
+    /// this as a network fault and retry, never as a reason to sign in again.
+    fn unknown(error: String) -> Self {
+        Self {
+            signed_in: false,
+            reachable: false,
+            error: Some(error),
             email: None,
             display_name: None,
             session_kind: None,
@@ -1984,6 +2180,8 @@ impl OauthStatus {
 
         Self {
             signed_in: true,
+            reachable: true,
+            error: None,
             email: string("email"),
             display_name: string("display_name"),
             session_kind: Some(match tokens {
@@ -2023,22 +2221,40 @@ pub async fn oauth_status(
     // `redact_error` and not `redact_bearer` alone: reqwest quotes the request
     // URL back at us, and a hand-typed base can carry a basic-auth password in
     // its userinfo. This string is rendered on the connect screen.
-    let resp = request.send().await.map_err(|e| {
-        format!(
-            "auth/me request failed: {}",
-            crate::transport::redact_error(e.to_string(), &url)
-        )
-    })?;
+    // An unreachable gateway is reported, not raised. Raising sent every caller
+    // through `.catch(() => ({ signedIn: false }))`, which turned "the network is
+    // down" into "you are signed out" and pushed the user at a sign-in button that
+    // could not possibly help.
+    let resp = match request.send().await {
+        Ok(resp) => resp,
+        Err(e) => {
+            return Ok(OauthStatus::unknown(format!(
+                "auth/me request failed: {}",
+                crate::transport::redact_error(e.to_string(), &url)
+            )));
+        }
+    };
 
-    if !resp.status().is_success() {
-        // A bearer the gateway rejects is dead (the middleware answers a bad
+    let status = resp.status();
+
+    if !status.is_success() {
+        // A bearer the gateway REFUSES is dead (the middleware answers a bad
         // bearer with 401 rather than falling through to the cookie), so drop it
         // instead of re-presenting it on every probe.
-        if tokens.is_some() {
-            clear_native_tokens(&app, state.inner(), &base);
+        if matches!(status.as_u16(), 401 | 403) {
+            if tokens.is_some() {
+                clear_native_tokens(&app, state.inner(), &base);
+            }
+
+            return Ok(OauthStatus::signed_out());
         }
 
-        return Ok(OauthStatus::signed_out());
+        // Anything else — 502 from a proxy, 503 from a gateway still booting — is
+        // the gateway's problem, not the credential's. Clearing the keyring here
+        // meant a restart on the server cost the user a sign-in on the client.
+        return Ok(OauthStatus::unknown(format!(
+            "auth/me answered HTTP {status}"
+        )));
     }
 
     let body: serde_json::Value = resp.json().await.unwrap_or(serde_json::Value::Null);
@@ -2205,13 +2421,41 @@ mod tests {
 
         // The regression this exists for: two flows driving one webview, the second
         // capturing the first's login page as its return target.
-        assert!(claim_sign_in("lease-test-main").is_err());
+        assert!(claim_sign_in("lease-test-main").is_none());
 
         drop(first);
 
         // And the slot is usable again afterwards — a lease that leaked on any of
         // `oauth_login`'s early returns would wedge sign-in for the whole process.
-        assert!(claim_sign_in("lease-test-main").is_ok());
+        assert!(claim_sign_in("lease-test-main").is_some());
+    }
+
+    /// Losing the race is `None`, never an `Err`, and the difference is the whole
+    /// reason `SignInOutcome` exists.
+    ///
+    /// `beginOAuthLogin` reads a rejection as proof that it never navigated, and
+    /// responds by clearing the one-shot resume marker. That marker is global, so
+    /// the loser was deleting the WINNER's: the user finished signing in, the SPA
+    /// reloaded, found nothing to resume, and landed back on the connect screen.
+    #[test]
+    fn losing_the_race_is_reported_as_busy_rather_than_as_a_failure() {
+        let _held = claim_sign_in("lease-test-busy").expect("the first claim wins");
+
+        let outcome = match claim_sign_in("lease-test-busy") {
+            Some(_) => SignInOutcome::started(),
+            None => SignInOutcome::busy(),
+        };
+
+        let json = serde_json::to_string(&outcome).unwrap();
+
+        assert_eq!(json, r#"{"busy":true}"#);
+    }
+
+    #[test]
+    fn a_sign_in_that_actually_ran_is_not_busy() {
+        let json = serde_json::to_string(&SignInOutcome::started()).unwrap();
+
+        assert_eq!(json, r#"{"busy":false}"#);
     }
 
     #[test]
@@ -2331,5 +2575,200 @@ mod tests {
             .unwrap_err();
 
         assert!(err.contains("timed out"), "{err}");
+    }
+
+    // ---------------------------------------------------------------------
+    // Credential lifecycle: WHICH failures are allowed to end a session.
+    //
+    // `ensure_native_tokens` used to clear the keyring on any `Err` from the
+    // refresh POST, so one unreachable moment on a phone threw away a working
+    // grant and forced an interactive sign-in. These pin the classification it
+    // now branches on; `post_native_tokens` is driven against a real loopback
+    // socket so the status really does come off the wire.
+    // ---------------------------------------------------------------------
+
+    /// Answer exactly one request with a canned status, then hang up.
+    fn serve_once(
+        listener: tokio::net::TcpListener,
+        status_line: &'static str,
+        body: &'static str,
+    ) {
+        tokio::spawn(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+            let Ok((mut sock, _)) = listener.accept().await else {
+                return;
+            };
+
+            let mut buf = [0u8; 2048];
+            let _ = sock.read(&mut buf).await;
+
+            let reply = format!(
+                "HTTP/1.1 {status_line}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+
+            let _ = sock.write_all(reply.as_bytes()).await;
+            let _ = sock.flush().await;
+        });
+    }
+
+    async fn refresh_against(status_line: &'static str, body: &'static str) -> TokenPostError {
+        let (listener, port) = bound_listener().await;
+        serve_once(listener, status_line, body);
+
+        let state = TransportState::new();
+
+        post_native_tokens(
+            &state,
+            &format!("http://127.0.0.1:{port}"),
+            "/auth/native/refresh",
+            serde_json::json!({ "refresh_token": "rt-secret", "provider": "nous" }),
+        )
+        .await
+        .expect_err("the canned reply is never a success")
+    }
+
+    #[tokio::test]
+    async fn a_refused_refresh_is_a_credential_rejection() {
+        let err = refresh_against("401 Unauthorized", "{}").await;
+
+        assert_eq!(err.status, Some(401));
+        assert!(err.credential_rejected(), "{err}");
+    }
+
+    #[tokio::test]
+    async fn a_forbidden_refresh_is_a_credential_rejection() {
+        assert!(refresh_against("403 Forbidden", "{}")
+            .await
+            .credential_rejected());
+    }
+
+    /// The regression this whole change exists for. A gateway that is restarting
+    /// answers 502/503; treating that as a dead grant is what cost the user a
+    /// sign-in every time the server bounced.
+    #[tokio::test]
+    async fn a_gateway_error_never_ends_the_session() {
+        for status in [
+            "500 Internal Server Error",
+            "502 Bad Gateway",
+            "503 Service Unavailable",
+        ] {
+            let err = refresh_against(status, "{}").await;
+
+            assert!(
+                !err.credential_rejected(),
+                "{status} must not be read as a refusal: {err}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn a_rate_limit_never_ends_the_session() {
+        assert!(!refresh_against("429 Too Many Requests", "{}")
+            .await
+            .credential_rejected());
+    }
+
+    /// No answer at all says nothing about the credential — this is the flaky
+    /// network in the device log.
+    #[tokio::test]
+    async fn an_unreachable_gateway_never_ends_the_session() {
+        let (listener, port) = bound_listener().await;
+        drop(listener); // nothing is listening on `port` any more
+
+        let state = TransportState::new();
+
+        let err = post_native_tokens(
+            &state,
+            &format!("http://127.0.0.1:{port}"),
+            "/auth/native/refresh",
+            serde_json::json!({ "refresh_token": "rt-secret", "provider": "nous" }),
+        )
+        .await
+        .expect_err("nothing is listening");
+
+        assert_eq!(err.status, None);
+        assert!(!err.credential_rejected(), "{err}");
+    }
+
+    /// A 2xx the gateway answered with an unreadable body is the body's fault,
+    /// not the grant's.
+    #[tokio::test]
+    async fn an_unreadable_success_body_never_ends_the_session() {
+        let err = refresh_against("200 OK", "{ not json").await;
+
+        assert!(!err.credential_rejected(), "{err}");
+    }
+
+    #[tokio::test]
+    async fn the_refresh_error_never_quotes_the_refresh_token() {
+        let err = refresh_against("401 Unauthorized", "{}").await;
+
+        assert!(!err.message.contains("rt-secret"), "{err}");
+    }
+
+    // --- the per-gateway refresh gate ---
+
+    #[test]
+    fn one_gateway_shares_a_single_refresh_gate() {
+        let base = "https://gate-shared.example";
+
+        assert!(std::sync::Arc::ptr_eq(
+            &refresh_gate(base),
+            &refresh_gate(base)
+        ));
+    }
+
+    #[test]
+    fn two_gateways_do_not_block_each_other() {
+        assert!(!std::sync::Arc::ptr_eq(
+            &refresh_gate("https://gate-a.example"),
+            &refresh_gate("https://gate-b.example")
+        ));
+    }
+
+    #[tokio::test]
+    async fn the_gate_admits_one_refresher_at_a_time() {
+        let gate = refresh_gate("https://gate-serialised.example");
+        let held = gate.lock().await;
+
+        assert!(
+            gate.try_lock().is_err(),
+            "a second refresher must queue behind the first, not race it"
+        );
+
+        drop(held);
+        assert!(
+            gate.try_lock().is_ok(),
+            "the gate reopens once the winner is done"
+        );
+    }
+
+    // --- the third status state ---
+
+    #[test]
+    fn an_unknown_status_is_not_a_signed_out_status() {
+        let json = serde_json::to_string(&OauthStatus::unknown("host is down".into())).unwrap();
+
+        assert!(json.contains("\"reachable\":false"), "{json}");
+        assert!(json.contains("\"signedIn\":false"), "{json}");
+        assert!(json.contains("host is down"), "{json}");
+    }
+
+    #[test]
+    fn a_signed_out_status_says_the_gateway_answered() {
+        let json = serde_json::to_string(&OauthStatus::signed_out()).unwrap();
+
+        assert!(json.contains("\"reachable\":true"), "{json}");
+    }
+
+    #[test]
+    fn a_live_status_says_the_gateway_answered() {
+        let json =
+            serde_json::to_string(&OauthStatus::live(&me_body(), Some(&token_set()))).unwrap();
+
+        assert!(json.contains("\"reachable\":true"), "{json}");
+        assert!(json.contains("\"signedIn\":true"), "{json}");
     }
 }

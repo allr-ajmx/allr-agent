@@ -17,6 +17,21 @@ import { type Connection } from '@/store/gateway-config'
 import { TauriWebSocket } from '@/transport/tauri-websocket'
 
 /**
+ * How many times the plugin socket re-dials before standing down.
+ *
+ * The core gateway socket has a supervisor with its own budgets; this channel had
+ * none at all and retried forever. So when the supervisor gave up on a gateway
+ * that was refusing credentials, this kept dialling it — and each attempt mints a
+ * ws-ticket, so a dead gateway got a steady stream of authenticated POSTs from an
+ * app that had already told the user it had stopped.
+ *
+ * Generous, because the plugin channel is a decoration on a connection that has
+ * its own recovery: by the time this is exhausted the core socket has long since
+ * reported. `$connection` changing re-arms it from zero.
+ */
+const MAX_PLUGIN_SOCKET_ATTEMPTS = 8
+
+/**
  * The upgrade credential for a plugin socket, by auth mode — the same shapes
  * the gateway's own `_ws_auth_reason` accepts, because plugin WS routes go
  * through that very gate (`plugins/kanban/dashboard/plugin_api.py` calls
@@ -88,6 +103,16 @@ export function pluginSocket(pluginId: string, path: string, onMessage: (data: u
 
   const retry = () => {
     if (disposed) {
+      return
+    }
+
+    // Bounded, unlike before. This ladder is entirely independent of the core
+    // socket's supervisor, so when that one gave up on a dead or refusing gateway
+    // this one carried on hammering it — and every attempt costs a
+    // `POST /api/auth/ws-ticket`. The plugin channel is an enhancement; it must
+    // not outlive the connection it decorates. `$connection` changing re-arms it
+    // (see the subscription below), so a real reconnect still brings it back.
+    if (attempt >= MAX_PLUGIN_SOCKET_ATTEMPTS) {
       return
     }
 

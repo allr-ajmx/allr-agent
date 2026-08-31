@@ -288,7 +288,7 @@ echo "image_gen:" >> $ALLR_HOME/config.yaml
 echo "  provider: my-backend" >> $ALLR_HOME/config.yaml
 
 # Exercise it
-hermes -z "Generate an image of a corgi in a spacesuit"
+allr -z "Generate an image of a corgi in a spacesuit"
 ```
 
 Or interactively: `allr tools` → "Image Generation" → select `my-backend` → enter API key if prompted.

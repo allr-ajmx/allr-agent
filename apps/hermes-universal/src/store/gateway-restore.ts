@@ -1,4 +1,4 @@
-import { isGatewayReauthRequired } from '@/gateway'
+import { isGatewayReauthRequired, isGatewaySignInBusy, isGatewaySignInRequired } from '@/gateway'
 import { oauthStatus } from '@/lib/auth'
 import { loadString, removeKey, saveString } from '@/lib/persist'
 import { reconnectBackoffDelayMs } from '@/lib/reconnect-backoff'
@@ -147,6 +147,19 @@ export function hasPendingOAuth(): boolean {
   return Boolean(loadString(PENDING_OAUTH_KEY))
 }
 
+/**
+ * Discard a queued OAuth resume without consuming it as one.
+ *
+ * Separate from `takePendingOAuth` because the two mean opposite things at the
+ * call site: `take` is "I am the resume, hand me the intent", this is "there is
+ * nothing left to resume TO". Sign-out needs the second — a marker left behind by
+ * a sign-in the user has since abandoned would otherwise fire on some later
+ * launch and drive a connect to a gateway they just left.
+ */
+export function clearPendingOAuth(): void {
+  removeKey(PENDING_OAUTH_KEY)
+}
+
 // The portal (Nous Cloud) equivalent. It carries no payload — the portal session is a
 // single global thing, so all the reload needs to know is "you were in the middle of
 // signing in to the portal", which puts the gateway panel back on the cloud card instead
@@ -168,6 +181,11 @@ export function takePendingPortal(): boolean {
   removeKey(PENDING_PORTAL_KEY)
 
   return Boolean(raw)
+}
+
+/** Discard a queued portal resume. See {@link clearPendingOAuth}. */
+export function clearPendingPortal(): void {
+  removeKey(PENDING_PORTAL_KEY)
 }
 
 /** Whether a restorable connection exists — read synchronously at module load so
@@ -240,7 +258,13 @@ export async function dialSavedTarget(target: GatewayTarget, interactive = false
       url: target.url,
       username: target.username || undefined,
       token: saved?.token || undefined,
-      password: saved?.password || undefined
+      password: saved?.password || undefined,
+      // `interactive` finally reaches the remote branch. It used to stop at the
+      // ssh arm above, which made this function's own "non-interactive by
+      // default" contract a fiction: a boot restore of a signed-out gateway went
+      // straight through `connect` into `beginOAuthLogin` and navigated the
+      // webview to a login page nobody had asked for.
+      allowInteractive: interactive
     })
   }
 }
@@ -332,7 +356,13 @@ export async function autoRestoreConnection(): Promise<void> {
       // answer — so it spends the ladder immediately rather than sitting behind
       // three backoffs the user has to watch. Everything else (refused, timeout,
       // DNS, a gateway still coming up) is exactly what the retries are for.
-      if (isGatewayReauthRequired(err)) {
+      //
+      // `isGatewaySignInRequired` joins it for the same reason and one more: it
+      // means we deliberately declined to open a login page, and retrying would
+      // just decline twice more. Before this, a signed-out restore fell into the
+      // generic arm and drove THREE interactive sign-ins inside one second —
+      // which is what the device log shows as "refusing a second sign-in".
+      if (isGatewayReauthRequired(err) || isGatewaySignInRequired(err) || isGatewaySignInBusy(err)) {
         break
       }
       // connect*/connectLocal/connectCloud already set $connectionError + phase; the

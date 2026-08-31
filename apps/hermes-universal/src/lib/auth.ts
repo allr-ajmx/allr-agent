@@ -143,8 +143,19 @@ export async function fetchAuthProviders(base: string): Promise<AuthProvider[]> 
  * Neither platform uses the system browser: nothing in this project registers a URL
  * scheme, so a browser that fails to reach our loopback listener has no way back.
  */
-export async function oauthLogin(base: string, provider?: string): Promise<void> {
-  await invoke('oauth_login', { base, provider: provider ?? null })
+export interface SignInOutcome {
+  /**
+   * Another sign-in already owned this webview, so the call did nothing.
+   *
+   * Not an error, and the distinction is load-bearing: the flow the user asked
+   * for is still running, and a caller that mistakes this for a failure will tear
+   * down state that belongs to the winner — see `beginOAuthLogin`.
+   */
+  busy: boolean
+}
+
+export async function oauthLogin(base: string, provider?: string): Promise<SignInOutcome> {
+  return invoke<SignInOutcome>('oauth_login', { base, provider: provider ?? null })
 }
 
 /** Which credential backs a live gateway session. `native` is the RFC 8252
@@ -153,12 +164,36 @@ export type OauthSessionKind = 'cookie' | 'native'
 
 export interface OauthStatus {
   signedIn: boolean
+  /**
+   * Whether the gateway actually answered.
+   *
+   * `false` means "could not tell" — unreachable, or a 5xx — and is NOT the same
+   * as signed out. The reply used to have only two states, so a dropped
+   * connection was indistinguishable from a revoked session and the caller sent
+   * a perfectly signed-in user to an interactive sign-in that could not help.
+   * Read it with {@link oauthStatusIsUnknown}; absent (an older reply) means
+   * reachable, so the two-state readers stay correct.
+   */
+  reachable?: boolean
+  /** Why we could not tell, when `reachable` is false. Already redacted. */
+  error?: null | string
   email?: string | null
   displayName?: string | null
   /** How the live session authenticates, or absent when signed out. The
    *  credential itself never crosses IPC — `src-tauri/src/transport.rs` reads it
    *  from the keyring and attaches it per request (MJXHRM-354). */
   sessionKind?: null | OauthSessionKind
+}
+
+/**
+ * "We could not tell", as opposed to "signed out".
+ *
+ * The distinction decides which of two very different things the UI does: retry
+ * the network, or ask the user to sign in. Getting it backwards is what put a
+ * Sign in button in front of users whose only problem was no signal.
+ */
+export function oauthStatusIsUnknown(status: OauthStatus): boolean {
+  return status.reachable === false
 }
 
 /**
@@ -196,7 +231,13 @@ function rememberSession(base: string, kind: null | OauthSessionKind | undefined
 export async function oauthStatus(base: string): Promise<OauthStatus> {
   const status = await invoke<OauthStatus>('oauth_status', { base })
 
-  rememberSession(base, status.signedIn ? status.sessionKind : null)
+  // Only a probe that got an ANSWER may speak for the session. An unreachable
+  // gateway knows nothing about the credential we are holding, and letting it
+  // clear `$oauthSession` would make a dropped connection render as "signed out"
+  // — the same conflation this reply's `reachable` flag exists to end.
+  if (!oauthStatusIsUnknown(status)) {
+    rememberSession(base, status.signedIn ? status.sessionKind : null)
+  }
 
   return status
 }

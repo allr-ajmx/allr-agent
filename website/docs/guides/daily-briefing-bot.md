@@ -50,7 +50,7 @@ You can still follow this tutorial using `deliver: "local"`. Briefings will be s
 Before automating anything, let's make sure the briefing works. Start a chat session:
 
 ```bash
-hermes
+allr
 ```
 
 Then enter this prompt:

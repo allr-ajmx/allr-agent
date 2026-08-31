@@ -2,7 +2,7 @@
 name: fastmcp
 description: Build, test, and deploy Python MCP servers.
 version: 1.0.0
-author: Allr
+author: Hermes Agent
 license: MIT
 platforms: [linux, macos, windows]
 metadata:

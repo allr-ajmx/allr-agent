@@ -17,7 +17,7 @@ Author in-repo SKILL.md files: frontmatter and structure.
 | Source | Bundled (installed by default) |
 | Path | `skills/software-development/allr-agent-skill-authoring` |
 | Version | `2.0.0` |
-| Author | Allr |
+| Author | Hermes Agent |
 | License | MIT |
 | Platforms | linux, macos, windows |
 | Tags | `skills`, `authoring`, `allr-agent`, `conventions`, `skill-md` |

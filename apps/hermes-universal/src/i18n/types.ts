@@ -504,6 +504,7 @@ export interface Translations {
     fieldDescriptions: Record<string, string>
     about: {
       heading: string
+      description: string
       version: (value: string) => string
       versionUnavailable: string
       updates: string
@@ -737,6 +738,9 @@ export interface Translations {
       saveFailed: string
       connectingTitle: string
       reconnectingTo: (target: string) => string
+      /** Shown once the supervisor has STOPPED retrying, in place of the spinner. */
+      connectStoppedTitle: string
+      connectStoppedTo: (target: string) => string
       useDifferentGateway: string
       startOver: string
     }

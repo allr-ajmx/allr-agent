@@ -51,7 +51,7 @@ curl -fsSL https://allr.work/install.sh | bash
 
 参见：
 
-- [在 Allr 中使用 MCP](../guides/use-mcp-with-hermes.md#wsl2-bridge-hermes-in-wsl-to-windows-chrome)
+- [在 Allr 中使用 MCP](../guides/use-mcp-with-allr.md#wsl2-bridge-hermes-in-wsl-to-windows-chrome)
 - [浏览器自动化](../user-guide/features/browser.md#wsl2--windows-chrome-prefer-mcp-over-browser-connect)
 
 ### 支持 Android / Termux 吗？
@@ -596,7 +596,7 @@ allr chat
 
 另请参阅：
 - [MCP（模型上下文协议）](/user-guide/features/mcp)
-- [在 Allr 中使用 MCP](/guides/use-mcp-with-hermes)
+- [在 Allr 中使用 MCP](/guides/use-mcp-with-allr)
 - [MCP 配置参考](/reference/mcp-config-reference)
 
 #### MCP 超时错误
@@ -854,6 +854,6 @@ allr chat -q "hello" --model anthropic/claude-opus-4.7
 
 如果您的问题未在此处涵盖：
 
-1. **搜索现有 issue：** [GitHub Issues](https://github.com/NousResearch/hermes-agent/issues)
+1. **搜索现有 issue：** [GitHub Issues](https://github.com/allr-ajmx/allr-agent/issues)
 2. **向社区提问：** [Nous Research Discord](https://discord.gg/nousresearch)
-3. **提交 bug 报告：** 请包含您的操作系统、Python 版本（`python3 --version`）、Allr 版本（`hermes --version`）以及完整的错误信息
+3. **提交 bug 报告：** 请包含您的操作系统、Python 版本（`python3 --version`）、Allr 版本（`allr --version`）以及完整的错误信息

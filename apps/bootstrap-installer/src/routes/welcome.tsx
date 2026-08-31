@@ -7,7 +7,7 @@ import { startInstall } from '../store'
  * Welcome screen.
  *
  * Mirrors the desktop's chat intro (the former apps/desktop/src/components/chat/intro.tsx):
- *   - ALLR AGENT wordmark rendered in Collapse Bold, uppercase, tracked
+ *   - Allr wordmark rendered in Collapse Bold, tracked
  *   - mix-blend-plus-lighter so the type "glows" on the canvas
  *   - fit-text utility so the wordmark sizes itself to the column
  *
@@ -31,9 +31,9 @@ export default function Welcome() {
           }
         >
           <span>
-            <span>ALLR AGENT</span>
+            <span>Allr</span>
           </span>
-          <span aria-hidden="true">ALLR AGENT</span>
+          <span aria-hidden="true">Allr</span>
         </p>
 
         <p className="m-0 text-center text-base leading-normal tracking-tight text-muted-foreground">

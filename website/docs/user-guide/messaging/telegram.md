@@ -96,7 +96,7 @@ platforms:
           - my_plugin_command
 ```
 
-`priority_mode` controls how your list combines with Allr' built-in priority list:
+`priority_mode` controls how your list combines with Allr's built-in priority list:
 
 - `prepend`: put your commands first, then Allr defaults
 - `append`: keep Allr defaults first, then your commands
@@ -568,12 +568,12 @@ allr gateway status
 allr gateway stop
 
 # named profiles
-hermes -p research gateway start
-hermes -p research gateway status
-hermes -p research gateway stop
+allr -p research gateway start
+allr -p research gateway status
+allr -p research gateway stop
 ```
 
-For a small fixed fleet, use a shell loop or script that calls `allr gateway <action>` for the default profile and `hermes -p <profile> gateway <action>` for each named profile. This is more reliable than assuming a single process-level command controls every named profile on every service manager.
+For a small fixed fleet, use a shell loop or script that calls `allr gateway <action>` for the default profile and `allr -p <profile> gateway <action>` for each named profile. This is more reliable than assuming a single process-level command controls every named profile on every service manager.
 
 ### Troubleshooting: works in DMs but not groups
 

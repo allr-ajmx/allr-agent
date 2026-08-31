@@ -432,8 +432,8 @@ API_SERVER_KEY=bob-secret
 EOF
 
 # 启动每个 profile 的 gateway
-hermes -p alice gateway &
-hermes -p bob gateway &
+allr -p alice gateway &
+allr -p bob gateway &
 ```
 
 每个 profile 的 API 服务器自动将 profile 名称作为模型 ID 广播：

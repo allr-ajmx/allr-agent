@@ -52,7 +52,7 @@ Press **Ctrl+C** once to interrupt the agent mid-response. You can then type a n
 
 ### Resume Sessions with `-c`
 
-Forgot something from your last session? Run `hermes -c` to resume exactly where you left off, with full conversation history restored. You can also resume by title: `hermes -r "my research project"`.
+Forgot something from your last session? Run `allr -c` to resume exactly where you left off, with full conversation history restored. You can also resume by title: `allr -r "my research project"`.
 
 ### Clipboard Image Paste
 
@@ -84,7 +84,7 @@ Create an `AGENTS.md` in your project root with architecture decisions, coding c
 
 Want Allr to have a stable default voice? Edit `~/.allr/SOUL.md` (or `$ALLR_HOME/SOUL.md` if you use a custom Allr home). Allr now seeds a starter SOUL automatically and uses that global file as the instance-wide personality source.
 
-For a full walkthrough, see [Use SOUL.md with Allr](/guides/use-soul-with-hermes).
+For a full walkthrough, see [Use SOUL.md with Allr](/guides/use-soul-with-allr).
 
 ```markdown
 # Soul
@@ -163,7 +163,7 @@ Use `/sethome` in your preferred Telegram or Discord chat to designate it as the
 
 ### Use /title to Organize Sessions
 
-Name your sessions with `/title auth-refactor` or `/title research-llm-quantization`. Named sessions are easy to find with `allr sessions list` and resume with `hermes -r "auth-refactor"`. Unnamed sessions pile up and become impossible to distinguish.
+Name your sessions with `/title auth-refactor` or `/title research-llm-quantization`. Named sessions are easy to find with `allr sessions list` and resume with `allr -r "auth-refactor"`. Unnamed sessions pile up and become impossible to distinguish.
 
 ### DM Pairing for Team Access
 

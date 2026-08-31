@@ -184,7 +184,12 @@ export function MobileController() {
           <GatewayConnectingScreen />
         ) : settingsGatewayOpen ? (
           <div className="h-full bg-background" />
-        ) : hasConnected ? (
+        ) : hasConnected || phase === 'error' ? (
+          // `phase === 'error'` keeps the terminal card mounted after the boot
+          // ladder gives up: it clears `$restoring`, and on a cold launch
+          // `hasConnected` is still false, so this used to fall through to the
+          // first-run picker — throwing away the one thing worth saying, which is
+          // WHICH gateway failed and why.
           <GatewayConnectingScreen />
         ) : (
           <ConnectScreen />

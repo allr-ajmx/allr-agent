@@ -69,7 +69,7 @@ def build_auth_methods() -> list[Any]:
             id=TERMINAL_SETUP_AUTH_METHOD_ID,
             name="Configure Allr provider",
             description=(
-                "Open Allr' interactive model/provider setup in a terminal. "
+                "Open Allr's interactive model/provider setup in a terminal. "
                 "Use this when Allr has not been configured on this machine yet."
             ),
             type="terminal",

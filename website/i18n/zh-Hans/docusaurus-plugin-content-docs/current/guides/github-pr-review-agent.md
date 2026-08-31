@@ -63,7 +63,7 @@ description: "构建一个自动化 AI 代码审查器，监控你的仓库、�
 确保 Allr 可以访问 GitHub。启动对话：
 
 ```bash
-hermes
+allr
 ```
 
 用一个简单命令测试：
@@ -137,7 +137,7 @@ For each finding:
 - End with: APPROVE / REQUEST_CHANGES / COMMENT
 ```
 
-验证是否已加载——启动 `hermes`，你应该能在启动时的 skill 列表中看到 `code-review`。
+验证是否已加载——启动 `allr`，你应该能在启动时的 skill 列表中看到 `code-review`。
 
 ---
 

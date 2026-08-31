@@ -1,5 +1,7 @@
 ---
 sidebar_position: 18
+title: "Photon"
+description: "Connect Allr to iMessage through Photon's managed service, with no Mac relay to run"
 ---
 
 # Photon iMessage

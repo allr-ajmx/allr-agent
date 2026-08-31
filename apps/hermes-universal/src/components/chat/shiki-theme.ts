@@ -1,15 +1,15 @@
 /**
  * Shiki's THEME CONSTANTS.
  *
- * They live alone because `diff-lines.tsx` and the preview pane both need them
- * and neither should have to import a highlighter component to get them — that
- * import is what kept dragging the engine back into the entry chunk
- * (MJXHRM-380). Values only: this module must never import `shiki` or
- * `react-shiki`, or it stops being cheap to reach.
+ * They live alone because a caller should not have to import a highlighter
+ * component to get them — that import is what kept dragging the engine back
+ * into the entry chunk (MJXHRM-380). Values only: this module must never import
+ * `shiki`, or it stops being cheap to reach.
  *
- * The chat fence no longer reads these. It renders through `CodeFence`, which
- * computes its own tokens and paints them with the `--code-*` custom properties
- * in styles.css — seeded from these same two themes so the panes still match.
+ * `diff-lines.tsx` is the last reader. The chat fence (ALLR-30) and the file
+ * preview's source view (ALLR-40) render their own tokens instead, painted with
+ * the `--code-*` custom properties in styles.css — seeded from these same two
+ * themes so the surfaces still match.
  */
 
 // `github-dark-dimmed` is GitHub's lower-contrast dark palette — the vivid

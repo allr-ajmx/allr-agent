@@ -275,7 +275,7 @@ CAMOFOX_ADOPT_EXISTING_TAB=true
 除云端提供商外，您还可以通过 Chrome DevTools Protocol（CDP）将 Allr 浏览器工具连接到本地运行的 Chrome、Brave、Chromium 或 Edge 实例。当您希望实时查看 Agent 操作、与需要自身 Cookie/会话的页面交互，或避免云端浏览器费用时，此方式非常有用。
 
 :::note
-`/browser connect` 是**交互式 CLI 斜杠命令** — 不由 gateway 分发。若在 WebUI、Telegram、Discord 或其他 gateway 聊天中尝试运行，消息将作为纯文本发送给 Agent，命令不会执行。请从终端启动 Allr（`hermes` 或 `allr chat`）并在那里执行 `/browser connect`。
+`/browser connect` 是**交互式 CLI 斜杠命令** — 不由 gateway 分发。若在 WebUI、Telegram、Discord 或其他 gateway 聊天中尝试运行，消息将作为纯文本发送给 Agent，命令不会执行。请从终端启动 Allr（`allr` 或 `allr chat`）并在那里执行 `/browser connect`。
 :::
 
 在 CLI 中使用：
@@ -343,7 +343,7 @@ google-chrome \
 
 具体配置请参阅 MCP 指南：
 
-- [在 Allr 中使用 MCP](../../guides/use-mcp-with-hermes.md#wsl2-bridge-hermes-in-wsl-to-windows-chrome)
+- [在 Allr 中使用 MCP](../../guides/use-mcp-with-allr.md#wsl2-bridge-hermes-in-wsl-to-windows-chrome)
 
 ### 本地浏览器模式
 

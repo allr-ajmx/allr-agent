@@ -4,6 +4,36 @@ Thank you for contributing to Allr! This guide covers everything you need: setti
 
 ---
 
+## Where to contribute — here or upstream
+
+Allr is a fork of [`NousResearch/hermes-agent`](https://github.com/NousResearch/hermes-agent)
+and shares its DNA. That gives you two good homes for a change, and picking the right
+one gets your work in front of the most users:
+
+- **Generic improvements belong upstream.** A fix or feature that any Hermes Agent user  <!-- # rebrand:keep -->
+  would want — a provider, a platform adapter, a bug in the shared core — is best sent to
+  [`NousResearch/hermes-agent`](https://github.com/NousResearch/hermes-agent). We
+  actively encourage this: it reaches both projects, and it reaches Allr on the next
+  ingest. Contributing there is not a detour.
+- **Allr-specific work belongs here.** If it only makes sense inside Allr — our app, our
+  workspace model, our defaults — open it against
+  [`allr-ajmx/allr-agent`](https://github.com/allr-ajmx/allr-agent).
+
+Either way, two things shape how a contribution lands:
+
+**We prefer plugins.** New capability should arrive as a plugin, a skill, or a CLI
+command before it becomes core surface. The core is a narrow waist — every model tool is
+paid for on every API call — so a plugin usually ships faster and is easier to keep.
+
+**AI-facing work is held to token economics.** Anything touching prompts, tools, or the
+agent loop is judged end to end: from the wording of a prompt through the tokens it costs
+on every turn. A change has to reduce friction in the workflow, not add it. We may reshape
+a submission to meet that bar rather than reject it.
+
+**Your credit survives.** Contributions are often batched into a larger PR carried by the
+team. When that happens we cherry-pick so your authorship stays in the git history — we
+do not reimplement your work under someone else's name.
+
 ## Contribution Priorities
 
 We value contributions in this order:
@@ -23,11 +53,16 @@ We value contributions in this order:
 A quick search before you build saves your time and keeps the PR queue clean — duplicates are common here, so it's worth a minute up front.
 
 - **Search both open *and* merged PRs and issues** for your topic or error symptom — the duplicate-check in the PR template fires at review time, after you've already done the work:
+  Search **both repositories** — Allr for what has landed here, and upstream for work
+  that will reach us on the next ingest:
   ```bash
+  gh search issues --repo allr-ajmx/allr-agent "<your terms>"
+  gh search prs --repo allr-ajmx/allr-agent --state all "<your terms>"
+
   gh search issues --repo NousResearch/hermes-agent "<your terms>"
   gh search prs --repo NousResearch/hermes-agent --state all "<your terms>"
   ```
-  Or use the web UI: [issues](https://github.com/NousResearch/hermes-agent/issues?q=) · [PRs (all states)](https://github.com/NousResearch/hermes-agent/pulls?q=is%3Apr).
+  Or use the web UI: Allr [issues](https://github.com/allr-ajmx/allr-agent/issues?q=) · [PRs](https://github.com/allr-ajmx/allr-agent/pulls?q=is%3Apr) — upstream [issues](https://github.com/NousResearch/hermes-agent/issues?q=) · [PRs](https://github.com/NousResearch/hermes-agent/pulls?q=is%3Apr).
 - **The issue tracker can lag the code.** Many requested features are already implemented in-tree, so also search the source (`search_files`, or your editor's grep) for the capability before proposing it.
 - **If an open PR already addresses it**, consider reviewing or improving that one instead of opening a competing duplicate.
 - **For larger work**, comment on the issue to signal you're working on it, so others don't start the same thing.
@@ -111,7 +146,7 @@ A well-built third-party-product plugin can clear automated review and still be 
 | **Git** | With the `git-lfs` extension installed |
 | **Python 3.11–3.13** | uv will install it if missing |
 | **uv** | Fast Python package manager ([install](https://docs.astral.sh/uv/)) |
-| **Node.js 20+** | Optional — needed for browser tools and WhatsApp bridge (matches root `package.json` engines) |
+| **Node.js 22.22+** | Optional — needed for browser tools and WhatsApp bridge (root `package.json` engines; CI builds on Node 26) |
 
 ### Install with the standard installer
 
@@ -143,7 +178,7 @@ scripts/run_tests.sh
 
 ### Manual clone fallback
 
-Use this only if you intentionally do not want Allr' managed install layout
+Use this only if you intentionally do not want Allr's managed install layout
 (for example, a throwaway clone inside a container or CI job). If you install
 this way, make sure you run the `hermes` entrypoint from this venv; running the
 system `python3 -m hermes_cli.main` can pick up unrelated system Python
@@ -156,7 +191,7 @@ which silently destroys the running runtime mid-session. Keeping it outside the
 tree means no relative path from the workspace resolves to it.
 
 ```bash
-git clone https://github.com/NousResearch/hermes-agent.git
+git clone https://github.com/allr-ajmx/allr-agent.git
 cd allr-agent
 
 # Create venv with Python 3.11, OUTSIDE the source tree
@@ -988,7 +1023,8 @@ test(tools): add unit tests for file_operations
 
 ## Reporting Issues
 
-- Use [GitHub Issues](https://github.com/NousResearch/hermes-agent/issues)
+- Allr issues: [allr-ajmx/allr-agent/issues](https://github.com/allr-ajmx/allr-agent/issues)
+- Upstream issues (anything not Allr-specific): [NousResearch/hermes-agent/issues](https://github.com/NousResearch/hermes-agent/issues)
 - Include: OS, Python version, Allr version (`allr version`), full error traceback
 - Include steps to reproduce
 - Check existing issues before creating duplicates

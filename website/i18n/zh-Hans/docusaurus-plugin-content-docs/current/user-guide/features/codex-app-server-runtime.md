@@ -291,7 +291,7 @@ default_permissions = ":workspace"
 
 ## 多配置文件 / 多租户设置
 
-默认情况下，无论哪个 Allr 配置文件处于活跃状态，Allr 都将 Codex 子进程指向 `~/.codex/`。这意味着 `hermes -p work` 和 `hermes -p personal` 共享相同的 Codex 认证、插件和配置。对大多数用户来说这是正确的行为——与直接运行 `codex` CLI 的效果一致。
+默认情况下，无论哪个 Allr 配置文件处于活跃状态，Allr 都将 Codex 子进程指向 `~/.codex/`。这意味着 `allr -p work` 和 `allr -p personal` 共享相同的 Codex 认证、插件和配置。对大多数用户来说这是正确的行为——与直接运行 `codex` CLI 的效果一致。
 
 如果你需要按配置文件隔离 Codex（独立的认证、独立的已安装插件、独立的配置），请为每个配置文件显式设置 `CODEX_HOME`。最简洁的方式是指向你 `ALLR_HOME` 下的某个目录：
 
@@ -300,7 +300,7 @@ default_permissions = ":workspace"
 CODEX_HOME=~/.allr/profiles/work/codex allr chat
 ```
 
-你需要在设置了该 `CODEX_HOME` 的情况下重新运行一次 `codex login`，以便 OAuth token 落入配置文件范围的位置。之后，`hermes -p work` 将在隔离的 Codex 状态下运行。
+你需要在设置了该 `CODEX_HOME` 的情况下重新运行一次 `codex login`，以便 OAuth token 落入配置文件范围的位置。之后，`allr -p work` 将在隔离的 Codex 状态下运行。
 
 我们不自动限定此范围，因为移动现有用户的 `~/.codex/` 会静默地使其 Codex CLI 认证失效——任何已运行过 `codex login` 的用户都需要重新认证。选择加入比给用户带来意外更安全。
 
@@ -391,7 +391,7 @@ tool_timeout_sec = 600.0
 - **当 Codex 未跟踪变更集时，审批提示中没有内联 patch 预览。** Codex 的 `fileChange` 审批参数并不总是携带变更集。Allr 会尽可能从对应的 `item/started` 通知中缓存数据，但如果审批在事件项流式传输完成之前到达，提示会回退到 Codex 提供的 `reason`。
 - **亚秒级取消无法保证。** 流式传输中途的中断（Codex 响应时按 Ctrl+C）通过 `turn/interrupt` 发送，但如果 Codex 已经刷新了最终消息，你仍会收到该响应。
 
-如果你发现 bug，请[提交 issue](https://github.com/NousResearch/hermes-agent/issues)，附上 `allr logs --since 5m` 的输出。在标题中注明 `codex-runtime` 以便于分类处理。
+如果你发现 bug，请[提交 issue](https://github.com/allr-ajmx/allr-agent/issues)，附上 `allr logs --since 5m` 的输出。在标题中注明 `codex-runtime` 以便于分类处理。
 
 ## 架构
 
@@ -425,7 +425,7 @@ tool_timeout_sec = 600.0
         │   │  │    canva, ...)       │     │
         │   │  └─ hermes-tools ───────┼─────────────────┐
         │   │       (callback to     │     │           │
-        │   │        Allr' richer  │     │           │
+        │   │        Allr's richer  │     │           │
         │   │        tools)          │     │           │
         │   └─────────────────────────┘     │           │
         └──────────────────────────────────┘           │

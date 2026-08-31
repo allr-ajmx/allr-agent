@@ -202,4 +202,4 @@ python -m pytest tests/ -q
 
 MIT — 详见 [LICENSE](LICENSE)。
 
-由 [Nous Research](https://nousresearch.com) 构建。
+Allr 是 [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent) 的一个分支，该项目由 [Nous Research](https://nousresearch.com) 构建。

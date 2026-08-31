@@ -1220,6 +1220,30 @@ pub fn cookies_import(state: State<'_, TransportState>, json: String) -> Result<
     Ok(())
 }
 
+/// Empty the shared cookie jar. Sign-out only.
+///
+/// `POST /auth/logout` normally clears the session by answering with max-age=0
+/// `Set-Cookie` headers, which reqwest applies to this jar in the same round
+/// trip. That covers the happy path and nothing else: a sign-out with no network,
+/// or against a gateway that is down, leaves the live session cookie sitting in
+/// the jar. It would then be exported to the keyring by the next background
+/// flush, and a user who deliberately signed out would find themselves signed
+/// back in on the following launch.
+///
+/// So the jar is cleared locally too, whatever the logout POST did. Clearing a
+/// jar can only ever cost a sign-in; leaving one behind costs the user the
+/// sign-out they asked for.
+#[tauri::command]
+pub fn cookies_clear(state: State<'_, TransportState>) -> Result<(), String> {
+    let mut store = state
+        .cookies()
+        .lock()
+        .map_err(|_| "cookie jar poisoned".to_string())?;
+
+    *store = cookie_store::CookieStore::default();
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::{Arc, Mutex};

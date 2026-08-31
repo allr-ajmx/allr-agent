@@ -1973,7 +1973,7 @@ class CuaDriverBackend(ComputerUseBackend):
     def start(self) -> None:
         _maybe_nudge_update()
         # The MCP client SDK (`mcp`) is an optional dependency (the
-        # `computer-use` / `mcp` extras), not part of Allr' minimal core.
+        # `computer-use` / `mcp` extras), not part of Allr's minimal core.
         # Lazy-install it on first use — the same pattern every other optional
         # backend uses — so users never hit an opaque `No module named 'mcp'`
         # at invoke time. Auto-install is gated by `security.allow_lazy_installs`

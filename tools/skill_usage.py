@@ -615,7 +615,7 @@ def adopt_skill(skill_name: str) -> Tuple[bool, str]:
     if is_bundled(skill_name):
         # Bundled skills already fall under the curator via
         # ``curator.prune_builtins``; stamping created_by=agent on one would
-        # claim Allr' own shipped skill was agent-authored and change nothing
+        # claim Allr's own shipped skill was agent-authored and change nothing
         # about its eligibility.
         return False, (
             f"'{skill_name}' is a bundled built-in — it is governed by "

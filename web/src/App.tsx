@@ -604,10 +604,8 @@ export default function App() {
               >
                 <PluginSlot name="header-left" />
 
-                <Typography className="font-bold text-[1.125rem] leading-[0.95] tracking-[0.0525rem] text-midground uppercase">
-                  Allr
-                  <br />
-                  Agent
+                <Typography className="font-bold text-[1.125rem] leading-[0.95] tracking-[0.0525rem] text-midground">
+                  {t.app.brand}
                 </Typography>
               </div>
 
@@ -756,6 +754,13 @@ export default function App() {
               )}
             >
               <PluginSlot name="pre-main" />
+              {/* Raw `env()`, deliberately. The universal app reads
+                  `var(--safe-area-inset-*)` because `lib/safe-area.ts`
+                  republishes them ahead of the mobile webviews' late `env()`
+                  resolve — but this is the plain-web dashboard the gateway
+                  serves, a separate SPA that never loads that module and does
+                  not declare those custom properties anywhere. `var()` here
+                  would compute to nothing and drop the padding entirely. */}
               <div
                 className={cn(
                   "w-full min-w-0",

@@ -128,7 +128,7 @@ def _build_gemini_thinking_config(model: str, reasoning_config: dict | None) -> 
         effort = "medium"
 
     # Gemini 3 Flash documents low/medium/high thinking levels; Gemini 3 Pro
-    # is stricter (low/high). Clamp Allr' wider effort set to what each
+    # is stricter (low/high). Clamp Allr's wider effort set to what each
     # family accepts so we never forward an undocumented level verbatim.
     if normalized_model.startswith(("gemini-3", "gemini-3.1")):
         if "flash" in normalized_model:

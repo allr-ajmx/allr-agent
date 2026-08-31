@@ -54,7 +54,7 @@ updates:
 
 ### Windows：另一个 `allr.exe` 正在运行
 
-在 Windows 上，如果 `allr update` 检测到另一个 `allr.exe` 进程持有 venv 入口点可执行文件的句柄，它将拒绝运行 — 最常见的情况是 Allr Desktop 应用启动的后端进程、另一个终端中打开的 `hermes` REPL，或正在运行的 gateway：
+在 Windows 上，如果 `allr update` 检测到另一个 `allr.exe` 进程持有 venv 入口点可执行文件的句柄，它将拒绝运行 — 最常见的情况是 Allr Desktop 应用启动的后端进程、另一个终端中打开的 `allr` REPL，或正在运行的 gateway：
 
 ```
 $ allr update
@@ -64,7 +64,7 @@ $ allr update
   Updating now would fail to overwrite ...\venv\Scripts\allr.exe because
   Windows blocks REPLACE on a running executable.
 
-  Close Allr Desktop, exit any open `hermes` REPLs, and
+  Close Allr Desktop, exit any open `allr` REPLs, and
   stop the gateway (`allr gateway stop`) before retrying.
   Override with `allr update --force` if you've already
   confirmed those processes will not write to the venv.
@@ -94,7 +94,7 @@ Already up to date.  (or: Updating abc1234..def5678)
 
 1. `git status --short` — 若工作树出现意外的脏状态，请在继续前检查
 2. `allr doctor` — 检查配置、依赖项和服务健康状态
-3. `hermes --version` — 确认版本已按预期更新
+3. `allr --version` — 确认版本已按预期更新
 4. 如果使用 gateway：`allr gateway status`
 5. 如果 `doctor` 报告 npm audit 问题：在标记的目录中运行 `npm audit fix`
 

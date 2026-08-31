@@ -1596,7 +1596,7 @@ class TelegramAdapter(BasePlatformAdapter):
     # the RAW agent markdown so richer constructs (tables, task lists,
     # collapsible details, math, ...) render natively. The legacy MarkdownV2
     # send() path stays as the fallback for unsupported/oversized content and
-    # older PTB/clients. Streaming edits stay on Allr' existing MarkdownV2
+    # older PTB/clients. Streaming edits stay on Allr's existing MarkdownV2
     # edit path for now; finalization can re-send as rich and delete the stale
     # preview until rich_message edit support is wired directly.
     # ------------------------------------------------------------------

@@ -1,3 +1,8 @@
+---
+title: "Command Helper"
+description: "Run your own CLI helper at startup and load the KEY=VALUE lines it prints as credentials."
+---
+
 # Command Helper Secret Source
 
 Resolve credentials by running your own helper command at startup — any secret store with a CLI works: `keepassxc-cli`, `secret-tool` (GNOME Keyring), `pass`, `gpg`, Vaultwarden's CLI, or a script that cats a tmpfs env file. The helper prints `KEY=VALUE` lines on stdout; Allr applies them through the same orchestrator as [Bitwarden](./bitwarden) and [1Password](./onepassword), so you can enable any combination of sources simultaneously.
@@ -31,7 +36,7 @@ secrets:
 
 - The helper command string is YOUR configuration — same trust level as the `.env` file you control.
 - Output is hard-capped at 1 MiB; a runaway helper can't wedge startup (process group killed on timeout).
-- The helper's **stderr is discarded** — vault CLI diagnostics can carry secret material, so they never reach Allr' output. Failures log structured fields only (exit code / signal / errno), never the command string.
+- The helper's **stderr is discarded** — vault CLI diagnostics can carry secret material, so they never reach Allr's output. Failures log structured fields only (exit code / signal / errno), never the command string.
 - Whitespace-only values are treated as "no value" — a placeholder entry never flows into an Authorization header.
 - POSIX-only (needs `/bin/sh`). On Windows the source reports itself unconfigured and startup continues.
 

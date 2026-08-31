@@ -1,8 +1,14 @@
 name: Release Desktop
 
-# Signed, cross-platform desktop releases for BOTH Tauri apps: Allr
-# (apps/hermes-universal) and Allr Setup (apps/bootstrap-installer). They ship
-# together on one release and carry one version, so the tag names one number.
+# Signed, cross-platform desktop releases for Allr (apps/hermes-universal).
+#
+# ONE app ships from here. `apps/bootstrap-installer` ("Allr Setup") used to
+# ride along on the same tag and is deliberately no longer released: it exists
+# to drive scripts/install.ps1 through PowerShell, so its Linux and macOS
+# bundles had no install script to run and did nothing when launched, and its
+# Windows NSIS output (`Allr-Setup_<ver>_x64-setup.exe`) sat one character away
+# from the product app's own `Allr_<ver>_x64-setup.exe` on the release page.
+# It is still built and tested by js-tests.yml / installer-tests.yml.
 #
 # TRIGGER: `desktop-v<semver>` tags ONLY, and the prefix is load-bearing.
 # `v<semver>` is the Python CLI's CalVer channel (scripts/release.py), and
@@ -23,6 +29,23 @@ name: Release Desktop
 # gen/android/keystore.properties follows: with no signing secrets the jobs
 # still succeed and produce UNSIGNED artifacts. Windows is unsigned today by
 # design -- see the "Windows code signing" step.
+#
+# NOTARIZATION IS SLOW AND THE CLIENT IS IMPATIENT, learned 2026-08-28.
+# Apple's notary queue backed up for hours that day. Every submission was
+# eventually ACCEPTED -- including two that read `In Progress` for eleven hours
+# -- but no client waited that long: two runs here (33143417933, 33147522451)
+# were killed by the 60-minute job timeout, and a developer Mac aborted with
+# NSURLErrorTimedOut. Apple's status feed showed no incident throughout.
+#
+# Two lessons are baked in below. First, `notarytool --wait` abandons the whole
+# operation on ONE transient network error, discarding a complete build over a
+# submission Apple then accepts -- so the submission id, not the build, is what
+# recovery hangs on. Second, a build must never be coupled to that wait: a
+# ticket can be stapled to an already-signed .app later, with no rebuild.
+#
+# scripts/release-desktop-local.py cuts a release from developer machines when
+# this workflow cannot. Do not push a `desktop-v*` tag while doing that: it
+# would start this workflow and race the manual release for the same assets.
 
 on:
   push:
@@ -72,7 +95,7 @@ jobs:
           python3 scripts/bump-desktop-version.py --check "$version"
 
   # ---------------------------------------------------------------------------
-  # One draft release up front, so the six matrix legs upload into the same
+  # One draft release up front, so the three matrix legs upload into the same
   # place and a failed leg never leaves a half-populated public release.
   # ---------------------------------------------------------------------------
   create-draft:
@@ -127,12 +150,12 @@ jobs:
               -f tag_name="$TAG" \
               -F draft=true \
               -f name="Allr Desktop v$VERSION" \
-              -f body="Desktop builds of Allr and Allr Setup. See the assets below." \
+              -f body="Desktop builds of Allr. See the assets below. On Linux, \`curl -fsSL https://raw.githubusercontent.com/allr-ajmx/allr-agent/main/scripts/install-desktop-linux.sh | bash\` installs into ~/.local with no root." \
               --jq '.id')"
           fi
 
           # Never hand an empty releaseId to the matrix: tauri-action would treat
-          # it as "no release" and the six legs would build for 40 minutes and
+          # it as "no release" and the three legs would build for 40 minutes and
           # upload nowhere.
           if [ -z "$id" ]; then
             echo "::error::could not resolve a release id for $TAG"
@@ -142,33 +165,34 @@ jobs:
           echo "release_id=$id" >> "$GITHUB_OUTPUT"
 
   # ---------------------------------------------------------------------------
-  # Six legs: two apps x three platforms. `include` rather than a cross product
-  # so each row can carry its own target and updater setting.
+  # Three legs, one per platform. `include` rather than a cross product so each
+  # row can carry its own runner image and Rust target.
   # ---------------------------------------------------------------------------
   build:
-    name: ${{ matrix.label }} · ${{ matrix.app }}
+    name: ${{ matrix.label }}
     needs: [verify-version, create-draft]
     strategy:
-      fail-fast: false # report all six results, not just the first failure
+      fail-fast: false # report all three results, not just the first failure
       matrix:
         include:
           # macOS is built UNIVERSAL, not per-arch, and that is deliberate.
-          # Tauri names per-arch DMGs `_x64.dmg`, but `updates.rs` matches an
-          # asset by `contains(std::env::consts::ARCH)` -- i.e. "x86_64", which
-          # "x64" does not contain. A split build would hand Intel users the
-          # aarch64 DMG. One universal artifact makes the ambiguity impossible.
-          - { os: macos-14, app: hermes-universal, target: universal-apple-darwin, label: macOS, updater: true }
-          - { os: macos-14, app: bootstrap-installer, target: universal-apple-darwin, label: macOS, updater: false }
+          # The reason long given here -- that `updates.rs` matches an asset by
+          # `contains(std::env::consts::ARCH)`, which "x64" does not satisfy --
+          # no longer holds: that code is gone, and asset selection happens
+          # inside tauri-plugin-updater against latest.json's platform keys.
+          # Universal is still right, for a simpler reason. One artifact is
+          # correct for every darwin key, so the manifest cannot point an Intel
+          # user at an aarch64 build however the keys are written -- and Tauri's
+          # `_x64.dmg` naming makes a per-arch split easy to get wrong.
+          - { os: macos-14, target: universal-apple-darwin, label: macOS }
           # ubuntu-22.04, NOT ubuntu-latest: ubuntu-latest is 24.04 (glibc 2.39)
           # and glibc is forward- but not backward-compatible, so a binary built
           # there refuses to start on Ubuntu 22.04 / Debian 12 / Mint 21 with
-          # `GLIBC_2.38 not found` -- which users experience as "the AppImage
-          # does nothing when I double-click it". Build on the oldest distro we
-          # intend to support.
-          - { os: ubuntu-22.04, app: hermes-universal, target: x86_64-unknown-linux-gnu, label: Linux, updater: true }
-          - { os: ubuntu-22.04, app: bootstrap-installer, target: x86_64-unknown-linux-gnu, label: Linux, updater: false }
-          - { os: windows-latest, app: hermes-universal, target: x86_64-pc-windows-msvc, label: Windows, updater: true }
-          - { os: windows-latest, app: bootstrap-installer, target: x86_64-pc-windows-msvc, label: Windows, updater: false }
+          # `GLIBC_2.38 not found` -- which users experience as "it does nothing
+          # when I double-click it". Build on the oldest distro we intend to
+          # support.
+          - { os: ubuntu-22.04, target: x86_64-unknown-linux-gnu, label: Linux }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc, label: Windows }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90 # a cold universal macOS build plus notarization
     # Job-level, not step-level: a step's own `env:` block is NOT in scope for
@@ -190,11 +214,9 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ env.TAG }}
-          # NOT a sparse or filtered checkout, for two reasons:
-          #   * hermes-universal pins `[patch.crates-io] tao` at a path inside
-          #     src-tauri/vendor/, which is tracked and must be present;
-          #   * bootstrap-installer's build.rs shells out to `git rev-parse` to
-          #     bake ALLR_BUILD_PIN_COMMIT into the binary.
+          # NOT a sparse or filtered checkout: hermes-universal pins
+          # `[patch.crates-io] tao` at a path inside src-tauri/vendor/, which is
+          # tracked and must be present.
           fetch-depth: 0
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -225,13 +247,15 @@ jobs:
 
       - uses: Swatinem/rust-cache@bc2d2e71bd35c5549942babaa51a89c586b981d1 # v2.8.1
         with:
-          workspaces: apps/${{ matrix.app }}/src-tauri
+          workspaces: apps/hermes-universal/src-tauri
           key: ${{ matrix.target }}
 
-      # librsvg2-dev and patchelf are AppImage-only and fail at the very LAST
-      # step of a 30-minute build, with an appimagetool error that names
-      # neither package. Keep this list in step with the prerequisites in
-      # apps/hermes-universal/README.md.
+      # librsvg2-dev and patchelf were here for the AppImage, which is no longer
+      # built (see the tarball step below). They are kept because the icon and
+      # binary handling in the deb/rpm bundlers reach for them on some paths and
+      # a 30-minute build is a bad place to discover that; drop them only with a
+      # green Linux leg to show for it. Keep this list in step with the
+      # prerequisites in apps/hermes-universal/README.md.
       - name: Linux prerequisites
         if: runner.os == 'Linux'
         run: |
@@ -284,6 +308,12 @@ jobs:
       # `KEY=value` in $GITHUB_ENV is single-line only. The delimiter is fixed
       # rather than random because the values are base64/identifiers and cannot
       # contain it. Values stay masked; they came from `secrets`.
+      #
+      # ALL SEVEN of these are set: the four signing secrets landed 2026-08-22,
+      # the three App Store Connect secrets on 2026-08-28. macOS releases from
+      # here are Developer ID signed AND submitted for notarization -- see the
+      # header for why that submission cannot currently be waited on from a
+      # hosted runner.
       - name: Apple signing environment (optional)
         if: runner.os == 'macOS' && env.HAS_APPLE_CERT == 'true'
         env:
@@ -311,31 +341,219 @@ jobs:
 
       - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # action-v1.0.0
         env:
-          # Updater signing. Only the product app declares an updater, but the
-          # variables are harmless on the installer legs.
+          # Updater signing.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          projectPath: apps/${{ matrix.app }}
+          projectPath: apps/hermes-universal
           releaseId: ${{ needs.create-draft.outputs.release_id }}
           args: --target ${{ matrix.target }} --verbose
-          # latest.json is generated only for the app that has an updater; the
-          # installer would otherwise overwrite it with a manifest for itself.
-          uploadUpdaterJson: ${{ matrix.updater }}
+          uploadUpdaterJson: true
           retryAttempts: 2
 
-      # Every macOS release so far shipped ad-hoc signed, and nothing said so.
-      # The signing steps above are optional-by-presence, which is right for a
-      # fork with no certificate -- but it also meant a repo that MEANT to sign
-      # and had a broken secret produced a silently unsigned build that looked
-      # like a success.
+      # -----------------------------------------------------------------------
+      # The DMG is a SEPARATE notarization, and nothing above does it.
       #
-      # This is not why users complain about Gatekeeper. It is why they complain
-      # that the app asks for their keychain password four or five times on every
-      # launch: macOS binds a keychain item's ACL to the requesting code's
-      # designated requirement, and an ad-hoc bundle has none, so every credential
-      # read and write re-prompts and "Always Allow" cannot stick.
+      # The Tauri bundler notarizes the .app, staples it, builds the DMG from
+      # the stapled app, signs the DMG -- and never submits it. Verified against
+      # a real 2026-08-28 build: the .app came back `accepted / source=Notarized
+      # Developer ID` while its own DMG came back `rejected / source=
+      # Unnotarized Developer ID`. The DMG is the file users download and the
+      # one macOS puts com.apple.quarantine on, so shipping it unnotarized
+      # reproduces the exact Gatekeeper wall this release exists to remove --
+      # however thoroughly the app inside it was notarized.
+      #
+      # Re-uploaded with --clobber because tauri-action already uploaded the
+      # unstapled DMG during the build, and stapling rewrites the file.
+      # -----------------------------------------------------------------------
+      - name: Notarize and staple the DMG
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Gated in shell rather than in `if:` -- APPLE_API_KEY_PATH is written
+          # to $GITHUB_ENV by an earlier step, and keeping the test here means
+          # one rule for "was notarization configured" instead of two.
+          if [ -z "${APPLE_API_KEY_PATH:-}" ]; then
+            echo "no App Store Connect key - the DMG stays un-notarized, as does the .app"
+            exit 0
+          fi
+
+          dmg_dir="apps/hermes-universal/src-tauri/target/${{ matrix.target }}/release/bundle/dmg"
+          dmg="$(find "$dmg_dir" -maxdepth 1 -name '*.dmg' -print -quit 2>/dev/null || true)"
+          [ -n "$dmg" ] || { echo "::error::no .dmg under $dmg_dir"; exit 1; }
+
+          xcrun notarytool submit "$dmg" --wait --timeout 30m \
+            --key "$APPLE_API_KEY_PATH" \
+            --key-id "$APPLE_API_KEY" \
+            --issuer "$APPLE_API_ISSUER"
+
+          xcrun stapler staple "$dmg"
+          gh release upload "$TAG" "$dmg" --clobber
+
+      # -----------------------------------------------------------------------
+      # The AppImage's replacement.
+      #
+      # `bundle.targets` no longer lists `appimage`. An AppImage carries its own
+      # copy of WebKitGTK, taken from this runner -- and ubuntu-22.04's
+      # WebKitGTK cannot initialise EGL against a modern host graphics stack.
+      # The shipped Allr_0.0.7 AppImage opened a window and never painted a
+      # pixel, aborting with "Could not create default EGL display:
+      # EGL_BAD_PARAMETER"; the identical binary linked against the host's
+      # WebKitGTK renders fine. That is unfixable from here without either
+      # freezing users to this runner's vintage or unpicking linuxdeploy, so the
+      # distro-agnostic download is now a plain tarball: our binary, the host's
+      # libraries, an install.sh.
+      #
+      # Uploaded with `gh` rather than by tauri-action, which only knows about
+      # bundler outputs.
+      # -----------------------------------------------------------------------
+      - name: Package and upload the Linux tarball
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tarball="$(./scripts/package-linux-tarball.sh \
+            "apps/hermes-universal/src-tauri/target/${{ matrix.target }}/release/hermes-universal" \
+            "${{ needs.verify-version.outputs.version }}" \
+            "$RUNNER_TEMP/tarball")"
+
+          echo "built $tarball"
+          gh release upload "$TAG" "$tarball" --clobber
+
+      # -----------------------------------------------------------------------
+      # SMOKE TESTS. The step that would have caught desktop-v0.0.7.
+      #
+      # Until now nothing in this workflow ever LAUNCHED what it built:
+      # tauri-action compiles and uploads in one move, and the only post-build
+      # assertions were a signature check and a latest.json key check. A bundle
+      # that starts and then fails to render is indistinguishable from a good
+      # one under those, which is how three releases went out green while the
+      # AppImage put up a window that never painted a pixel.
+      #
+      # These run BEFORE the publish job flips the draft, and nothing is
+      # `continue-on-error`: a bundle we could not launch must not ship.
+      # -----------------------------------------------------------------------
+      - name: Smoke-test the bundles (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          # Absolute, because the step chdirs to /tmp below and the upload step
+          # names this same path.
+          SMOKE_SHOT_DIR: /tmp/smoke-shots
+        run: |
+          # xvfb + xdotool to run and inspect headlessly; imagemagick for the
+          # did-it-actually-paint check. See the script for why that check is
+          # the load-bearing one.
+          sudo apt-get install -y xvfb xdotool imagemagick
+
+          # The tarball is unpacked and launched from ITS OWN contents rather
+          # than from the build tree, so what runs here is byte-for-byte the
+          # artifact a user downloads.
+          mkdir -p "$RUNNER_TEMP/unpack"
+          tar -xzf "$RUNNER_TEMP"/tarball/*.tar.gz -C "$RUNNER_TEMP/unpack"
+          unpacked="$(find "$RUNNER_TEMP/unpack" -maxdepth 2 -type f -name allr -print -quit)"
+          [ -n "$unpacked" ] || { echo "::error::no allr binary in the tarball"; exit 1; }
+
+          cd /tmp
+          "$GITHUB_WORKSPACE/scripts/smoke-test-linux-bundle.sh" "$unpacked" tarball
+
+          # And the binary the .deb and .rpm install, which is the same build
+          # but reached through the packaged path.
+          "$GITHUB_WORKSPACE/scripts/smoke-test-linux-bundle.sh" \
+            "$GITHUB_WORKSPACE/apps/hermes-universal/src-tauri/target/${{ matrix.target }}/release/hermes-universal" \
+            package-binary
+
+      - name: Smoke-test the bundle (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          bundle_dir="apps/hermes-universal/src-tauri/target/${{ matrix.target }}/release/bundle/macos"
+          app="$(find "$bundle_dir" -maxdepth 1 -name '*.app' -print -quit)"
+          [ -n "$app" ] || { echo "::error::no .app under $bundle_dir"; exit 1; }
+
+          # `open` and not the inner binary: it goes through LaunchServices, so a
+          # bundle Gatekeeper or a broken Info.plist would refuse fails here the
+          # same way it fails for a user.
+          open "$app"
+
+          for _ in $(seq 1 30); do
+            windows="$(osascript -e 'tell application "System Events" to count windows of (first process whose name is "Allr")' 2>/dev/null || echo 0)"
+            [ "${windows:-0}" -gt 0 ] && break
+            sleep 1
+          done
+
+          pkill -x Allr || true
+
+          if [ "${windows:-0}" -le 0 ]; then
+            echo "::error::Allr opened no window within 30s of launch"
+            exit 1
+          fi
+          echo "ok - $windows window(s)"
+
+      - name: Smoke-test the bundle (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $bundle = "apps/hermes-universal/src-tauri/target/${{ matrix.target }}/release"
+          $exe = Join-Path $bundle "Allr.exe"
+          if (-not (Test-Path $exe)) {
+            Write-Output "::error::no Allr.exe under $bundle"
+            exit 1
+          }
+
+          $proc = Start-Process -FilePath $exe -PassThru
+          $handle = 0
+          foreach ($_ in 1..30) {
+            Start-Sleep -Seconds 1
+            $live = Get-Process -Id $proc.Id -ErrorAction SilentlyContinue
+            if (-not $live) {
+              Write-Output "::error::Allr.exe exited during startup"
+              exit 1
+            }
+            $live.Refresh()
+            if ($live.MainWindowHandle -ne 0) { $handle = $live.MainWindowHandle; break }
+          }
+
+          Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+
+          if ($handle -eq 0) {
+            Write-Output "::error::Allr.exe opened no window within 30s of launch"
+            exit 1
+          }
+          Write-Output "ok - main window handle $handle"
+
+      # Kept whether the smoke tests passed or failed: on a failure the frame is
+      # the whole diagnostic, and a green run's frame is how you confirm the
+      # threshold is not about to start failing on a legitimate UI change.
+      - name: Keep the smoke-test screenshots
+        if: always() && runner.os == 'Linux'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: smoke-shots-${{ matrix.label }}
+          path: /tmp/smoke-shots
+          if-no-files-found: warn
+          retention-days: 7
+
+      # Releases through desktop-v0.0.3 shipped ad-hoc signed, and nothing said
+      # so. The signing steps above are optional-by-presence, which is right for
+      # a fork with no certificate -- but it also meant a repo that MEANT to sign
+      # and had a broken secret produced a silently unsigned build that looked
+      # like a success. This check is what closed that.
+      #
+      # Two distinct complaints, and conflating them cost a diagnosis:
+      #
+      #   ad-hoc signing -> KEYCHAIN prompts. macOS binds a keychain item's ACL
+      #   to the requesting code's designated requirement, and an ad-hoc bundle
+      #   has none, so every credential read and write re-prompts and "Always
+      #   Allow" cannot stick. Fixed by the certificate, from v0.0.6 on.
+      #
+      #   no notarization -> GATEKEEPER refusal on a DOWNLOADED copy, and the
+      #   admin password that "Open Anyway" asks for. Signing does not help;
+      #   only notarization does. This is what v0.0.7 still shipped with.
       #
       # `always()` so this still reports on a leg whose upload was retried, and
       # `continue-on-error` is deliberately NOT set: shipping an unsigned bundle
@@ -344,7 +562,7 @@ jobs:
         if: always() && runner.os == 'macOS'
         shell: bash
         run: |
-          bundle_dir="apps/${{ matrix.app }}/src-tauri/target/${{ matrix.target }}/release/bundle/macos"
+          bundle_dir="apps/hermes-universal/src-tauri/target/${{ matrix.target }}/release/bundle/macos"
           bundle="$(find "$bundle_dir" -maxdepth 1 -name '*.app' -print -quit 2>/dev/null || true)"
 
           if [ -z "$bundle" ]; then
@@ -372,7 +590,15 @@ jobs:
             notarized=--expect-notarized
           fi
 
-          ./scripts/verify-macos-signing.sh $mode $notarized "$bundle"
+          # --dmg as well as the bundle: the disk image is a separate
+          # signature AND a separate notarization, and it is the artifact users
+          # actually download.
+          dmg_dir="apps/hermes-universal/src-tauri/target/${{ matrix.target }}/release/bundle/dmg"
+          dmg="$(find "$dmg_dir" -maxdepth 1 -name '*.dmg' -print -quit 2>/dev/null || true)"
+          dmg_arg=""
+          [ -n "$dmg" ] && dmg_arg="--dmg $dmg"
+
+          ./scripts/verify-macos-signing.sh $mode $notarized $dmg_arg "$bundle"
 
   # ---------------------------------------------------------------------------
   # Publish. Order matters: the updater pointer must only be moved once every
@@ -419,17 +645,31 @@ jobs:
 
           # A manifest missing a platform silently strands that platform on the
           # old build, reporting "up to date" rather than an error. Fail loudly.
-          for platform in darwin-aarch64 darwin-x86_64 linux-x86_64 windows-x86_64; do
+          for platform in darwin-aarch64 darwin-x86_64 windows-x86_64; do
             if ! jq -e --arg p "$platform" '.platforms[$p].url' latest.json >/dev/null; then
               echo "::error::latest.json has no entry for $platform"
               exit 1
             fi
           done
 
+          # Linux is checked by PREFIX, not by exact key. Tauri emits a bare
+          # `linux-x86_64` alongside per-format `linux-x86_64-deb` /
+          # `-rpm` / `-appimage` variants, and which of those exists depends on
+          # the bundle targets -- the bare key used to be the AppImage's, and
+          # the AppImage is no longer built. Demanding one literal name here
+          # would fail the release over a rename rather than over a platform
+          # actually being stranded.
+          if ! jq -e '[.platforms | keys[] | select(startswith("linux-x86_64"))] | length > 0' \
+               latest.json >/dev/null; then
+            echo "::error::latest.json has no linux-x86_64* entry"
+            jq -r '.platforms | keys[]' latest.json | sed 's/^/  found: /'
+            exit 1
+          fi
+
           jq -e --arg v "$VERSION" '.version == $v' latest.json >/dev/null \
             || { echo "::error::latest.json version != $VERSION"; exit 1; }
 
-          echo "latest.json covers all four platforms at $VERSION"
+          echo "latest.json covers macOS, Linux and Windows at $VERSION"
 
       - name: Publish
         run: |

@@ -1,3 +1,8 @@
+---
+title: "QQ Bot"
+description: "Set up Allr as a QQ bot on the official QQ Bot API v2, with voice transcription"
+---
+
 # QQ Bot
 
 Connect Allr to QQ via the **Official QQ Bot API (v2)** — supporting private (C2C), group @-mentions, guild, and direct messages with voice transcription.

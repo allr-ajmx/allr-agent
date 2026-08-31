@@ -31,6 +31,64 @@ export function isGatewayReauthRequired(error: unknown): error is GatewayReauthR
   )
 }
 
+/**
+ * This gateway needs an interactive sign-in, and nobody asked for one.
+ *
+ * Deliberately NOT a `GatewayReauthRequiredError`, and deliberately carrying a
+ * different marker, because the two demand opposite responses. Reauth-required
+ * means "you had a session, go silently get another" — something the app may do
+ * on its own. This means "there is no session and the only way to get one is to
+ * hand the user to a login page", which the app may never do by itself: on mobile
+ * that navigates the only webview away with no user intent, and on desktop it
+ * throws up a window nobody opened.
+ *
+ * A caller that sees this stops and surfaces a Sign in button. It does not retry,
+ * because retrying cannot help — the credential is not coming back on its own.
+ */
+export class GatewaySignInRequiredError extends Error {
+  readonly needsInteractiveSignIn = true
+
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options)
+    this.name = 'GatewaySignInRequiredError'
+  }
+}
+
+/**
+ * A sign-in was needed, and one is already running — started by someone else.
+ *
+ * Nothing has gone wrong: the user is, right now, looking at the login page that
+ * the winning flow opened. The only correct response is to stop quietly. Retrying
+ * would be refused again, and surfacing an error would put a failure message
+ * under a sign-in that is about to succeed.
+ */
+export class GatewaySignInBusyError extends Error {
+  readonly signInAlreadyRunning = true
+
+  constructor(message: string) {
+    super(message)
+    this.name = 'GatewaySignInBusyError'
+  }
+}
+
+export function isGatewaySignInBusy(error: unknown): error is GatewaySignInBusyError {
+  return (
+    error instanceof GatewaySignInBusyError ||
+    (typeof error === 'object' &&
+      error !== null &&
+      (error as { signInAlreadyRunning?: unknown }).signInAlreadyRunning === true)
+  )
+}
+
+export function isGatewaySignInRequired(error: unknown): error is GatewaySignInRequiredError {
+  return (
+    error instanceof GatewaySignInRequiredError ||
+    (typeof error === 'object' &&
+      error !== null &&
+      (error as { needsInteractiveSignIn?: unknown }).needsInteractiveSignIn === true)
+  )
+}
+
 export async function resolveGatewayWsUrl(deps: ResolveGatewayWsUrlDeps, conn: GatewayWsConnection): Promise<string> {
   const mint = deps.getGatewayWsUrl
   const profile = conn.profile ?? null
@@ -45,10 +103,19 @@ export async function resolveGatewayWsUrl(deps: ResolveGatewayWsUrlDeps, conn: G
     try {
       return await mint(profile)
     } catch (error) {
-      throw new GatewayReauthRequiredError(
-        'Your remote gateway session has expired. Open Settings -> Gateway and click "Sign in" again.',
-        { cause: error }
-      )
+      // Only a REFUSAL means the session expired, and `mintWsTicket` already
+      // raises the typed error for that (an HTTP 401 from the ws-ticket mint).
+      // Everything else reaching here — DNS, connection refused, TLS, a timeout —
+      // is a network fault, and relabelling it "your session has expired" was the
+      // mirror image of the bug on the other side: it spent the supervisor's
+      // 3-attempt AUTH budget on a blip that the unbounded network ladder would
+      // have ridden out, and told the user to sign in again when nothing was
+      // wrong with their credential.
+      if (isGatewayReauthRequired(error)) {
+        throw error
+      }
+
+      throw error instanceof Error ? error : new Error(String(error))
     }
   }
 

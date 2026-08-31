@@ -20,7 +20,7 @@ Git **worktrees** 是为每个 agent 提供独立检出（checkout）而无需�
 
 Allr 将**当前工作目录**视为项目根目录：
 
-- CLI：运行 `hermes` 或 `allr chat` 时所在的目录
+- CLI：运行 `allr` 或 `allr chat` 时所在的目录
 - Messaging gateway：由 `MESSAGING_CWD` 设置的目录
 
 如果在**同一检出**中运行多个 agent，它们的变更可能相互干扰：
@@ -58,7 +58,7 @@ git worktree add ../repo-feature feature/hermes-experiment
 cd ../repo-feature
 
 # 在 worktree 中启动 Allr
-hermes
+allr
 ```
 
 Allr 将：
@@ -83,11 +83,11 @@ git worktree add ../repo-experiment-b feature/hermes-b
 ```bash
 # 终端 1
 cd ../repo-experiment-a
-hermes
+allr
 
 # 终端 2
 cd ../repo-experiment-b
-hermes
+allr
 ```
 
 每个 Allr 进程：
@@ -137,13 +137,13 @@ git worktree remove ../repo-feature
 - **使用 worktrees 时避免从裸仓库根目录运行 Allr**
   - 优先使用 worktree 目录，使每个 agent 拥有明确的作用范围。
 
-## 使用 `hermes -w`（自动 Worktree 模式）
+## 使用 `allr -w`（自动 Worktree 模式）
 
 Allr 内置 `-w` 标志，可**自动创建一个一次性 git worktree** 及其独立分支。无需手动配置 worktree——只需 `cd` 进入仓库并运行：
 
 ```bash
 cd /path/to/your/repo
-hermes -w
+allr -w
 ```
 
 Allr 将：
@@ -155,10 +155,10 @@ Allr 将：
 这是获得 worktree 隔离的最简便方式。也可与单次查询结合使用：
 
 ```bash
-hermes -w -z "Fix issue #123"
+allr -w -z "Fix issue #123"
 ```
 
-如需并行运行多个 agent，在多个终端中分别运行 `hermes -w`——每次调用都会自动获得独立的 worktree 和分支。
+如需并行运行多个 agent，在多个终端中分别运行 `allr -w`——每次调用都会自动获得独立的 worktree 和分支。
 
 ## 综合运用
 

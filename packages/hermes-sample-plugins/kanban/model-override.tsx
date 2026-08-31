@@ -81,7 +81,7 @@ export function ModelOverrideField({
 
     current: { effort: value.effort, fast: false, model: value.model, provider: value.provider },
 
-    // Read-only against Allr' global presets is deliberate: see applyPreset.
+    // Read-only against Allr's global presets is deliberate: see applyPreset.
     presetFor: () => ({}),
 
     select: (model, provider) => {

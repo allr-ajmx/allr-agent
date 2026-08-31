@@ -150,7 +150,7 @@ Honcho 将对话建模为 peer 之间的消息交换——每个 Allr profile �
 |---------|-----------|
 | **Workspace** | 共享环境。同一 workspace 下的所有 Allr profile 共享同一用户身份。 |
 | **用户 peer**（`peerName`） | 人类用户。在 workspace 内跨 profile 共享。 |
-| **AI peer**（`aiPeer`） | 每个 Allr profile 一个。host key `hermes` → 默认；其他 profile 使用 `hermes.<profile>`。 |
+| **AI peer**（`aiPeer`） | 每个 Allr profile 一个。host key `allr` → 默认；其他 profile 使用 `hermes.<profile>`。 |
 | **Observation** | 每个 peer 的开关，控制 Honcho 从哪些消息中建模。`directional`（默认，全部开启）或 `unified`（单一观察者池）。 |
 
 ### 新建 profile，创建新 Honcho peer
@@ -167,7 +167,7 @@ allr profile create coder --clone
 allr honcho sync
 ```
 
-扫描所有 Allr profile，为没有 host 块的 profile 创建 host 块，从默认 `hermes` 块继承设置，并提前创建新的 AI peer。幂等操作——跳过已有 host 块的 profile。
+扫描所有 Allr profile，为没有 host 块的 profile 创建 host 块，从默认 `allr` 块继承设置，并提前创建新的 AI peer。幂等操作——跳过已有 host 块的 profile。
 
 ### 每个 profile 的 observation 配置
 
@@ -319,7 +319,7 @@ echo "MEM0_API_KEY=your-key" >> ~/.allr/.env
 | 键 | 默认值 | 描述 |
 |-----|---------|-------------|
 | `user_id` | `hermes-user` | 用户标识符 |
-| `agent_id` | `hermes` | Agent 标识符 |
+| `agent_id` | `allr` | Agent 标识符 |
 
 ---
 
@@ -353,7 +353,7 @@ echo "HINDSIGHT_API_KEY=your-key" >> ~/.allr/.env
 | 键 | 默认值 | 描述 |
 |-----|---------|-------------|
 | `mode` | `cloud` | `cloud` 或 `local` |
-| `bank_id` | `hermes` | 记忆库标识符 |
+| `bank_id` | `allr` | 记忆库标识符 |
 | `recall_budget` | `mid` | 召回彻底程度：`low` / `mid` / `high` |
 | `memory_mode` | `hybrid` | `hybrid`（上下文 + 工具）、`context`（仅自动注入）、`tools`（仅工具） |
 | `auto_retain` | `true` | 自动保留对话轮次 |
@@ -503,7 +503,7 @@ npx supermemory local
 | 键 | 默认值 | 描述 |
 |-----|---------|-------------|
 | `base_url` | `https://api.supermemory.ai` | 托管或自托管 Supermemory 的 API 端点。优先级高于 `SUPERMEMORY_BASE_URL`。 |
-| `container_tag` | `hermes` | 用于搜索和写入的容器标签。支持 `{identity}` 模板用于 profile 范围隔离。 |
+| `container_tag` | `allr` | 用于搜索和写入的容器标签。支持 `{identity}` 模板用于 profile 范围隔离。 |
 | `auto_recall` | `true` | 在每轮对话前注入相关记忆上下文 |
 | `auto_capture` | `true` | 每次响应后存储清理过的用户-助手轮次 |
 | `max_recall_results` | `10` | 格式化为上下文的最大召回条目数 |

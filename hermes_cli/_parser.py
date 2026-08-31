@@ -1,5 +1,5 @@
 """
-Top-level argparse construction for the hermes CLI.
+Top-level argparse construction for the allr CLI.
 
 Lives in its own module so other modules (e.g. ``relaunch.py``) can
 introspect the parser to discover which flags exist without running the
@@ -39,15 +39,15 @@ def _inherited_flag(parser, *args, **kwargs):
 
 _EPILOGUE = """
 Examples:
-    hermes                        Start interactive chat
+    allr                        Start interactive chat
     allr chat -q "Hello"        Single query mode
-    hermes --tui                  Launch the modern TUI (or set display.interface: tui)
-    hermes --cli                  Force the classic REPL (overrides display.interface: tui)
-    hermes -c                     Resume the most recent session
-    hermes -c "my project"        Resume a session by name (latest in lineage)
-    hermes --resume <session_id>  Resume a specific session by ID
-    hermes --resume latest        Resume the most recent session (same as -c)
-    hermes --tui --resume latest --in ./dir   Resume ./dir's latest session in the TUI
+    allr --tui                  Launch the modern TUI (or set display.interface: tui)
+    allr --cli                  Force the classic REPL (overrides display.interface: tui)
+    allr -c                     Resume the most recent session
+    allr -c "my project"        Resume a session by name (latest in lineage)
+    allr --resume <session_id>  Resume a specific session by ID
+    allr --resume latest        Resume the most recent session (same as -c)
+    allr --tui --resume latest --in ./dir  Resume ./dir's latest session in the TUI
     allr setup                  Run setup wizard
     allr logout                 Clear stored authentication
     allr auth add <provider>    Add a pooled credential
@@ -62,8 +62,8 @@ Examples:
     allr config edit            Edit config in $EDITOR
     allr config set model gpt-4 Set a config value
     allr gateway                Run messaging gateway
-    hermes -s allr-agent-dev,github-auth
-    hermes -w                     Start in isolated git worktree
+    allr -s allr-agent-dev,github-auth
+    allr -w                     Start in isolated git worktree
     allr gateway install        Install gateway background service
     allr sessions list          List past sessions
     allr sessions browse        Interactive session picker
@@ -72,7 +72,7 @@ Examples:
     allr logs -f                Follow agent.log in real time
     allr logs errors            View errors.log
     allr logs --since 1h        Lines from the last hour
-    allr debug share             Upload debug report for support
+    allr debug share            Upload debug report for support
     allr console                Open the safe Allr command console
     allr update                 Update to latest version
     allr dashboard              Start web UI dashboard (port 9119)
@@ -80,7 +80,7 @@ Examples:
     allr dashboard --status     List running dashboard processes
 
 For more help on a command:
-    hermes <command> --help
+    allr <command> --help
 """
 
 
@@ -307,7 +307,7 @@ def build_top_level_parser():
         "--image", help="Optional local image path to attach to a single query"
     )
     # `default=argparse.SUPPRESS` on flags that are ALSO declared on the
-    # top-level parser: when the user writes `hermes -m foo chat`, argparse
+    # top-level parser: when the user writes `allr -m foo chat`, argparse
     # first sets `args.model = "foo"` from the top-level parser, then
     # dispatches to the chat subparser. Without SUPPRESS the chat subparser's
     # own default (`None`) would silently clobber the top-level value because

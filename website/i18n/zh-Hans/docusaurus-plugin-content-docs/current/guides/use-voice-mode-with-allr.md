@@ -41,7 +41,7 @@ Allr 中实际上有三种不同的语音体验。
 - Agent 能正常回答文本 prompt（提示词）
 
 ```bash
-hermes
+allr
 ```
 
 问一个简单的问题：
@@ -200,7 +200,7 @@ tts:
 启动 Allr：
 
 ```bash
-hermes
+allr
 ```
 
 在 CLI 内执行：

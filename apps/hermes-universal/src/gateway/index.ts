@@ -17,9 +17,13 @@ export {
   buildHermesWebSocketUrl,
   type GatewayAuthMode,
   GatewayReauthRequiredError,
+  GatewaySignInBusyError,
+  GatewaySignInRequiredError,
   type GatewayWsConnection,
   type HermesWebSocketUrlOptions,
   isGatewayReauthRequired,
+  isGatewaySignInBusy,
+  isGatewaySignInRequired,
   resolveGatewayWsUrl,
   type ResolveGatewayWsUrlDeps,
   type WebSocketAuthParam

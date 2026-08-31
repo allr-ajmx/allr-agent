@@ -17,7 +17,7 @@ Generate flat, minimal educational SVG visuals as HTML.
 | Source | Optional — install with `allr skills install official/creative/concept-diagrams` |
 | Path | `optional-skills/creative/concept-diagrams` |
 | Version | `0.1.0` |
-| Author | v1k22 (original PR), ported into allr-agent |
+| Author | v1k22 (original PR), ported into hermes-agent |
 | License | MIT |
 | Platforms | linux, macos, windows |
 | Tags | `diagrams`, `svg`, `visualization`, `education`, `physics`, `chemistry`, `engineering` |

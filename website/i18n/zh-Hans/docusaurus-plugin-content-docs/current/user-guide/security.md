@@ -48,7 +48,7 @@ approvals:
 
 YOLO 模式会绕过当前会话中**所有**危险命令审批提示。可通过以下三种方式激活：
 
-1. **CLI 标志**：使用 `hermes --yolo` 或 `allr chat --yolo` 启动会话
+1. **CLI 标志**：使用 `allr --yolo` 或 `allr chat --yolo` 启动会话
 2. **斜杠命令**：在会话中输入 `/yolo` 以切换开/关
 3. **环境变量**：设置 `ALLR_YOLO_MODE=1`
 

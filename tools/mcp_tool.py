@@ -306,7 +306,7 @@ def _check_logging_callback_support() -> bool:
     Mirrors ``_check_message_handler_support`` for backward compatibility
     with older MCP SDK versions.  Without a logging_callback, the SDK's
     default handler silently discards every ``notifications/message`` a
-    server emits, so server-side diagnostics never reach Allr' logs.
+    server emits, so server-side diagnostics never reach Allr's logs.
     """
     if not _MCP_AVAILABLE:
         return False
@@ -1820,7 +1820,7 @@ class ElicitationHandler:
 
     Elicitation lets a server ask the client to collect structured input from
     the user mid-tool-call (e.g. payment authorization, OAuth confirmation).
-    Form-mode elicitations are routed through Allr' existing approval
+    Form-mode elicitations are routed through Allr's existing approval
     system (``tools.approval.prompt_dangerous_approval``), which surfaces
     the prompt on whichever surface the active session uses -- CLI, TUI,
     Telegram, Slack, etc. URL-mode elicitations are declined as unsupported.
@@ -2160,7 +2160,7 @@ class MCPServerTask:
         """Build a ``logging_callback`` for ``ClientSession``.
 
         Routes MCP ``notifications/message`` log notifications from the
-        server into Allr' logging (agent.log via hermes_logging), tagged
+        server into Allr's logging (agent.log via hermes_logging), tagged
         with the server name.  Without this, the SDK's default callback
         silently discards them, so server-side warnings/errors during a
         tool call were invisible.  Port of anomalyco/opencode#34529.
@@ -3256,7 +3256,7 @@ class MCPServerTask:
         # Set up elicitation handler if enabled and SDK types are available.
         # Servers use elicitation/create to ask the client for structured
         # input mid-tool-call (e.g. payment authorization). The handler
-        # routes those requests through Allr' approval system.
+        # routes those requests through Allr's approval system.
         elicitation_config = config.get("elicitation", {})
         if elicitation_config.get("enabled", True) and _MCP_ELICITATION_TYPES:
             self._elicitation = ElicitationHandler(self.name, elicitation_config, owner=self)

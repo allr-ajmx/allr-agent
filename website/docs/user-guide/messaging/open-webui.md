@@ -258,8 +258,8 @@ EOF
 ### 2. Start each gateway
 
 ```bash
-hermes -p alice gateway &
-hermes -p bob gateway &
+allr -p alice gateway &
+allr -p bob gateway &
 ```
 
 ### 3. Add connections in Open WebUI
@@ -276,7 +276,7 @@ The model dropdown will show `alice` and `bob` as distinct models. You can assig
 :::tip Custom Model Names
 The model name defaults to the profile name. To override it, set `API_SERVER_MODEL_NAME` in the profile's `.env`:
 ```bash
-hermes -p alice config set API_SERVER_MODEL_NAME "Alice's Agent"
+allr -p alice config set API_SERVER_MODEL_NAME "Alice's Agent"
 ```
 :::
 

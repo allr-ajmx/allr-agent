@@ -187,7 +187,15 @@ pub async fn portal_login(app: AppHandle, webview: WebviewWindow) -> Result<Port
     // Shared with `oauth_login` and held for the whole command: both drive the SAME
     // webview, so a portal sign-in overlapping a gateway sign-in strands the user on a
     // login page exactly as two gateway sign-ins would. See `oauth::SIGN_IN_IN_FLIGHT`.
-    let _lease = crate::oauth::claim_sign_in(webview.label())?;
+    let Some(_lease) = crate::oauth::claim_sign_in(webview.label()) else {
+        // Unlike `oauth_login`, the portal sign-in has no resume marker for a loser
+        // to corrupt, and it is always user-driven — so saying so plainly is the
+        // right answer here rather than a silent no-op.
+        return Err(
+            "A sign-in is already in progress. Finish or cancel it before starting another."
+                .to_string(),
+        );
+    };
 
     let base = portal_base();
     let login_url =

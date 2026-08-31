@@ -1,3 +1,8 @@
+---
+title: "Trajectory Format"
+description: "ShareGPT-compatible JSONL trajectories — file naming, entry fields, normalization rules, and how to load them for training"
+---
+
 # Trajectory Format
 
 Allr saves conversation trajectories in ShareGPT-compatible JSONL format
@@ -215,7 +220,7 @@ preventing Arrow schema mismatch errors during dataset loading.
 
 ## Controlling Trajectory Saving
 
-Trajectory saving is a `run_agent.py` / library-level switch — the `hermes` CLI
+Trajectory saving is a `run_agent.py` / library-level switch — the `allr` CLI
 does not expose a config key or flag for it:
 
 ```bash

@@ -55,7 +55,7 @@ Allr 功能丰富——CLI 助手、Telegram/Discord 机器人、任务自动化
 4. [Telegram 配置](/user-guide/messaging/telegram)
 5. [Discord 配置](/user-guide/messaging/discord)
 6. [语音模式](/user-guide/features/voice-mode)
-7. [在 Allr 中使用语音模式](/guides/use-voice-mode-with-hermes)
+7. [在 Allr 中使用语音模式](/guides/use-voice-mode-with-allr)
 8. [安全](/user-guide/security)
 
 完整项目示例请参阅：

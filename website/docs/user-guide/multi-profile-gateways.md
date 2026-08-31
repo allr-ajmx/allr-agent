@@ -1,5 +1,7 @@
 ---
 sidebar_position: 4
+title: "Multi-Profile Gateways"
+description: "Run several profile gateways as managed launchd or systemd services, and start, log, and troubleshoot them together."
 ---
 
 # Running Many Gateways at Once
@@ -282,7 +284,7 @@ run_for_profile() {
   if [ "$profile" = "default" ]; then
     allr gateway "$action"
   else
-    hermes -p "$profile" gateway "$action"
+    allr -p "$profile" gateway "$action"
   fi
 }
 
@@ -316,7 +318,7 @@ allr-gateways list       # delegates to `allr gateway list`
 
 :::tip
 The `default` profile is targeted with `allr gateway <action>` (no `-p`),
-not `hermes -p default gateway <action>`. The wrapper above handles both forms.
+not `allr -p default gateway <action>`. The wrapper above handles both forms.
 :::
 
 ## Manage one profile
@@ -333,7 +335,7 @@ coder gateway install    # create the LaunchAgent / systemd unit
 coder gateway uninstall  # remove the service file
 ```
 
-These are equivalent to `hermes -p coder gateway <action>` — useful if a
+These are equivalent to `allr -p coder gateway <action>` — useful if a
 profile alias is not on `PATH` or if you target profiles dynamically from a
 script.
 
@@ -374,7 +376,7 @@ The CLI also has a structured log viewer:
 
 ```bash
 allr logs -f                  # follow default profile
-hermes -p coder logs -f         # follow one profile
+allr -p coder logs -f         # follow one profile
 allr logs --help              # filters, levels, JSON output
 ```
 
@@ -458,7 +460,7 @@ use a third-party tool.
 
 ```bash
 # Inhibit suspend while a command runs
-systemd-inhibit --what=idle:sleep --who=hermes --why="gateways running" \
+systemd-inhibit --what=idle:sleep --who=allr --why="gateways running" \
   sleep infinity &
 
 # Allow user services to keep running after logout (recommended)
@@ -531,5 +533,5 @@ systemctl --user restart allr-gateway-<profile>.service
 
 ```bash
 allr doctor                  # default profile
-hermes -p <profile> doctor     # one profile
+allr -p <profile> doctor     # one profile
 ```

@@ -1,5 +1,7 @@
 ---
 sidebar_position: 3
+title: "Profile Distributions"
+description: "Package an agent's personality, skills, cron jobs, and MCP config as a git repo others can install and update."
 ---
 
 # Profile Distributions: Share a Whole Agent
@@ -623,7 +625,7 @@ Profile distributions are unsigned by default. You're trusting:
 - **The git host** (GitHub / GitLab / wherever) to serve the bytes the author pushed.
 - **The author** to not ship a malicious SOUL, skills, or cron jobs.
 
-Cron jobs from a distribution are **not auto-scheduled** — the installer prints `hermes -p <name> cron list` and you enable them explicitly. SOUL.md and skills ARE active as soon as you start chatting with the profile, so read them before your first run if you're installing from someone you don't know.
+Cron jobs from a distribution are **not auto-scheduled** — the installer prints `allr -p <name> cron list` and you enable them explicitly. SOUL.md and skills ARE active as soon as you start chatting with the profile, so read them before your first run if you're installing from someone you don't know.
 
 Rough analogy: installing a distribution is like installing a browser extension or a VS Code extension. Low friction, high power, trust the source. For internal company distributions, use a private repo and your normal git auth — nothing new to configure.
 
@@ -639,13 +641,13 @@ The short version:
 - The manifest format is YAML with a tiny required schema (`name` only).
 - The installer uses your local `git` binary for cloning, so any auth your shell already handles (SSH keys, credential helpers) works transparently.
 - After clone, `.git/` is stripped — the installed profile isn't itself a git checkout, avoiding "oh my, I accidentally committed my `.env` to the distribution's git history" traps.
-- Reserved profile names (`hermes`, `test`, `tmp`, `root`, `sudo`) are rejected at install time to avoid collisions with common binaries.
+- Reserved profile names (`allr`, `test`, `tmp`, `root`, `sudo`) are rejected at install time to avoid collisions with common binaries.
 
 ## See also
 
 - [Profiles: Running Multiple Agents](./profiles.md) — the base concept
 - [Profile Commands reference](../reference/profile-commands.md) — every flag, every option
 - [`allr profile export` / `import`](../reference/profile-commands.md#allr-profile-export) — local backup / restore (not distribution)
-- [Using SOUL with Allr](../guides/use-soul-with-hermes.md) — authoring personalities
+- [Using SOUL with Allr](../guides/use-soul-with-allr.md) — authoring personalities
 - [Personality & SOUL](./features/personality.md) — how SOUL fits into the agent
 - [Skills catalog](../reference/skills-catalog.md) — skills you can bundle

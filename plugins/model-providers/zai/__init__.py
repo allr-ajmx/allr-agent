@@ -19,7 +19,7 @@ untouched.
 
 GLM-5.2 additionally exposes a native ``reasoning_effort`` knob with exactly
 two enabled levels — ``high`` and ``max`` — on the OpenAI-compatible endpoint
-(per Z.AI / BigModel docs).  Allr' richer effort scale is collapsed onto
+(per Z.AI / BigModel docs).  Allr's richer effort scale is collapsed onto
 those two so the user's effort preference actually reaches the model instead
 of being silently dropped.
 """

@@ -71,6 +71,15 @@ import { PROFILES_ROUTE } from '../../routes'
 
 const RAIL_GAP = 4 // px — matches gap-1 between squares.
 
+// One class on every control in the rail — the pills, the squares, the "+" and
+// the "⌄" — so the strip has one corner and one size. `styles.css` owns both;
+// read the comment on the `profile-rail-control` utility there for why a class
+// and not the `data-slot` / `data-variant` the app's other touch rules key on
+// (short version: the squares' nested Radix `asChild` triggers overwrite
+// `data-slot`, so those rules never reached them). Anything new added to the
+// rail wants this too.
+const RAIL_CONTROL = 'profile-rail-control'
+
 // Past this many named profiles the squares stop scaling (tiny drag targets,
 // endless horizontal scroll), so the tail spills into the "⌄" overflow popover
 // instead. Drag-reorder, long-press-recolor and the context menu stay on the
@@ -513,7 +522,10 @@ function AddProfileButton({ label, onClick }: { label: string; onClick: () => vo
     <Tip label={label}>
       <button
         aria-label={label}
-        className="grid size-5 shrink-0 place-items-center rounded-[3px] text-(--ui-text-tertiary) opacity-55 transition hover:bg-(--ui-control-hover-background) hover:text-foreground hover:opacity-100"
+        className={cn(
+          RAIL_CONTROL,
+          'grid size-5 shrink-0 place-items-center text-(--ui-text-tertiary) opacity-55 transition hover:bg-(--ui-control-hover-background) hover:text-foreground hover:opacity-100'
+        )}
         onClick={onClick}
         type="button"
       >
@@ -554,7 +566,10 @@ function ProfileOverflowMenu({
         <PopoverTrigger asChild>
           <button
             aria-label={p.moreProfiles}
-            className="grid size-5 shrink-0 place-items-center rounded-[3px] text-(--ui-text-tertiary) opacity-55 transition hover:bg-(--ui-control-hover-background) hover:text-foreground hover:opacity-100 data-[state=open]:bg-(--ui-control-active-background) data-[state=open]:text-foreground data-[state=open]:opacity-100"
+            className={cn(
+              RAIL_CONTROL,
+              'grid size-5 shrink-0 place-items-center text-(--ui-text-tertiary) opacity-55 transition hover:bg-(--ui-control-hover-background) hover:text-foreground hover:opacity-100 data-[state=open]:bg-(--ui-control-active-background) data-[state=open]:text-foreground data-[state=open]:opacity-100'
+            )}
             type="button"
           >
             <Codicon name="chevron-down" size="0.75rem" />
@@ -597,6 +612,7 @@ function ProfilePill({ active, glyph, label, onSelect }: ProfilePillProps) {
         aria-label={label}
         aria-pressed={active}
         className={cn(
+          RAIL_CONTROL,
           'bg-transparent text-(--ui-text-tertiary) hover:bg-(--ui-control-hover-background) hover:text-foreground',
           active && 'bg-(--ui-control-active-background) text-foreground'
         )}
@@ -732,7 +748,8 @@ function ProfileSquare({
                 <TooltipTrigger asChild>
                   <button
                     className={cn(
-                      'grid size-5 shrink-0 cursor-grab touch-none select-none place-items-center rounded-[3px] text-[0.5625rem] font-semibold uppercase leading-none transition-opacity hover:opacity-100',
+                      RAIL_CONTROL,
+                      'grid size-5 shrink-0 cursor-grab touch-none select-none place-items-center text-[0.5625rem] font-semibold uppercase leading-none transition-opacity hover:opacity-100',
                       active ? 'opacity-100' : 'opacity-55',
                       sortDisabled && 'cursor-pointer',
                       isOver && !isDragging && 'opacity-100',

@@ -17,7 +17,7 @@ Shop catalog search, checkout, order tracking, returns.
 | Source | Optional — install with `allr skills install official/productivity/shop` |
 | Path | `optional-skills/productivity/shop` |
 | Version | `1.0.1` |
-| Author | Joe Rinaldi Johnson (joerj123), Allr |
+| Author | Joe Rinaldi Johnson (joerj123), Hermes Agent |
 | License | MIT |
 | Platforms | linux, macos, windows |
 | Tags | `Shopping`, `E-commerce`, `Shop`, `Products`, `Orders`, `Returns`, `Checkout`, `Reorder` |

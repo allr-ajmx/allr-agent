@@ -51,7 +51,7 @@ export const zhHant: Translations = {
 
   app: {
     brand: "Allr",
-    brandShort: "HA",
+    brandShort: "AA",
     closeNavigation: "關閉導覽",
     closeModelTools: "關閉模型與工具",
     footer: {

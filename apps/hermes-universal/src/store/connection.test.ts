@@ -6,6 +6,7 @@ vi.mock('@/lib/auth', () => ({
   oauthLogin: vi.fn().mockResolvedValue(undefined),
   oauthLogout: vi.fn().mockResolvedValue(undefined),
   oauthStatus: vi.fn().mockResolvedValue({ signedIn: false }),
+  oauthStatusIsUnknown: (s: { reachable?: boolean }) => s?.reachable === false,
   fetchAuthProviders: vi.fn().mockResolvedValue([]),
   portalLogout: vi.fn().mockResolvedValue(undefined),
   portalAgentSignIn: vi.fn().mockResolvedValue({ connected: true, baseUrl: 'https://a1' })
@@ -17,6 +18,7 @@ vi.mock('@/store/gateway', async () => {
     addGatewayEventListener: () => () => {},
     connectGateway: vi.fn().mockResolvedValue(undefined),
     closeGateway: vi.fn(),
+    lastGatewayCloseCode: vi.fn(() => undefined),
     $gatewayState: atom('idle')
   }
 })
@@ -26,8 +28,11 @@ vi.mock('@/lib/secure-store', () => ({
   clearSecrets: vi.fn().mockResolvedValue(undefined)
 }))
 vi.mock('@/lib/session-persist', () => ({
+  clearSessionJar: vi.fn().mockResolvedValue(undefined),
   forgetPersistedSessionCookies: vi.fn(),
-  persistSessionCookies: vi.fn().mockResolvedValue(undefined)
+  persistSessionCookies: vi.fn().mockResolvedValue(undefined),
+  resumeSessionCookiePersistence: vi.fn(),
+  suspendSessionCookiePersistence: vi.fn()
 }))
 vi.mock('@/store/local-backend', () => ({
   spawnLocalBackend: vi.fn(),
@@ -44,6 +49,7 @@ import {
   portalLogout
 } from '@/lib/auth'
 import { clearSecrets, saveSecrets } from '@/lib/secure-store'
+import { clearSessionJar, suspendSessionCookiePersistence } from '@/lib/session-persist'
 import { $gatewayState, connectGateway } from '@/store/gateway'
 import { spawnLocalBackend, stopLocalBackend } from '@/store/local-backend'
 import { httpRequest } from '@/transport/http'
@@ -90,7 +96,7 @@ describe('connect — gated auth path selection', () => {
     status({ auth_required: true })
     mockProviders.mockResolvedValue([oauthProvider])
 
-    await connect({ url: 'gw.example.com' })
+    await connect({ url: 'gw.example.com', allowInteractive: true })
 
     expect(mockOauthStatus).toHaveBeenCalledWith('http://gw.example.com')
     expect(mockOauthLogin).toHaveBeenCalledWith('http://gw.example.com', 'nous')
@@ -101,12 +107,43 @@ describe('connect — gated auth path selection', () => {
   it('oauth with a still-live session → skips the interactive sign-in', async () => {
     status({ auth_required: true })
     mockProviders.mockResolvedValue([oauthProvider])
-    mockOauthStatus.mockResolvedValue({ signedIn: true })
+    mockOauthStatus.mockResolvedValue({ signedIn: true, reachable: true })
 
+    // No `allowInteractive`: a live session must connect without one, which is
+    // what makes the default-false safe for the boot restore.
     await connect({ url: 'gw.example.com' })
 
     expect(mockOauthLogin).not.toHaveBeenCalled()
     expect($connection.get()).toMatchObject({ authMode: 'oauth' })
+  })
+
+  // The bug the user hit: a signed-out restore drove an interactive sign-in that
+  // navigated the app's only webview away, three callers deep.
+  it('signed out + not user-driven → refuses to open a login page', async () => {
+    status({ auth_required: true })
+    mockProviders.mockResolvedValue([oauthProvider])
+    mockOauthStatus.mockResolvedValue({ signedIn: false, reachable: true })
+
+    await expect(connect({ url: 'gw.example.com' })).rejects.toMatchObject({
+      needsInteractiveSignIn: true
+    })
+
+    expect(mockOauthLogin).not.toHaveBeenCalled()
+    expect($connection.get()).toBeNull()
+  })
+
+  // An unreachable gateway says nothing about the credential. It must surface as a
+  // network fault (retryable) and never as "sign in again".
+  it('unreachable gateway → a network error, not a sign-in prompt', async () => {
+    status({ auth_required: true })
+    mockProviders.mockResolvedValue([oauthProvider])
+    mockOauthStatus.mockResolvedValue({ signedIn: false, reachable: false, error: 'host is down' })
+
+    const err = await connect({ url: 'gw.example.com' }).catch(e => e)
+
+    expect(err.needsInteractiveSignIn).toBeUndefined()
+    expect(String(err)).toContain('host is down')
+    expect(mockOauthLogin).not.toHaveBeenCalled()
   })
 
   it('ungated backend with a token → token mode', async () => {
@@ -314,13 +351,75 @@ describe('connect — auto-reconnect target (D8)', () => {
     expect(saved).toMatchObject({ mode: 'remote', url: 'host:9' })
   })
 
-  it('signOut does NOT clear the restore target (always reconnect on next launch)', async () => {
+  // This used to assert the OPPOSITE — that sign-out kept the target so the next
+  // launch would always reconnect. That is the bug: with the credential gone but
+  // the target still there, the next boot seeded `$restoring`, painted
+  // "Reconnecting", dialled a gateway it could not authenticate to, and opened an
+  // interactive sign-in nobody had asked for.
+  it('signOut clears the restore target so the next launch does not auto-dial', async () => {
     status({ auth_required: false })
     await connect({ url: 'host:9', token: 'TOK' })
     expect(localStorage.getItem('hermes.connection.last')).not.toBeNull()
     $connection.set({ baseUrl: 'https://gw', mode: 'remote', authMode: 'oauth' })
     await signOut()
-    expect(localStorage.getItem('hermes.connection.last')).not.toBeNull()
+    expect(localStorage.getItem('hermes.connection.last')).toBeNull()
+  })
+
+  // The URL and username are the prefill, not credentials. Dropping them would
+  // send the user back to an empty box and make them retype a gateway they use
+  // every day.
+  it('signOut keeps the url + username so the sign-in screen stays prefilled', async () => {
+    status({ auth_required: true })
+    mockProviders.mockResolvedValue([passwordProvider])
+    await connect({ url: 'host:1', username: 'admin', password: 'pw' })
+
+    $connection.set({ baseUrl: 'https://gw', mode: 'remote', authMode: 'ticket' })
+    await signOut()
+
+    expect(localStorage.getItem('hermes.url')).toBe('host:1')
+    expect(localStorage.getItem('hermes.username')).toBe('admin')
+  })
+
+  it('signOut clears a queued mobile resume marker', async () => {
+    localStorage.setItem('hermes.oauth.pending', JSON.stringify({ base: 'https://gw' }))
+    localStorage.setItem('hermes.portal.pending', '1')
+
+    $connection.set({ baseUrl: 'https://gw', mode: 'remote', authMode: 'oauth' })
+    await signOut()
+
+    expect(localStorage.getItem('hermes.oauth.pending')).toBeNull()
+    expect(localStorage.getItem('hermes.portal.pending')).toBeNull()
+  })
+
+  // A password session's cookie lives in the same Rust jar as an OAuth one, so
+  // skipping the logout POST for it left the gateway believing the session was
+  // still live. Sign-out was cosmetic for every `ticket` connection.
+  it('signOut revokes a ticket session, not just an oauth one', async () => {
+    $connection.set({ baseUrl: 'https://gw', mode: 'remote', authMode: 'ticket' })
+    await signOut()
+
+    expect(oauthLogout).toHaveBeenCalledWith('https://gw')
+  })
+
+  // The logout POST needs a network. Signing out offline must not come back
+  // signed in, so the jar is emptied locally whatever the POST did.
+  it('signOut empties the live cookie jar even when the logout call fails', async () => {
+    vi.mocked(oauthLogout).mockRejectedValueOnce(new Error('offline'))
+    $connection.set({ baseUrl: 'https://gw', mode: 'remote', authMode: 'oauth' })
+
+    await signOut()
+
+    expect(clearSessionJar).toHaveBeenCalled()
+  })
+
+  // Sign-out is not instantaneous, and `flushSessionCookies()` fires on the very
+  // next backgrounding. Without the latch that flush re-exports the jar into the
+  // keyring the sign-out just cleared.
+  it('signOut suspends cookie persistence so a later flush cannot resurrect it', async () => {
+    $connection.set({ baseUrl: 'https://gw', mode: 'remote', authMode: 'oauth' })
+    await signOut()
+
+    expect(suspendSessionCookiePersistence).toHaveBeenCalled()
   })
 })
 
@@ -365,9 +464,11 @@ describe('beginOAuthLogin — the mobile resume marker', () => {
 
     vi.mocked(auth.oauthLogin).mockImplementation(async () => {
       parkedAtHandoff = localStorage.getItem(PENDING_OAUTH_KEY)
+
+      return { busy: false }
     })
 
-    await conn.connect({ url: 'gw.example.com' })
+    await conn.connect({ url: 'gw.example.com', allowInteractive: true })
 
     // Written before, not after: on a real device there is no "after".
     expect(parkedAtHandoff).toContain('gw.example.com')
@@ -380,16 +481,35 @@ describe('beginOAuthLogin — the mobile resume marker', () => {
     // (or instead of) navigating. The parked marker is now garbage.
     vi.mocked(auth.oauthLogin).mockRejectedValue(new Error('could not open a loopback listener'))
 
-    await expect(conn.connect({ url: 'gw.example.com' })).rejects.toThrow()
+    await expect(conn.connect({ url: 'gw.example.com', allowInteractive: true })).rejects.toThrow()
     expect(localStorage.getItem(PENDING_OAUTH_KEY)).toBeNull()
+  })
+
+  // The bug behind "I signed in successfully and was never taken back into the app".
+  //
+  // Losing the sign-in race used to arrive as a rejection, and the handler above
+  // reads a rejection as "we never navigated" and clears the marker. But the
+  // WINNER had navigated, and the marker is global — so the loser deleted the
+  // winner's. After the round trip the SPA rebooted with nothing to resume.
+  it('leaves the winner\'s resume marker alone when it loses the sign-in race', async () => {
+    const { auth, conn } = await loadOn(true)
+
+    vi.mocked(auth.oauthLogin).mockResolvedValue({ busy: true })
+
+    await expect(conn.connect({ url: 'gw.example.com', allowInteractive: true })).rejects.toMatchObject({
+      signInAlreadyRunning: true
+    })
+
+    // Still parked: it is the only thing that finishes the connect after the reload.
+    expect(localStorage.getItem(PENDING_OAUTH_KEY)).toContain('gw.example.com')
   })
 
   it('parks nothing on desktop, where the promise resolves normally', async () => {
     const { auth, conn } = await loadOn(false)
 
-    vi.mocked(auth.oauthLogin).mockResolvedValue(undefined)
+    vi.mocked(auth.oauthLogin).mockResolvedValue({ busy: false })
 
-    await conn.connect({ url: 'gw.example.com' })
+    await conn.connect({ url: 'gw.example.com', allowInteractive: true })
 
     expect(localStorage.getItem(PENDING_OAUTH_KEY)).toBeNull()
   })

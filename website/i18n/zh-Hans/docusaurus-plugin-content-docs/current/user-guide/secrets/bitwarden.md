@@ -6,7 +6,7 @@
 
 1. 在 Bitwarden Secrets Manager 中创建一个**机器账户**，授予其对某个项目的读取权限，并生成一个**访问令牌**。
 2. Allr 将该单一令牌以 `BWS_ACCESS_TOKEN` 的形式存储在 `~/.allr/.env` 中。
-3. 每次 `hermes`（或 gateway，或 cron 任务）启动时，在加载 `~/.allr/.env` 之后，Allr 会调用 `bws secret list <project_id>` 并将返回的密钥写入 `os.environ`。
+3. 每次 `allr`（或 gateway，或 cron 任务）启动时，在加载 `~/.allr/.env` 之后，Allr 会调用 `bws secret list <project_id>` 并将返回的密钥写入 `os.environ`。
 4. 默认情况下，Allr **覆盖**环境中已有的值，因此 Bitwarden 是唯一可信来源——在 Web 应用中轮换一次密钥，每个 Allr 进程在下次启动时即可获取最新值。如果希望 `.env` 优先，可在配置中将 `override_existing: false`。
 
 `bws` 二进制文件在首次使用时会自动下载到 `~/.allr/bin/`，无需 `apt`、`brew` 或 `sudo`。
@@ -61,7 +61,7 @@ allr secrets bitwarden setup \
 allr secrets bitwarden status
 ```
 
-此后，每次调用 `hermes` 都会在启动时拉取最新 secret。进程中首次应用 secret 时，stderr 会显示一行摘要信息。
+此后，每次调用 `allr` 都会在启动时拉取最新 secret。进程中首次应用 secret 时，stderr 会显示一行摘要信息。
 
 ## CLI
 
@@ -108,7 +108,7 @@ secrets:
 | `access_token_env` | `BWS_ACCESS_TOKEN` | 存储引导令牌的环境变量名。如果你已将 `BWS_ACCESS_TOKEN` 用于其他用途，可修改此项。 |
 | `project_id` | `""` | 要同步的项目 UUID。 |
 | `server_url` | `""` | Bitwarden 区域或自托管端点。为空时使用 `bws` 默认值（US Cloud，`https://vault.bitwarden.com`）。欧盟云设为 `https://vault.bitwarden.eu`，自托管则填写自己的 URL。以 `BWS_SERVER_URL` 形式传递给 `bws` 子进程。 |
-| `cache_ttl_seconds` | `300` | 进程内拉取结果的复用时长。设为 `0` 可禁用缓存。缓存按进程隔离；新的 `hermes` 调用从头开始。 |
+| `cache_ttl_seconds` | `300` | 进程内拉取结果的复用时长。设为 `0` 可禁用缓存。缓存按进程隔离；新的 `allr` 调用从头开始。 |
 | `override_existing` | `true` | 为 true 时，Bitwarden 的值会覆盖环境中已有的任何值（使 Web 应用中的轮换真正生效）。如果希望本地 `.env` / shell 导出优先，设为 `false`。 |
 | `auto_install` | `true` | 为 true 时，首次使用时自动将 `bws` 下载到 `~/.allr/bin/`。 |
 

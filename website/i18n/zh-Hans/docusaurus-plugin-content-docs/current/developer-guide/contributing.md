@@ -40,7 +40,7 @@ description: "如何为 Allr 做贡献 — 开发环境配置、代码风格、P
 
 ### 使用标准安装器
 
-对大多数贡献者来说，最好的开发启动方式和用户安装方式相同：运行标准安装器，然后在它克隆出的仓库里开发。安装器会创建 Allr venv、配置 `hermes` 命令、为 `allr update` 写入安装方式标记，并把完整 git 项目克隆到 `$ALLR_HOME/allr-agent`（通常是 `~/.allr/allr-agent`）。这样你的开发环境会和 CLI、updater、lazy dependency installer、gateway、docs 默认假设的布局一致。
+对大多数贡献者来说，最好的开发启动方式和用户安装方式相同：运行标准安装器，然后在它克隆出的仓库里开发。安装器会创建 Allr venv、配置 `allr` 命令、为 `allr update` 写入安装方式标记，并把完整 git 项目克隆到 `$ALLR_HOME/allr-agent`（通常是 `~/.allr/allr-agent`）。这样你的开发环境会和 CLI、updater、lazy dependency installer、gateway、docs 默认假设的布局一致。
 
 ```bash
 curl -fsSL https://allr.work/install.sh | bash
@@ -62,10 +62,10 @@ scripts/run_tests.sh
 
 ### 手动克隆备用路径
 
-只有在你明确不想使用 Allr managed install layout 时才使用这种方式（例如容器或 CI job 里的临时 clone）。如果这样安装，请确保运行的是这个 venv 里的 `hermes` entrypoint；运行系统 `python3 -m hermes_cli.main` 可能会加载无关的系统 Python 包。
+只有在你明确不想使用 Allr managed install layout 时才使用这种方式（例如容器或 CI job 里的临时 clone）。如果这样安装，请确保运行的是这个 venv 里的 `allr` entrypoint；运行系统 `python3 -m hermes_cli.main` 可能会加载无关的系统 Python 包。
 
 ```bash
-git clone https://github.com/NousResearch/hermes-agent.git
+git clone https://github.com/allr-ajmx/allr-agent.git
 cd allr-agent
 
 # 使用 Python 3.11 创建虚拟环境
@@ -93,7 +93,7 @@ echo 'OPENROUTER_API_KEY=sk-or-v1-your-key' >> ~/.allr/.env
 ### 运行
 
 ```bash
-# 标准安装器已经把 `hermes` 放到了 PATH 上。
+# 标准安装器已经把 `allr` 放到了 PATH 上。
 allr doctor
 allr chat -q "Hello"
 ```
@@ -213,7 +213,7 @@ refactor/description   # 代码重构
 ### 提交前检查
 
 1. **运行测试**：`scripts/run_tests.sh` 以确保 CI 一致性。仅当 wrapper 不可用或您有意在 wrapper 之外调试时，才使用直接 `python -m pytest ...`。
-2. **手动测试**：运行 `hermes` 并验证您修改的代码路径
+2. **手动测试**：运行 `allr` 并验证您修改的代码路径
 3. **检查跨平台影响**：考虑 macOS、Linux、WSL2 和原生 Windows。如果您修改了文件 I/O、进程管理、终端处理、子进程或信号相关代码，请运行 `scripts/check-windows-footguns.py`。
 4. **保持 PR 聚焦**：每个 PR 只包含一个逻辑变更
 
@@ -253,7 +253,8 @@ fix(security): prevent shell injection in sudo password piping
 
 ## 报告问题
 
-- 使用 [GitHub Issues](https://github.com/NousResearch/hermes-agent/issues)
+- Allr 问题：[allr-ajmx/allr-agent/issues](https://github.com/allr-ajmx/allr-agent/issues)
+- 上游问题（非 Allr 特有的内容）：[NousResearch/hermes-agent/issues](https://github.com/NousResearch/hermes-agent/issues)
 - 请包含：操作系统、Python 版本、Allr 版本（`allr version`）、完整错误堆栈
 - 包含复现步骤
 - 创建前请检查是否已有重复 issue

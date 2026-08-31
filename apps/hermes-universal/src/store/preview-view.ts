@@ -30,8 +30,31 @@ export function previewMode(path: string): PreviewViewMode {
 }
 
 export function setPreviewMode(path: string, mode: PreviewViewMode): void {
-  if (previewMode(path) !== mode) {
-    $previewModes.set({ ...$previewModes.get(), [path]: mode })
+  const modes = $previewModes.get()
+
+  // An ABSENT path is written even when the mode equals the default, or
+  // `setPreviewMode(path, 'source')` would record nothing and `seedPreviewMode`
+  // below would then be free to overwrite it. Present-and-unchanged is still a
+  // no-op, so subscribers do not re-render.
+  if (!(path in modes) || modes[path] !== mode) {
+    $previewModes.set({ ...modes, [path]: mode })
+  }
+}
+
+/**
+ * Set the mode ONLY if this path has none yet.
+ *
+ * The pane's load effect re-runs on every reload nonce — and a save bumps that
+ * nonce — so seeding with `setPreviewMode` discarded whatever the user had
+ * chosen: a `.md` snapped back to `rendered` on every save. `previewMode()`
+ * cannot tell "absent" from "explicitly source", so the absence test is a key
+ * lookup, not a value comparison.
+ */
+export function seedPreviewMode(path: string, mode: PreviewViewMode): void {
+  const modes = $previewModes.get()
+
+  if (!(path in modes)) {
+    $previewModes.set({ ...modes, [path]: mode })
   }
 }
 

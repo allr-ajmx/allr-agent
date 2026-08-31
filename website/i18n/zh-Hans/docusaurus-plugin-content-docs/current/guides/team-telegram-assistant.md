@@ -291,7 +291,7 @@ display:
 
 通过编辑 `~/.allr/SOUL.md` 自定义机器人的沟通方式：
 
-完整指南请参阅[在 Allr 中使用 SOUL.md](/guides/use-soul-with-hermes)。
+完整指南请参阅[在 Allr 中使用 SOUL.md](/guides/use-soul-with-allr)。
 
 ```markdown
 # Soul

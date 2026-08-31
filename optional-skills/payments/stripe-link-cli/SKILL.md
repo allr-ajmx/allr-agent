@@ -2,7 +2,7 @@
 name: stripe-link-cli
 description: Agent payments via Stripe Link — cards, SPT, approvals.
 version: 0.1.0
-author: Teknium (teknium1), Allr
+author: Teknium (teknium1), Hermes Agent
 license: MIT
 platforms: [linux, macos]
 metadata:
@@ -158,7 +158,7 @@ rm -f /tmp/link-card.json
 
 ## Optional: run as an MCP server instead
 
-`@stripe/link-cli --mcp` exposes the same commands as MCP tools over stdio. To register it with Allr' native MCP:
+`@stripe/link-cli --mcp` exposes the same commands as MCP tools over stdio. To register it with Allr's native MCP:
 
 ```
 allr mcp add stripe-link --command "npx" --args "@stripe/link-cli --mcp"

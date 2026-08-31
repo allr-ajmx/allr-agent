@@ -1,3 +1,8 @@
+---
+title: "Session Storage"
+description: "The SQLite state database behind Allr sessions — schema, FTS5 search, migrations, write contention, lineage, and export"
+---
+
 # Session Storage
 
 Allr uses a SQLite database (`~/.allr/state.db`) to persist session

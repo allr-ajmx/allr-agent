@@ -15,7 +15,15 @@ platform-gated features are supported), see **[Platform Support](./platform-supp
 
 ## Quick Install
 ### With the Allr Desktop installer on macOS or Windows (recommended)
-To easily install the command-line and desktop applications, [download the Allr Desktop installer](https://allr.work/) from our website and run it. Builds for every platform are also attached to the [`desktop-v*` releases](https://github.com/allr-ajmx/allr-agent/releases) — `.dmg` for macOS, `.exe` / `.msi` for Windows, `.AppImage` / `.deb` / `.rpm` for Linux.
+To easily install the command-line and desktop applications, [download the Allr Desktop installer](https://allr.work/) from our website and run it. Builds for every platform are also attached to the [`desktop-v*` releases](https://github.com/allr-ajmx/allr-agent/releases) — `.dmg` for macOS, `.exe` / `.msi` for Windows, and `.deb` / `.rpm` / `.tar.gz` for Linux.
+
+On Linux you can install the desktop app in one line, into your home directory, with no root:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/allr-ajmx/allr-agent/main/scripts/install-desktop-linux.sh | bash
+```
+
+It resolves the current desktop version, verifies the download against the release's published `SHA256SUMS.txt`, installs to `~/.local`, and writes a `.desktop` entry so Allr shows up in your application launcher. `--system` installs to `/usr/local` instead, and `--uninstall` reverses it. Prefer the `.deb` or `.rpm` if your distribution uses one — they declare their dependencies, and the tarball cannot.
 
 Two things worth knowing before you run it:
 
@@ -50,18 +58,18 @@ iex (irm https://allr.work/install.ps1)
 
 If you want to install & run Allr Desktop after a command-line only install, simply run
 ```bash
-hermes desktop
+allr desktop
 ```
 
 ### What the Installer Does
 
-The installer handles everything automatically — all dependencies (Python, Node.js, ripgrep, ffmpeg), the repo clone, virtual environment, global `hermes` command setup, and LLM provider configuration. By the end, you're ready to chat.
+The installer handles everything automatically — all dependencies (Python, Node.js, ripgrep, ffmpeg), the repo clone, virtual environment, global `allr` command setup, and LLM provider configuration. By the end, you're ready to chat.
 
 #### Install Layout
 
 Where the installer puts things depends on whether you're installing as a normal user or as root:
 
-| Installer                              | Code lives at                  | `hermes` binary                         | Data directory                       |
+| Installer                              | Code lives at                  | `allr` binary                         | Data directory                       |
 | -------------------------------------- | ------------------------------ | --------------------------------------- | ------------------------------------ |
 | Per-user (git installer)               | `~/.allr/allr-agent/`      | `~/.local/bin/allr` (symlink)         | `~/.allr/`                         |
 | Root-mode (`sudo curl … \| sudo bash`) | `/usr/local/lib/allr-agent/` | `/usr/local/bin/allr`                 | `/root/.allr/` (or `$ALLR_HOME`) |
@@ -128,7 +136,7 @@ If you want to clone the repo and install from source — for contributing, runn
 
 ## Non-Sudo / System Service User Installs
 
-Running Allr as a dedicated unprivileged user (e.g. a `hermes` systemd service account, or any user without `sudo` access) is supported. The only thing on the install path that genuinely needs root is Playwright's `--with-deps` step, which `apt`-installs shared libraries (`libnss3`, `libxkbcommon`, etc.) used by Chromium. The installer detects whether sudo is available and gracefully degrades when it isn't — it will install the Chromium binary into the service user's own Playwright cache and print the exact command an administrator needs to run separately.
+Running Allr as a dedicated unprivileged user (e.g. a `allr` systemd service account, or any user without `sudo` access) is supported. The only thing on the install path that genuinely needs root is Playwright's `--with-deps` step, which `apt`-installs shared libraries (`libnss3`, `libxkbcommon`, etc.) used by Chromium. The installer detects whether sudo is available and gracefully degrades when it isn't — it will install the Chromium binary into the service user's own Playwright cache and print the exact command an administrator needs to run separately.
 
 **Recommended split (Debian/Ubuntu):**
 
@@ -148,7 +156,7 @@ Running Allr as a dedicated unprivileged user (e.g. a `hermes` systemd service a
    curl -fsSL https://allr.work/install.sh | bash -s -- --skip-browser
    ```
 
-3. **Make `hermes` available to the service user's shells.** The installer writes the launcher to `~/.local/bin/allr`. System service accounts often have a minimal PATH that doesn't include `~/.local/bin`. Either add it to the user's environment, or symlink the launcher into a system location:
+3. **Make `allr` available to the service user's shells.** The installer writes the launcher to `~/.local/bin/allr`. System service accounts often have a minimal PATH that doesn't include `~/.local/bin`. Either add it to the user's environment, or symlink the launcher into a system location:
    ```bash
    # Option A — add to the service user's profile
    echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
@@ -157,7 +165,7 @@ Running Allr as a dedicated unprivileged user (e.g. a `hermes` systemd service a
    sudo ln -s /home/hermes/.allr/allr-agent/venv/bin/allr /usr/local/bin/allr
    ```
 
-4. **Verify:** `allr doctor` should now run cleanly. If you get `ModuleNotFoundError: No module named 'dotenv'`, you're invoking the repo source `hermes` file (`~/.allr/allr-agent/hermes`) with system Python instead of the venv launcher (`~/.allr/allr-agent/venv/bin/allr`) — fix step 3.
+4. **Verify:** `allr doctor` should now run cleanly. If you get `ModuleNotFoundError: No module named 'dotenv'`, you're invoking the repo source `allr` file (`~/.allr/allr-agent/hermes`) with system Python instead of the venv launcher (`~/.allr/allr-agent/venv/bin/allr`) — fix step 3.
 
 5. **Running the messaging gateway from this account?** A user-level service stops at logout and does not start at boot until you enable lingering for the service user:
 

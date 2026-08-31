@@ -761,7 +761,7 @@ def union_with_portal_free_recommendations(
     augmented_ids = list(curated_ids)
     seen = set(augmented_ids)
     # Append Portal free recommendations that aren't already curated, so the
-    # in-repo curated ("HA") models show first and Portal-only picks follow.
+    # in-repo curated models show first and Portal-only picks follow.
     new_ones = [mid for mid in portal_free_ids if mid not in seen]
     if new_ones:
         augmented_ids = augmented_ids + new_ones
@@ -827,7 +827,7 @@ def union_with_portal_paid_recommendations(
     augmented_ids = list(curated_ids)
     seen = set(augmented_ids)
     # Append Portal paid recommendations that aren't already curated, so the
-    # in-repo curated ("HA") models show first and Portal-only picks follow.
+    # in-repo curated models show first and Portal-only picks follow.
     new_ones = [mid for mid in portal_paid_ids if mid not in seen]
     if new_ones:
         augmented_ids = augmented_ids + new_ones
@@ -2668,7 +2668,7 @@ def _find_openrouter_slug(model_name: str) -> Optional[str]:
 
 
 def normalize_provider(provider: Optional[str]) -> str:
-    """Normalize provider aliases to Allr' canonical provider ids.
+    """Normalize provider aliases to Allr's canonical provider ids.
 
     Note: ``"auto"`` passes through unchanged — use
     ``hermes_cli.auth.resolve_provider()`` to resolve it to a concrete
@@ -4090,7 +4090,7 @@ _COPILOT_MODEL_ALIASES = {
     "anthropic/claude-sonnet-4": "claude-sonnet-4",
     "anthropic/claude-sonnet-4.5": "claude-sonnet-4.5",
     "anthropic/claude-haiku-4.5": "claude-haiku-4.5",
-    # Dash-notation fallbacks: Allr' default Claude IDs elsewhere use
+    # Dash-notation fallbacks: Allr's default Claude IDs elsewhere use
     # hyphens (anthropic native format), but Copilot's API only accepts
     # dot-notation.  Accept both so users who configure copilot + a
     # default hyphenated Claude model don't hit HTTP 400
@@ -4219,7 +4219,7 @@ def copilot_model_api_mode(
         return "codex_responses"
 
     # Copilot's Claude models are exposed through its OpenAI-compatible chat
-    # endpoint, not through Allr' native Anthropic adapter. The live catalog may
+    # endpoint, not through Allr's native Anthropic adapter. The live catalog may
     # advertise /v1/messages, but the Copilot token/header scheme is handled by
     # the OpenAI client path; selecting anthropic_messages would send the wrong
     # auth/wire shape. Keep non-GPT Copilot slots on chat_completions.

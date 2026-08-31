@@ -17,7 +17,7 @@ Manual OAuth for remote MCP servers on headless gateways.
 | Source | Optional — install with `allr skills install official/mcp/mcp-oauth-remote-gateway` |
 | Path | `optional-skills/mcp/mcp-oauth-remote-gateway` |
 | Version | `1.0.0` |
-| Author | Ben Barclay (benbarclay), Allr |
+| Author | Ben Barclay (benbarclay), Hermes Agent |
 | License | MIT |
 | Platforms | linux, macos |
 | Tags | `MCP`, `OAuth`, `PKCE`, `Remote-Deployment` |
@@ -33,7 +33,7 @@ The following is the complete skill definition that Allr loads when this skill i
 
 ## Overview
 
-Allr' built-in MCP OAuth client runs a one-shot HTTP listener on `127.0.0.1:<port>`
+Allr's built-in MCP OAuth client runs a one-shot HTTP listener on `127.0.0.1:<port>`
 inside the Allr process and registers that loopback address as the OAuth
 `redirect_uri`. That works perfectly for a local CLI on the user's own machine.
 It breaks completely when Allr runs as a remote gateway (container, VPS,
@@ -41,7 +41,7 @@ messaging bot), because the user's browser resolves `127.0.0.1` to the user's ow
 laptop, not the remote container — so the authorization code never reaches Allr.
 
 This skill does the OAuth dance by hand and writes the resulting tokens into the
-exact files Allr' token storage expects, so a subsequent `/reload-mcp` finds
+exact files Allr's token storage expects, so a subsequent `/reload-mcp` finds
 cached tokens and skips the browser flow entirely.
 
 ## When to Use
@@ -59,7 +59,7 @@ Do NOT use this for:
 
 ## Why the Built-in OAuth Flow Fails on a Remote Gateway
 
-Allr' native MCP OAuth client (`tools/mcp_oauth.py`):
+Allr's native MCP OAuth client (`tools/mcp_oauth.py`):
 
 1. Picks a free local port `P`.
 2. Registers a dynamic OAuth client with the AS, sending `redirect_uri = http://127.0.0.1:P/callback`.
@@ -151,7 +151,7 @@ echo "$DISPLAY $WAYLAND_DISPLAY $SSH_CLIENT"
 ```
 
 No display + a remote indicator = remote gateway. `tools/mcp_oauth.py::_can_open_browser()`
-uses these same env vars, so if Allr' own auto-detect says "headless", the
+uses these same env vars, so if Allr's own auto-detect says "headless", the
 built-in flow won't work.
 
 ### 2. Find ALLR_HOME and the config path
@@ -258,7 +258,7 @@ When the user pastes the callback URL:
    - `resource=<mcp_server_url>` (if the AS required it in step 5, include here too)
 4. Response contains `access_token`, `refresh_token`, `token_type`, `expires_in`, `scope`.
 
-### 8. Write tokens in Allr' exact schema
+### 8. Write tokens in Allr's exact schema
 
 `tools/mcp_oauth.py::HermesTokenStorage` expects two files under
 `$ALLR_HOME/mcp-tokens/` (create dir with `0o700`, files with `0o600`):
@@ -289,7 +289,7 @@ When the user pastes the callback URL:
 
 Write each file via `json.dumps(..., indent=2)`. Sanitize the filename with
 `re.sub(r'[^\w\-]', '_', server_name)[:128]` — this matches `_safe_filename()` in
-Allr' token storage.
+Allr's token storage.
 
 ### 9. Add the server to config.yaml
 
@@ -386,4 +386,4 @@ tools. Refresh happens automatically before `expires_in` elapses.
 ## Related
 
 - `native-mcp` — general guide to configuring MCP in Allr. Authoritative config reference lives there.
-- `mcporter` — the external CLI bridge, for ad-hoc MCP calls outside of Allr' config.
+- `mcporter` — the external CLI bridge, for ad-hoc MCP calls outside of Allr's config.

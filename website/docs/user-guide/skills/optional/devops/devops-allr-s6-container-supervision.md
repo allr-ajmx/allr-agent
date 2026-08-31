@@ -17,7 +17,7 @@ Modify or debug s6 services in the Allr Docker image.
 | Source | Optional — install with `allr skills install official/devops/allr-s6-container-supervision` |
 | Path | `optional-skills/devops/allr-s6-container-supervision` |
 | Version | `1.0.0` |
-| Author | Allr |
+| Author | Hermes Agent |
 | License | MIT |
 | Platforms | linux |
 | Tags | `docker`, `s6`, `supervision`, `gateway`, `profiles` |

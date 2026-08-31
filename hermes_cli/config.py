@@ -1317,7 +1317,7 @@ def _normalize_custom_provider_entry(
         entry["key_env"] = entry["api_key_env"]
     _KNOWN_KEYS = {
         # ``provider`` duplicates the ``providers.<name>`` mapping key and is
-        # unused here, but Allr' own config writer has historically emitted it
+        # unused here, but Allr's own config writer has historically emitted it
         # into provider entries. Accept it silently so those (self-written)
         # configs don't warn on every load.
         "provider",

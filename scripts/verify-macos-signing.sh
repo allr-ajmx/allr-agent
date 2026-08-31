@@ -23,10 +23,27 @@
 #   Gatekeeper (spctl)   Whether a DOWNLOADED copy would open. Fatal only with
 #                        --expect-notarized, because signing alone is always
 #                        rejected here and that is not a signing failure.
+#   stapled ticket       Only under --expect-notarized. spctl can be satisfied
+#                        by an ONLINE ticket lookup, so a notarized-but-
+#                        unstapled bundle passes it on a networked CI runner
+#                        and then fails on a user's machine that is offline or
+#                        behind a proxy. `stapler validate` reads the ticket
+#                        out of the bundle itself, and is the only one of these
+#                        that can tell those two apart.
 #
 # Usage:
-#   verify-macos-signing.sh --require-signed    [--expect-notarized] <bundle.app>
-#   verify-macos-signing.sh --warn-if-unsigned  [--expect-notarized] <bundle.app>
+#   verify-macos-signing.sh --require-signed    [--expect-notarized] [--dmg <x.dmg>] <bundle.app>
+#   verify-macos-signing.sh --warn-if-unsigned  [--expect-notarized] [--dmg <x.dmg>] <bundle.app>
+#
+#   --dmg <path>         also check the disk image. Worth its own flag because
+#                        the DMG is a SEPARATE notarization: the Tauri bundler
+#                        notarizes the .app, then builds and signs the DMG
+#                        without ever submitting it. Confirmed on 2026-08-28 --
+#                        the .app was `accepted / Notarized Developer ID` while
+#                        its own DMG was `rejected / Unnotarized Developer ID`.
+#                        The DMG is what users download and what macOS
+#                        quarantines, so checking only the .app passes a release
+#                        Gatekeeper would refuse.
 #
 #   --require-signed     an unsigned bundle is a failure. Use where signing was
 #                        configured and is therefore expected to have happened.
@@ -41,12 +58,14 @@ set -uo pipefail
 mode=""
 expect_notarized=0
 bundle=""
+dmg=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --require-signed)   mode=require ;;
     --warn-if-unsigned) mode=warn ;;
     --expect-notarized) expect_notarized=1 ;;
+    --dmg)              dmg="${2:?--dmg needs a path}"; shift ;;
     -*) echo "verify-macos-signing.sh: unknown option $1" >&2; exit 2 ;;
     *)  bundle="$1" ;;
   esac
@@ -121,6 +140,54 @@ else
   # most likely thing to be misread as "the certificate did not work".
   echo "    (expected: signed but not notarized. Notarization is what fixes this,"
   echo "     and it is NOT what causes the keychain prompts.)"
+fi
+
+# Deliberately not run without --expect-notarized: an un-notarized bundle has no
+# ticket to staple, and reporting that as a finding would bury the one line that
+# matters in noise every fork build produces.
+if [ "$expect_notarized" = 1 ]; then
+  echo
+  echo "==> stapled ticket"
+  if staple="$(xcrun stapler validate "$bundle" 2>&1)"; then
+    echo "$staple" | sed 's/^/    /'
+  else
+    echo "$staple" | sed 's/^/    /'
+    err "$bundle carries no stapled notarization ticket. Gatekeeper accepted it here only by looking the ticket up online - on a user's machine that is offline or behind a proxy this bundle is REFUSED."
+    fail=1
+  fi
+fi
+
+if [ -n "$dmg" ]; then
+  echo
+  echo "==> disk image: $dmg"
+  if [ ! -f "$dmg" ]; then
+    err "no disk image at $dmg"
+    fail=1
+  else
+    codesign -dv --verbose=2 "$dmg" 2>&1 | sed 's/^/    /'
+
+    # `-t open`, not `-t exec`. A disk image is not executable code, and
+    # `-t exec` reports a pass on an image Gatekeeper would still refuse when
+    # the user double-clicks it.
+    if spctl -a -vvv -t open --context context:primary-signature "$dmg" 2>&1 | sed 's/^/    /'; then
+      :
+    elif [ "$expect_notarized" = 1 ]; then
+      err "Gatekeeper rejected $dmg. The .app inside being notarized is NOT enough - the disk image is a separate submission, and it is the file users actually download."
+      fail=1
+    else
+      echo "    (expected: signed but not notarized.)"
+    fi
+
+    if [ "$expect_notarized" = 1 ]; then
+      if staple="$(xcrun stapler validate "$dmg" 2>&1)"; then
+        echo "$staple" | sed 's/^/    /'
+      else
+        echo "$staple" | sed 's/^/    /'
+        err "$dmg carries no stapled ticket, so it depends on an online check at open time."
+        fail=1
+      fi
+    fi
+  fi
 fi
 
 exit "$fail"

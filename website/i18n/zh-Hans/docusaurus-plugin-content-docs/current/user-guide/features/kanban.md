@@ -246,7 +246,7 @@ kanban_complete(summary="decomposed into 2 research tasks + 1 writer; linked dep
 
 三个原因：
 
-1. **后端可移植性。** 终端工具指向远程后端（Docker / Modal / Singularity / SSH）的 worker 会在容器*内部*运行 `allr kanban complete`，而容器中没有安装 `hermes`，也没有挂载 `~/.allr/kanban.db`。kanban 工具在 agent 自己的 Python 进程中运行，无论终端后端如何，始终能访问 `~/.allr/kanban.db`。
+1. **后端可移植性。** 终端工具指向远程后端（Docker / Modal / Singularity / SSH）的 worker 会在容器*内部*运行 `allr kanban complete`，而容器中没有安装 `allr`，也没有挂载 `~/.allr/kanban.db`。kanban 工具在 agent 自己的 Python 进程中运行，无论终端后端如何，始终能访问 `~/.allr/kanban.db`。
 2. **无 shell 引用脆弱性。** 通过 shlex + argparse 传递 `--metadata '{"files": [...]}'` 是潜在的隐患。结构化工具参数完全绕过了这个问题。
 3. **更好的错误处理。** 工具结果是模型可以推理的结构化 JSON，而不是需要解析的 stderr 字符串。
 
@@ -492,7 +492,7 @@ WebSocket 额外增加了一步：它要求仪表盘的临时会话 token 作为
 
 如果你运行 `allr dashboard --host 0.0.0.0`，每个插件路由 —— 包括 kanban —— 都可以从网络访问。**不要在共享主机上这样做。** 看板包含任务正文、评论和工作区路径；攻击者访问这些路由可以读取你整个协作界面，还可以创建 / 重新分配 / 归档任务。
 
-`~/.allr/kanban.db` 中的任务是有意与配置文件无关的（这是协调原语）。如果你用 `hermes -p <profile> dashboard` 打开仪表盘，看板仍然显示主机上任何其他配置文件创建的任务。同一用户拥有所有配置文件，但如果多个角色共存，这一点值得了解。
+`~/.allr/kanban.db` 中的任务是有意与配置文件无关的（这是协调原语）。如果你用 `allr -p <profile> dashboard` 打开仪表盘，看板仍然显示主机上任何其他配置文件创建的任务。同一用户拥有所有配置文件，但如果多个角色共存，这一点值得了解。
 
 ### 实时更新
 

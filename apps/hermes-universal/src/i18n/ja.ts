@@ -687,6 +687,8 @@ export const ja = defineLocale({
     }),
     about: {
       heading: 'Allr',
+      description:
+        'Allr は、AI を使う体験をよりシンプルにするために進化し続けるプラットフォームです。AI の使い方をあなたが学ぶのではなく、AI を取り巻くハーネスの側を最適化することで、モデルが出せる最良の結果を最良のパフォーマンスで引き出します。さらにアプリケーション一式を一つにまとめることで、目的を達成するための過程ではなく、得たい成果そのものに集中できます。',
       version: value => `バージョン ${value}`,
       versionUnavailable: 'バージョンを取得できません',
       updates: '更新',
@@ -851,6 +853,8 @@ export const ja = defineLocale({
       saveFailed: 'ゲートウェイ設定を保存できませんでした',
       connectingTitle: 'Allr に接続しています',
       reconnectingTo: target => `${target} に再接続しています…`,
+      connectStoppedTitle: '接続できませんでした',
+      connectStoppedTo: target => `${target} への接続を中止しました。`,
       useDifferentGateway: '別のゲートウェイを使用',
       startOver: 'やり直す'
     },

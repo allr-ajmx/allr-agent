@@ -1344,7 +1344,7 @@ def is_tts_echo(
     Compares a playback-phase barge-in transcript against the TTS text
     Allr just spoke using a character-level similarity ratio, which works
     across languages without word-tokenization. A genuine user interjection
-    is very unlikely to closely match Allr' own words, so a high ratio is
+    is very unlikely to closely match Allr's own words, so a high ratio is
     a strong signal of speaker-bleed self-capture (fail-closed guard for the
     playback-phase full-duplex listener, which has no acoustic echo
     cancellation; see #75780).

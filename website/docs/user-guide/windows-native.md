@@ -20,15 +20,15 @@ If you prefer a real POSIX environment (for the dashboard's embedded terminal, `
 Open **PowerShell** (or Windows Terminal) and run:
 
 ```powershell
-iex (irm https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.ps1)
+iex (irm https://allr.work/install.ps1)
 ```
 
-No admin rights required. The installer goes to `%LOCALAPPDATA%\allr\` and adds `hermes` to your **User PATH** — open a new terminal after it finishes.
+No admin rights required. The installer goes to `%LOCALAPPDATA%\allr\` and adds `allr` to your **User PATH** — open a new terminal after it finishes.
 
 **Installer options** (requires the scriptblock form to pass parameters):
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.ps1))) -NoVenv -SkipSetup -Branch main
+& ([scriptblock]::Create((irm https://allr.work/install.ps1))) -NoVenv -SkipSetup -Branch main
 ```
 
 | Parameter | Default | Purpose |
@@ -45,7 +45,7 @@ The installer auto-retries flaky git fetches and strips BOM from any downloaded 
 
 ### Desktop installer (alternative)
 
-A thin GUI installer is also available — useful if you'd rather double-click an `.exe` than open PowerShell. Download Allr Desktop, run the installer, and on first launch the GUI calls `install.ps1` under the hood to provision Python (via `uv`), Node, PortableGit, and the rest of the dependency bootstrap described below. After the first run, the desktop app and the PowerShell-installed `hermes` CLI share the same `%LOCALAPPDATA%\allr\allr-agent` install and `%LOCALAPPDATA%\allr` data directory — switch between the GUI and the CLI freely.
+A thin GUI installer is also available — useful if you'd rather double-click an `.exe` than open PowerShell. Download Allr Desktop, run the installer, and on first launch the GUI calls `install.ps1` under the hood to provision Python (via `uv`), Node, PortableGit, and the rest of the dependency bootstrap described below. After the first run, the desktop app and the PowerShell-installed `allr` CLI share the same `%LOCALAPPDATA%\allr\allr-agent` install and `%LOCALAPPDATA%\allr` data directory — switch between the GUI and the CLI freely.
 
 Use the desktop installer when you want a familiar Windows install experience or you're handing Allr to a non-developer; use the PowerShell one-liner when you're already in a terminal.
 
@@ -75,7 +75,7 @@ Top-to-bottom, in order:
 6. **Tiered `uv pip install`** — tries `.[all]` first, falls back to progressively smaller sets (`[messaging,dashboard,ext]` → `[messaging]` → `.`) if a `git+https` dep flakes on rate-limited GitHub. Prevents "single flake drops you to a bare install" failure mode.
 7. **Auto-installs messaging SDKs** keyed off `.env` — if `TELEGRAM_BOT_TOKEN` / `DISCORD_BOT_TOKEN` / `SLACK_BOT_TOKEN` / `SLACK_APP_TOKEN` / `WHATSAPP_ENABLED` are present, runs `python -m ensurepip --upgrade` and targeted `pip install` calls so each platform's SDK is actually importable.
 8. **Sets `ALLR_GIT_BASH_PATH`** to the resolved `bash.exe` so Allr finds it deterministically in fresh shells.
-9. **Adds `%LOCALAPPDATA%\allr\allr-agent\venv\Scripts` to User PATH and sets `ALLR_HOME=%LOCALAPPDATA%\allr`** — exposes the `hermes` command (and points it at your data dir) after you open a new terminal.
+9. **Adds `%LOCALAPPDATA%\allr\allr-agent\venv\Scripts` to User PATH and sets `ALLR_HOME=%LOCALAPPDATA%\allr`** — exposes the `allr` command (and points it at your data dir) after you open a new terminal.
 10. **Runs `allr setup`** — the normal first-run wizard (model, provider, toolsets). Skip with `-SkipSetup`.
 
 :::tip Skip provider hunting on Windows
@@ -89,7 +89,7 @@ Everything except the dashboard's embedded terminal pane runs natively on Window
 | Feature | Native Windows | WSL2 |
 |---|---|---|
 | CLI (`allr chat`, `allr setup`, `allr gateway`, …) | ✓ | ✓ |
-| Interactive TUI (`hermes --tui`) | ✓ | ✓ |
+| Interactive TUI (`allr --tui`) | ✓ | ✓ |
 | Messaging gateway (Telegram, Discord, Slack, WhatsApp, 15+ platforms) | ✓ | ✓ |
 | Cron scheduler | ✓ | ✓ |
 | Browser tool (Chromium via Node) | ✓ | ✓ |
@@ -230,7 +230,7 @@ Verify:
 
 ```powershell
 Get-Command allr        # should print C:\Users\<you>\AppData\Local\allr\allr-agent\venv\Scripts\allr.exe
-hermes --version
+allr --version
 ```
 
 ### Environment variables
@@ -321,6 +321,6 @@ If you edited Allr config or a skill on Windows using a non-UTF-8 editor (Notepa
 
 - **[Installation](../getting-started/installation.md)** — the full install page, including Linux/macOS/WSL2/Termux.
 - **[Windows (WSL2) Guide](./windows-wsl-quickstart.md)** — if you want POSIX semantics or the dashboard terminal pane.
-- **[CLI Reference](../reference/cli-commands.md)** — every `hermes` subcommand.
+- **[CLI Reference](../reference/cli-commands.md)** — every `allr` subcommand.
 - **[FAQ](../reference/faq.md)** — common non-Windows-specific questions.
 - **[Messaging Gateway](./messaging/index.md)** — running Telegram/Discord/Slack on Windows.

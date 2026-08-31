@@ -2,7 +2,7 @@
 name: concept-diagrams
 description: Generate flat, minimal educational SVG visuals as HTML.
 version: 0.1.0
-author: v1k22 (original PR), ported into allr-agent
+author: v1k22 (original PR), ported into hermes-agent
 license: MIT
 dependencies: []
 platforms: [linux, macos, windows]

@@ -73,6 +73,17 @@ export async function connectGateway(conn: Connection): Promise<void> {
   await next.connect(wsUrl)
 }
 
+/**
+ * The close code of the last gateway socket, when the server sent one.
+ *
+ * The supervisor needs it to tell 4401/4403 (refused credential — bounded, then
+ * stop) from a dropped connection (retry indefinitely). Read after the close, so
+ * it deliberately survives the socket.
+ */
+export function lastGatewayCloseCode(): number | undefined {
+  return client?.lastCloseCode
+}
+
 export function closeGateway(): void {
   client?.close()
   client = null

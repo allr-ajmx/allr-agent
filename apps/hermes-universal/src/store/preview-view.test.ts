@@ -6,6 +6,7 @@ import {
   forgetPreviewView,
   previewCaps,
   previewMode,
+  seedPreviewMode,
   setPreviewCaps,
   setPreviewMode
 } from './preview-view'
@@ -44,6 +45,33 @@ describe('preview view state', () => {
     const before = $previewCaps.get()
     setPreviewCaps('/a.ts', { rendered: false, source: true })
     expect($previewCaps.get()).toBe(before)
+  })
+
+  it('seeds a mode only for a path that has none', () => {
+    // The pane seeds on every load, and a save reloads. Seeding with
+    // `setPreviewMode` is what made a saved `.md` snap back to `rendered`.
+    seedPreviewMode('/a.md', 'rendered')
+    expect(previewMode('/a.md')).toBe('rendered')
+
+    setPreviewMode('/a.md', 'source')
+    seedPreviewMode('/a.md', 'rendered')
+    expect(previewMode('/a.md')).toBe('source')
+  })
+
+  it('does not mistake an explicit "source" for an absent mode', () => {
+    // `previewMode()` returns 'source' for a path it has never seen, so the
+    // seed's absence test has to be a key lookup. A user who switched a
+    // markdown file to source and saved it must not be flipped back.
+    setPreviewMode('/b.md', 'source')
+    seedPreviewMode('/b.md', 'rendered')
+    expect(previewMode('/b.md')).toBe('source')
+  })
+
+  it('is a no-op (same object reference) when a mode is already seeded', () => {
+    seedPreviewMode('/a.ts', 'source')
+    const before = $previewModes.get()
+    seedPreviewMode('/a.ts', 'diff')
+    expect($previewModes.get()).toBe(before)
   })
 
   it('forgets a closed preview so a long-lived window pins nothing', () => {

@@ -41,7 +41,7 @@ allr model
 # → Select a model (MiniMax-M2.7 or MiniMax-M2.7-highspeed)
 # → Start chatting
 
-hermes
+allr
 ```
 
 After the first login, credentials are stored under `~/.allr/auth.json` and are refreshed automatically before each session.
@@ -140,10 +140,10 @@ model:
 All of the following resolve to `minimax-oauth`:
 
 ```bash
-hermes --provider minimax-oauth    # canonical
-hermes --provider minimax-portal   # alias
-hermes --provider minimax-global   # alias
-hermes --provider minimax_oauth    # alias (underscore form)
+allr --provider minimax-oauth    # canonical
+allr --provider minimax-portal   # alias
+allr --provider minimax-global   # alias
+allr --provider minimax_oauth    # alias (underscore form)
 ```
 
 ## Environment Variables
@@ -158,7 +158,7 @@ The `minimax-oauth` provider does **not** use `MINIMAX_API_KEY` or `MINIMAX_BASE
 To use `minimax-oauth` as the active provider, set `model.provider: minimax-oauth` in `config.yaml` (use `allr setup` for the guided flow), or pass `--provider minimax-oauth` for a single invocation:
 
 ```bash
-hermes --provider minimax-oauth
+allr --provider minimax-oauth
 ```
 
 ## Models
@@ -196,7 +196,7 @@ Allr detected that the `state` value returned by the authorization server does n
 
 ### Logging in from a remote server
 
-If `hermes` cannot open a browser window, use `--no-browser`:
+If `allr` cannot open a browser window, use `--no-browser`:
 
 ```bash
 allr auth add minimax-oauth --no-browser

@@ -2,7 +2,7 @@
 name: openclaw-migration
 description: Import an OpenClaw setup (memories, skills) into Allr.
 version: 1.0.0
-author: Allr (Nous Research)
+author: Hermes Agent (Nous Research)
 license: MIT
 platforms: [linux, macos, windows]
 metadata:

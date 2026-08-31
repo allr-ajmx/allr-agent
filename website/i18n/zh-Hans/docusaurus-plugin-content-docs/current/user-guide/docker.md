@@ -146,11 +146,11 @@ docker run -it --rm \
 
 ### 不可变安装树
 
-在托管/发布的 Docker 镜像中，`/opt/hermes` 是安装好的应用树。它由 root 拥有，并且对运行时的 `hermes` 用户只读，因此 agent 回合、gateway 会话、dashboard 操作以及普通的 `docker exec hermes hermes ...` 命令都不能原地修改核心源码、打包的 `.venv`、`node_modules` 或 TUI bundle。
+在托管/发布的 Docker 镜像中，`/opt/hermes` 是安装好的应用树。它由 root 拥有，并且对运行时的 `allr` 用户只读，因此 agent 回合、gateway 会话、dashboard 操作以及普通的 `docker exec hermes allr ...` 命令都不能原地修改核心源码、打包的 `.venv`、`node_modules` 或 TUI bundle。
 
 所有可变的 Allr 状态都应位于 `/opt/data` 下：配置、`.env`、profiles、skills、memories、sessions、logs、dashboard 上传、plugins 以及其他用户管理的文件。官方镜像还会阻止在运行时向不可变的 `/opt/hermes` 树写入 `.pyc` 或执行 Allr 的懒安装依赖流程。
 
-如果运维人员确实需要修复或检查 `/opt/data` 之外的文件，请有意识地使用 root shell。`hermes` shim 默认会把 `docker exec hermes hermes ...` 降回运行时用户；只有在你明确需要 root 语义时，才临时设置 `ALLR_DOCKER_EXEC_AS_ROOT=1`。
+如果运维人员确实需要修复或检查 `/opt/data` 之外的文件，请有意识地使用 root shell。`allr` shim 默认会把 `docker exec hermes allr ...` 降回运行时用户；只有在你明确需要 root 语义时，才临时设置 `ALLR_DOCKER_EXEC_AS_ROOT=1`。
 
 某些 skill CLI 会把凭据写到 `~` 下，因此在官方 Docker 布局里要针对子进程 HOME 初始化，而不是只针对数据卷根目录。例如 [xurl skill](./skills/bundled/social-media/social-media-xurl.md) 会把 OAuth 状态存到 `~/.xurl`；在容器里这对应 `/opt/data/home/.xurl`，因此手动认证时应使用 `HOME=/opt/data/home xurl auth status` 之类的调用。
 
@@ -176,12 +176,12 @@ Allr 支持[多个 profile](../reference/profile-commands.md)——独立的 `~/
 docker exec hermes allr profile create coder
 
 # 启停/重启 —— 底层分发给 s6-svc
-docker exec hermes hermes -p coder gateway start
-docker exec hermes hermes -p coder gateway stop
-docker exec hermes hermes -p coder gateway restart
+docker exec hermes allr -p coder gateway start
+docker exec hermes allr -p coder gateway stop
+docker exec hermes allr -p coder gateway restart
 
 # 状态 —— 容器内会显示 `Manager: s6 (container supervisor)`
-docker exec hermes hermes -p coder gateway status
+docker exec hermes allr -p coder gateway status
 ```
 
 若第二个 profile 也要暴露 OpenAI 兼容 API server，请在**该 profile 自己的** `.env` 中设置不同的 `API_SERVER_PORT`，然后重启该 profile 的 gateway；不要把端口放进容器级 `environment:`，否则所有 profile 都会争抢同一个端口。更底层的监管细节见后文的 [Per-profile gateway 监管](#per-profile-gateway-监管)。
@@ -276,7 +276,7 @@ docker run -d \
 2. 运行 `/etc/cont-init.d/02-reconcile-profiles`（即 `hermes_cli.container_boot`）：遍历 `$ALLR_HOME/profiles/<name>/`，在 `/run/service/gateway-<profile>/` 下重建各 profile 的 gateway s6 服务槽，并仅自动启动上次记录状态为 `running` 的 profile（参见 [Per-profile gateway 监管](#per-profile-gateway-supervision)）。
 3. 启动静态的 `main-allr` 和 `dashboard` s6-rc 服务。
 4. 将容器的 CMD 作为主程序 exec（`/opt/hermes/docker/main-wrapper.sh`），根据用户传给 `docker run` 的参数进行路由：
-   - 无参数 → `hermes`（默认）
+   - 无参数 → `allr`（默认）
    - 第一个参数是 PATH 上的可执行文件（如 `sleep`、`bash`）→ 直接 exec
    - 其他情况 → `hermes <args>`（子命令透传）
    主程序退出时容器退出，并使用其退出码。
@@ -286,7 +286,7 @@ docker run -d \
 :::
 
 :::warning 权限模型
-除非你在命令链中保留 `/init`（或等效的旧版 `docker/entrypoint.sh` shim，它会转发到 stage2 hook），否则不要覆盖镜像入口点。s6-overlay 的 `/init` 以 root 运行，以便在首次启动时对卷执行 chown，然后通过 `s6-setuidgid` 为每个受监管的服务**以及**主程序降权至 `hermes` 用户。在官方镜像内以 root 启动 `allr gateway run` 默认会被拒绝，因为这可能在 `/opt/data` 中留下 root 所有的文件，导致后续 dashboard 或 gateway 启动失败。仅在你有意接受该风险时才设置 `ALLR_ALLOW_ROOT_GATEWAY=1`。
+除非你在命令链中保留 `/init`（或等效的旧版 `docker/entrypoint.sh` shim，它会转发到 stage2 hook），否则不要覆盖镜像入口点。s6-overlay 的 `/init` 以 root 运行，以便在首次启动时对卷执行 chown，然后通过 `s6-setuidgid` 为每个受监管的服务**以及**主程序降权至 `allr` 用户。在官方镜像内以 root 启动 `allr gateway run` 默认会被拒绝，因为这可能在 `/opt/data` 中留下 root 所有的文件，导致后续 dashboard 或 gateway 启动失败。仅在你有意接受该风险时才设置 `ALLR_ALLOW_ROOT_GATEWAY=1`。
 :::
 
 ### Per-profile gateway 监管
@@ -295,9 +295,9 @@ docker run -d \
 
 ```sh
 allr profile create coder            # 注册 gateway-coder s6 槽
-hermes -p coder gateway start          # s6-svc -u  → 受监管的 gateway
-hermes -p coder gateway stop           # s6-svc -d  → 服务停止
-hermes -p coder gateway restart        # s6-svc -t  → 向 supervisor 发送 SIGTERM
+allr -p coder gateway start          # s6-svc -u  → 受监管的 gateway
+allr -p coder gateway stop           # s6-svc -d  → 服务停止
+allr -p coder gateway restart        # s6-svc -t  → 向 supervisor 发送 SIGTERM
 allr profile delete coder            # 拆除 s6 槽
 ```
 
@@ -560,7 +560,7 @@ model:
 
 ### "Permission denied" 错误
 
-容器的 stage2 hook 通过 `s6-setuidgid` 在每个受监管的服务内将权限降至非 root 用户 `hermes`（UID 10000）。如果宿主机的 `~/.allr/` 由不同 UID 拥有，请设置 `ALLR_UID`/`ALLR_GID` 以匹配宿主机用户，或确保数据目录可写：
+容器的 stage2 hook 通过 `s6-setuidgid` 在每个受监管的服务内将权限降至非 root 用户 `allr`（UID 10000）。如果宿主机的 `~/.allr/` 由不同 UID 拥有，请设置 `ALLR_UID`/`ALLR_GID` 以匹配宿主机用户，或确保数据目录可写：
 
 ```sh
 chmod -R 755 ~/.allr

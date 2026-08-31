@@ -30,7 +30,7 @@ export const VALID_EFFORTS: ReadonlySet<string> = new Set(
 );
 
 /** Normalize a raw `agent.reasoning_effort` config value to a selectable
- *  option. Empty/unknown → `medium` (Allr' default when unset). */
+ *  option. Empty/unknown → `medium` (Allr's default when unset). */
 export function normalizeEffort(raw: unknown): string {
   const value = String(raw ?? "").trim().toLowerCase();
   if (!value) return "medium";

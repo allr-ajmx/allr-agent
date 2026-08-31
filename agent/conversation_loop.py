@@ -723,7 +723,7 @@ def _stored_prompt_matches_runtime(agent, prompt: str) -> bool:
 
         Anchor on the ``User home directory:`` line that immediately precedes
         the working-directory line in that block, and take the FIRST such
-        occurrence, so only Allr' own emitted block can satisfy the read.
+        occurrence, so only Allr's own emitted block can satisfy the read.
         """
         prefix = f"{label}:"
         lines = prompt.splitlines()
@@ -4484,7 +4484,7 @@ def run_conversation(
                 # field (structured 400 naming the param). One-shot: turn
                 # native compaction off for the rest of the session and
                 # retry — the next _build_api_kwargs re-resolves the gate
-                # and omits the field, and Allr' local compression takes
+                # and omits the field, and Allr's local compression takes
                 # over as the sole owner. Generic 4xx/5xx/timeouts do NOT
                 # match (see is_native_compaction_rejection) and take the
                 # normal retry path.
@@ -4964,7 +4964,7 @@ def run_conversation(
 
                 # Actionable hint for GitHub Models (Azure) 413 errors.
                 # The free tier enforces a hard 8K token cap per request,
-                # which Allr' system prompt + tool schemas alone exceed.
+                # which Allr's system prompt + tool schemas alone exceed.
                 # Compression can't help — the floor is the system prompt
                 # itself, not the conversation — so surface a clear "not
                 # compatible" message instead of looping into three futile
@@ -4979,7 +4979,7 @@ def run_conversation(
                         force=True,
                     )
                     agent._vprint(
-                        f"{agent.log_prefix}      request at ~8K tokens. Allr' system prompt + tool schemas baseline",
+                        f"{agent.log_prefix}      request at ~8K tokens. Allr's system prompt + tool schemas baseline",
                         force=True,
                     )
                     agent._vprint(

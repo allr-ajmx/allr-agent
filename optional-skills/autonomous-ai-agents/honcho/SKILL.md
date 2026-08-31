@@ -2,7 +2,7 @@
 name: honcho
 description: Configure and troubleshoot Honcho memory for Allr.
 version: 2.0.0
-author: Allr
+author: Hermes Agent
 license: MIT
 platforms: [linux, macos, windows]
 metadata:

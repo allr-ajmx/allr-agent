@@ -75,7 +75,7 @@ class UpstageProfile(ProviderProfile):
         if reasoning_config.get("enabled") is False:
             return {}, top_level
 
-        # Map Allr' effort vocabulary onto Solar's accepted set. xhigh/max/
+        # Map Allr's effort vocabulary onto Solar's accepted set. xhigh/max/
         # ultra collapse to high (Solar's strongest). minimal → off (omit).
         # Unknown-but-enabled efforts (future vocabulary additions above
         # "high", per the max/ultra precedent in #62650) also collapse to

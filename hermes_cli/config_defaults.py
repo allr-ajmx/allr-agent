@@ -747,17 +747,17 @@ DEFAULT_CONFIG = {
                                       # user-facing notice in CLI/gateway output.
         "codex_app_server_auto": "native",  # Codex app-server (codex CLI runtime) thread
                                       # compaction mode. The codex agent owns the real
-                                      # thread context, so Allr' summarizer cannot
+                                      # thread context, so Allr's summarizer cannot
                                       # shrink it (#36801). native = codex decides when
                                       # to compact its own thread (default); hermes =
-                                      # Allr' compression threshold triggers
+                                      # Allr's compression threshold triggers
                                       # thread/compact/start; off = never auto-trigger
                                       # (codex may still compact natively).
         "codex_responses_native": False,  # Opt in to OpenAI's server-side compaction
                                       # on the Responses API. Engages ONLY for
                                       # gpt-5.6-family models on api.openai.com or
                                       # the ChatGPT Codex backend; every other
-                                      # route/model is unaffected. Allr' local
+                                      # route/model is unaffected. Allr's local
                                       # compression stays armed as the fallback.
         "codex_responses_compact_threshold": 200000,  # Server-side compaction trigger
                                       # (input tokens). Clamped below the local
@@ -2157,7 +2157,7 @@ DEFAULT_CONFIG = {
     "quick_commands": {},
 
     # Per-platform system-prompt hint overrides. Lets an admin append to or
-    # replace Allr' built-in platform hint for a single messaging platform
+    # replace Allr's built-in platform hint for a single messaging platform
     # (WhatsApp, Slack, Telegram, ...) without affecting other platforms.
     # Useful for enterprise/managed profiles that ship platform-aware skills.
     # Each key is a platform name; the value is either:

@@ -211,7 +211,7 @@ Memory provider 插件可以注册自己的 CLI 子命令树（例如 `hermes my
 3. memory 插件系统在启动时通过 `discover_plugin_cli_commands()` 自动发现
 4. 你的命令以 `hermes <provider-name> <subcommand>` 的形式出现
 
-**仅对活跃 provider 开放：** 你的 CLI 命令只在你的 provider 是配置中活跃的 `memory.provider` 时才会出现。如果用户尚未配置你的 provider，你的命令不会显示在 `hermes --help` 中。
+**仅对活跃 provider 开放：** 你的 CLI 命令只在你的 provider 是配置中活跃的 `memory.provider` 时才会出现。如果用户尚未配置你的 provider，你的命令不会显示在 `allr --help` 中。
 
 ### 示例
 

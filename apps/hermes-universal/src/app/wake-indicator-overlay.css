@@ -14,7 +14,7 @@
   justify-content: center;
   /* Above every in-app overlay: the point of the indicator is that it is visible
    * when nothing else told you the app heard you. */
-  padding-top: max(5px, env(safe-area-inset-top));
+  padding-top: max(5px, var(--safe-area-inset-top));
   pointer-events: none;
   position: fixed;
   z-index: 100;

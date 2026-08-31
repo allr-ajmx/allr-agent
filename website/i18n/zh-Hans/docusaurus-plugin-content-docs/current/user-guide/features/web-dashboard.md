@@ -65,12 +65,12 @@ Chat 标签页是每次 `allr dashboard` 启动的一部分——内嵌的浏览
 
 ### Chat（聊天）
 
-**Chat** 标签页将完整的 Allr TUI（与 `hermes --tui` 相同的界面）直接嵌入浏览器。你在终端 TUI 中能做的一切——斜杠命令、模型选择器、工具调用卡片、Markdown 流式输出、clarify/sudo/approval 提示、皮肤主题——在这里都完全一致，因为 Dashboard 运行的是真实的 TUI 二进制文件，并通过 [xterm.js](https://xtermjs.org/) 的 WebGL 渲染器以像素级精度渲染其 ANSI 输出。
+**Chat** 标签页将完整的 Allr TUI（与 `allr --tui` 相同的界面）直接嵌入浏览器。你在终端 TUI 中能做的一切——斜杠命令、模型选择器、工具调用卡片、Markdown 流式输出、clarify/sudo/approval 提示、皮肤主题——在这里都完全一致，因为 Dashboard 运行的是真实的 TUI 二进制文件，并通过 [xterm.js](https://xtermjs.org/) 的 WebGL 渲染器以像素级精度渲染其 ANSI 输出。
 
 **工作原理：**
 
 - `/api/pty` 打开一个经 Dashboard 会话 token 认证的 WebSocket
-- 服务器在 POSIX 伪终端后面启动 `hermes --tui`
+- 服务器在 POSIX 伪终端后面启动 `allr --tui`
 - 按键传输到 PTY；ANSI 输出流式返回浏览器
 - xterm.js 的 WebGL 渲染器将每个单元格绘制到整数像素网格；鼠标追踪（SGR 1006）、宽字符（Unicode 11）和方框绘制字形均原生渲染
 - 调整浏览器窗口大小会通过 `@xterm/addon-fit` 插件调整 TUI 大小
@@ -79,7 +79,7 @@ Chat 标签页是每次 `allr dashboard` 启动的一部分——内嵌的浏览
 
 **前置条件：**
 
-- Node.js（与 `hermes --tui` 相同的要求；TUI 包在首次启动时构建）
+- Node.js（与 `allr --tui` 相同的要求；TUI 包在首次启动时构建）
 - `ptyprocess`——由 `pty` 扩展安装（`cd ~/.allr/allr-agent && uv pip install -e ".[web,pty]"`，或 `[all]` 同时包含两者）
 - POSIX 内核（Linux、macOS 或 WSL2）。`/chat` 终端面板特别需要 POSIX PTY——原生 Windows Python 没有等效实现，因此在原生 Windows 安装上，Dashboard 的其余部分（sessions、jobs、metrics、config editor）可以正常工作，但 `/chat` 标签页会显示提示，告知你需要使用 WSL2 才能使用该功能。
 

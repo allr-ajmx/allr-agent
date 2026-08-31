@@ -59,7 +59,7 @@ On Termux, the installer automatically:
 - uses `pkg` for system packages
 - creates the venv with `python -m venv`
 - attempts the broad `.[termux-all]` extra first and falls back to the smaller `.[termux]` extra (then a base install) — the curl installer matches this order automatically
-- links `hermes` into `$PREFIX/bin` so it stays on your Termux PATH
+- links `allr` into `$PREFIX/bin` so it stays on your Termux PATH
 - skips the untested browser / WhatsApp bootstrap
 
 If you want the explicit commands or need to debug a failed install, use the manual path below.
@@ -87,7 +87,7 @@ Why these packages?
 ### 2. Clone Allr
 
 ```bash
-git clone https://github.com/NousResearch/hermes-agent.git
+git clone https://github.com/allr-ajmx/allr-agent.git
 cd allr-agent
 ```
 
@@ -114,13 +114,13 @@ If you only want the minimal core agent, this also works:
 python -m pip install -e '.' -c constraints-termux.txt
 ```
 
-### 5. Put `hermes` on your Termux PATH
+### 5. Put `allr` on your Termux PATH
 
 ```bash
 ln -sf "$PWD/venv/bin/allr" "$PREFIX/bin/allr"
 ```
 
-`$PREFIX/bin` is already on PATH in Termux, so this makes the `hermes` command persist across new shells without re-activating the venv every time.
+`$PREFIX/bin` is already on PATH in Termux, so this makes the `allr` command persist across new shells without re-activating the venv every time.
 
 ### 6. Verify the install
 
@@ -132,7 +132,7 @@ allr doctor
 ### 7. Start Allr
 
 ```bash
-hermes
+allr
 ```
 
 ---

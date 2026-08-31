@@ -20,7 +20,7 @@ This page shows how to combine worktrees with Allr so each session has a clean, 
 
 Allr treats the **current working directory** as the project root:
 
-- CLI: the directory where you run `hermes` or `allr chat`
+- CLI: the directory where you run `allr` or `allr chat`
 - Messaging gateways: the directory set by `terminal.cwd` in `~/.allr/config.yaml`
 
 If you run multiple agents in the **same checkout**, their changes can interfere with each other:
@@ -58,7 +58,7 @@ Now you can `cd` into the new worktree and run Allr there:
 cd ../repo-feature
 
 # Start Allr in the worktree
-hermes
+allr
 ```
 
 Allr will:
@@ -83,11 +83,11 @@ In separate terminals:
 ```bash
 # Terminal 1
 cd ../repo-experiment-a
-hermes
+allr
 
 # Terminal 2
 cd ../repo-experiment-b
-hermes
+allr
 ```
 
 Each Allr process:
@@ -137,13 +137,13 @@ Notes:
 - **Avoid running Allr from the bare repo root when using worktrees**
   - Prefer the worktree directories instead, so each agent has a clear scope.
 
-## Using `hermes -w` (Automatic Worktree Mode)
+## Using `allr -w` (Automatic Worktree Mode)
 
 Allr has a built‑in `-w` flag that **automatically creates a disposable git worktree** with its own branch. You don't need to set up worktrees manually — just `cd` into your repo and run:
 
 ```bash
 cd /path/to/your/repo
-hermes -w
+allr -w
 ```
 
 Allr will:
@@ -155,10 +155,10 @@ Allr will:
 This is the easiest way to get worktree isolation. You can also combine it with a single query:
 
 ```bash
-hermes -w -z "Fix issue #123"
+allr -w -z "Fix issue #123"
 ```
 
-For parallel agents, open multiple terminals and run `hermes -w` in each — every invocation gets its own worktree and branch automatically.
+For parallel agents, open multiple terminals and run `allr -w` in each — every invocation gets its own worktree and branch automatically.
 
 ## Putting It All Together
 

@@ -1,4 +1,4 @@
-"""POSIX advisory locks must survive Allr' own database inspection.
+"""POSIX advisory locks must survive Allr's own database inspection.
 
 close() on ANY file descriptor for a SQLite database cancels every POSIX
 advisory lock the process holds on that file -- including a running VACUUM's
@@ -13,7 +13,7 @@ optimize` this let an external process write into a database while VACUUM was
 rewriting it, producing "database disk image is malformed".
 
 These tests pin the behavioural contract: an external process must stay locked
-out across Allr' inspection calls.
+out across Allr's inspection calls.
 """
 
 from __future__ import annotations

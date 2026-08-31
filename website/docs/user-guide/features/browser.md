@@ -309,7 +309,7 @@ When Camofox runs in headed mode (with a visible browser window), it exposes a V
 Instead of a cloud provider, you can attach Allr browser tools to your own running Chrome, Brave, Chromium, or Edge instance via the Chrome DevTools Protocol (CDP). This is useful when you want to see what the agent is doing in real-time, interact with pages that require your own cookies/sessions, or avoid cloud browser costs.
 
 :::note
-`/browser connect` is an **interactive-CLI slash command** — it is not dispatched by the gateway. If you try to run it inside a WebUI, Telegram, Discord, or other gateway chat, the message will be sent to the agent as plain text and the command will not execute. Start Allr from the terminal (`hermes` or `allr chat`) and issue `/browser connect` there.
+`/browser connect` is an **interactive-CLI slash command** — it is not dispatched by the gateway. If you try to run it inside a WebUI, Telegram, Discord, or other gateway chat, the message will be sent to the agent as plain text and the command will not execute. Start Allr from the terminal (`allr` or `allr chat`) and issue `/browser connect` there.
 :::
 
 In the CLI, use:
@@ -379,7 +379,7 @@ For that setup, prefer `chrome-devtools-mcp` through Allr MCP support.
 
 See the MCP guide for the practical setup:
 
-- [Use MCP with Allr](../../guides/use-mcp-with-hermes.md#wsl2-bridge-allr-in-wsl-to-windows-chrome)
+- [Use MCP with Allr](../../guides/use-mcp-with-allr.md#wsl2-bridge-allr-in-wsl-to-windows-chrome)
 
 ### Local browser mode
 

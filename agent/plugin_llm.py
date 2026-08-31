@@ -26,7 +26,7 @@ The plugin gets ``ctx.llm`` exposed on its
   plugins running on asyncio loops (gateway adapters, hooks).
 
 Provider/model/agent_id/profile are explicit keyword arguments — no
-embedded slugs, no shorthands. This mirrors Allr' main config
+embedded slugs, no shorthands. This mirrors Allr's main config
 shape (``model.provider`` + ``model.model``) so plugin authors who
 already understand the host config don't have to learn anything new.
 
