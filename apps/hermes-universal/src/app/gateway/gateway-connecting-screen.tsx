@@ -9,7 +9,7 @@ import { useI18n } from '@/i18n'
 import { Loader2 } from '@/lib/icons'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
-import { $connectionError } from '@/store/connection'
+import { $connectionError, $connectionPhase } from '@/store/connection'
 import { cancelRestore, loadGatewayTarget } from '@/store/gateway-restore'
 import { $sshStep } from '@/store/ssh-backend'
 
@@ -65,6 +65,12 @@ export function GatewayConnectingScreen() {
   const { t } = useI18n()
   const g = t.settings.gateway
   const error = useStore($connectionError)
+  // Whether the supervisor is still trying, or has given up. The loop used to
+  // leave the phase at 'connecting' on every terminal break, so a screen that had
+  // definitively stopped went on showing a spinner and "Reconnecting to …" —
+  // indistinguishable from one still working, and the single most misleading
+  // thing about the old flow. `stopped` is what lets it say so.
+  const stopped = useStore($connectionPhase) === 'error'
   // An SSH connect spawns a process on the remote and waits for it to bind, which
   // can take 45-90s. Without the step the screen is a motionless spinner for long
   // enough to read as a hang.
@@ -77,20 +83,22 @@ export function GatewayConnectingScreen() {
   const [configuratorOpen, setConfiguratorOpen] = useState(false)
 
   useEffect(() => {
-    if (error) {
+    if (error || stopped) {
       setConfiguratorOpen(true)
     }
-  }, [error])
+  }, [error, stopped])
 
   return (
     <main className="connect">
       <div className={cn('connect-card items-center text-center', configuratorOpen && 'max-w-lg')}>
         <Wordmark />
-        <h1 className="connect-title">{g.connectingTitle}</h1>
+        <h1 className="connect-title">{stopped ? g.connectStoppedTitle : g.connectingTitle}</h1>
 
         <div className="mt-2 flex items-center gap-2 text-[length:var(--conversation-caption-font-size)] text-(--ui-text-secondary)">
-          <Loader2 className="size-4 animate-spin" />
-          {g.reconnectingTo(targetLabel())}
+          {/* No spinner once we have stopped: it is the part that reads as
+              "still working on it", and it is the part that was lying. */}
+          {stopped ? null : <Loader2 className="size-4 animate-spin" />}
+          {stopped ? g.connectStoppedTo(targetLabel()) : g.reconnectingTo(targetLabel())}
         </div>
 
         {sshStep ? (

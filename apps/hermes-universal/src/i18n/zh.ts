@@ -1028,6 +1028,8 @@ export const zh: Translations = {
       saveFailed: '无法保存网关设置',
       connectingTitle: '正在连接 Allr',
       reconnectingTo: target => `正在重新连接到 ${target}…`,
+      connectStoppedTitle: '无法连接',
+      connectStoppedTo: target => `已停止尝试连接 ${target}。`,
       useDifferentGateway: '使用其他网关',
       startOver: '重新开始'
     },

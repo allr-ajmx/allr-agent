@@ -738,6 +738,9 @@ export interface Translations {
       saveFailed: string
       connectingTitle: string
       reconnectingTo: (target: string) => string
+      /** Shown once the supervisor has STOPPED retrying, in place of the spinner. */
+      connectStoppedTitle: string
+      connectStoppedTo: (target: string) => string
       useDifferentGateway: string
       startOver: string
     }

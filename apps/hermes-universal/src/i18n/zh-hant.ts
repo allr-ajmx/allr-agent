@@ -826,6 +826,8 @@ export const zhHant = defineLocale({
       saveFailed: '無法儲存閘道設定',
       connectingTitle: '正在連線 Allr',
       reconnectingTo: target => `正在重新連線至 ${target}…`,
+      connectStoppedTitle: '無法連線',
+      connectStoppedTo: target => `已停止嘗試連線 ${target}。`,
       useDifferentGateway: '使用其他閘道',
       startOver: '重新開始'
     },

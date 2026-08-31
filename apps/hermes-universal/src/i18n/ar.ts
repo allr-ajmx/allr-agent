@@ -733,7 +733,9 @@ export const ar = defineLocale({
       signOutFailed: 'فشل تسجيل الخروج',
       testFailed: 'فشل اختبار البوابة البعيدة',
       applyFailed: 'تعذر تطبيق إعدادات البوابة',
-      saveFailed: 'تعذر حفظ إعدادات البوابة'
+      saveFailed: 'تعذر حفظ إعدادات البوابة',
+      connectStoppedTitle: 'تعذّر الاتصال',
+      connectStoppedTo: target => `تم إيقاف محاولات الاتصال بـ ${target}.`
     },
     keys: {
       loading: 'جار تحميل مفاتيح API وبيانات الاعتماد...',
