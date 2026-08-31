@@ -12,6 +12,7 @@ vi.mock('@/lib/auth', () => ({
   oauthLogin: vi.fn().mockResolvedValue(undefined),
   oauthLogout: vi.fn().mockResolvedValue(undefined),
   oauthStatus: vi.fn().mockResolvedValue({ signedIn: true }),
+  oauthStatusIsUnknown: (s: { reachable?: boolean }) => s?.reachable === false,
   fetchAuthProviders: vi.fn().mockResolvedValue([]),
   portalLogout: vi.fn().mockResolvedValue(undefined),
   portalAgentSignIn: vi.fn().mockResolvedValue({ connected: true, baseUrl: 'https://a1' })
@@ -23,6 +24,7 @@ vi.mock('@/store/gateway', async () => {
     addGatewayEventListener: () => () => {},
     connectGateway: vi.fn().mockResolvedValue(undefined),
     closeGateway: vi.fn(),
+    lastGatewayCloseCode: vi.fn(() => undefined),
     $gatewayState: atom('idle')
   }
 })
@@ -32,8 +34,11 @@ vi.mock('@/lib/secure-store', () => ({
   clearSecrets: vi.fn().mockResolvedValue(undefined)
 }))
 vi.mock('@/lib/session-persist', () => ({
+  clearSessionJar: vi.fn().mockResolvedValue(undefined),
   forgetPersistedSessionCookies: vi.fn(),
-  persistSessionCookies: vi.fn().mockResolvedValue(undefined)
+  persistSessionCookies: vi.fn().mockResolvedValue(undefined),
+  resumeSessionCookiePersistence: vi.fn(),
+  suspendSessionCookiePersistence: vi.fn()
 }))
 vi.mock('@/store/local-backend', () => ({
   spawnLocalBackend: vi.fn(),
@@ -140,12 +145,18 @@ describe('auto-reconnect — who may drive an interactive sign-in', () => {
     expect(conn.$connectionError.get()).toContain('Session expired')
   })
 
-  it('still re-auths silently on desktop, where the sign-in returns', async () => {
-    const { auth, gateway } = await arrange(false, remote)
+  // Desktop used to be carved out here on the grounds that a separate sign-in
+  // window cannot strand anyone. True — but it still means a login window appears
+  // on its own while the user is doing something else, and the rule is that an
+  // interactive sign-in only ever happens because a person asked for one. So
+  // desktop stands down exactly like mobile and surfaces the same CTA.
+  it('stands down on desktop too, rather than opening a window nobody asked for', async () => {
+    const { auth, conn, gateway } = await arrange(false, remote)
 
     await dropSocket(gateway)
 
-    expect(auth.oauthLogin).toHaveBeenCalled()
+    expect(auth.oauthLogin).not.toHaveBeenCalled()
+    expect(conn.$connectionError.get()).toContain('Session expired')
   })
 
   // Cloud re-auths through `portalAgentSignIn`, which on mobile is the silent reqwest

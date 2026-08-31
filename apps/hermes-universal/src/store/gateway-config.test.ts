@@ -96,9 +96,26 @@ describe('resolveWsUrl', () => {
     expect(mockMint).toHaveBeenCalledWith('https://gw.example.com')
   })
 
-  it('oauth mint failure → GatewayReauthRequiredError (re-open sign-in)', async () => {
-    mockMint.mockRejectedValue(new Error('401'))
+  // `mintWsTicket` raises the typed error for a real HTTP 401 (lib/auth.ts), and
+  // that is what must survive the trip — it is the signal the supervisor's auth
+  // budget and the mobile stand-down both branch on.
+  it('oauth mint REFUSAL → GatewayReauthRequiredError (re-open sign-in)', async () => {
+    mockMint.mockRejectedValue(Object.assign(new Error('Session expired'), { needsOauthLogin: true }))
     await expect(resolveWsUrl(conn({ authMode: 'oauth' }))).rejects.toSatisfy(isGatewayReauthRequired)
+  })
+
+  // The inverse misclassification, and it mattered just as much: every mint
+  // failure used to be relabelled "your session has expired". A DNS blip during
+  // the mint therefore spent the 3-attempt AUTH budget — which terminates — instead
+  // of the network ladder, which would have ridden it out, and told the user to
+  // sign in again when their credential was perfectly fine.
+  it('oauth mint NETWORK failure → propagates as itself, not as an expiry', async () => {
+    mockMint.mockRejectedValue(new Error('error sending request: dns error'))
+
+    const err = await resolveWsUrl(conn({ authMode: 'oauth' })).catch(e => e)
+
+    expect(isGatewayReauthRequired(err)).toBe(false)
+    expect(String(err)).toContain('dns error')
   })
 
   it('ticket mint failure → propagates (no ticketless fallback)', async () => {

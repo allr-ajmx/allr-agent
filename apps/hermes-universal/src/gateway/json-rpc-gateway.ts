@@ -72,6 +72,15 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 120_000
 const DEFAULT_CONNECT_TIMEOUT_MS = 15_000
 
 export class JsonRpcGatewayClient {
+  /**
+   * The close code of the last socket this client lost, when the server sent one.
+   *
+   * Read by the reconnect supervisor to classify the failure. Public because it
+   * outlives the socket by design: the supervisor asks AFTER the close, once it
+   * has decided to retry.
+   */
+  lastCloseCode: number | undefined
+
   private nextId = 0
   private pending = new Map<GatewayRequestId, PendingCall>()
   private socket: WebSocketLike | null = null
@@ -116,10 +125,16 @@ export class JsonRpcGatewayClient {
       this.handleMessage(message.data)
     })
 
-    socket.addEventListener('close', () => {
+    socket.addEventListener('close', event => {
       if (this.socket !== socket) {
         return
       }
+
+      // Kept so the reconnect supervisor can tell a REFUSED credential (4401 /
+      // 4403) from a dropped connection. The two get different retry budgets, and
+      // with the code discarded the supervisor retried a dead credential on the
+      // unbounded network ladder.
+      this.lastCloseCode = (event as { code?: number }).code
 
       this.socket = null
       this.setState('closed')

@@ -18,6 +18,7 @@ vi.mock('@/store/gateway', async () => {
     addGatewayEventListener: () => () => {},
     connectGateway: vi.fn().mockResolvedValue(undefined),
     closeGateway: vi.fn(),
+    lastGatewayCloseCode: vi.fn(() => undefined),
     $gatewayState: atom('idle')
   }
 })
@@ -95,7 +96,7 @@ describe('connect — gated auth path selection', () => {
     status({ auth_required: true })
     mockProviders.mockResolvedValue([oauthProvider])
 
-    await connect({ url: 'gw.example.com' })
+    await connect({ url: 'gw.example.com', allowInteractive: true })
 
     expect(mockOauthStatus).toHaveBeenCalledWith('http://gw.example.com')
     expect(mockOauthLogin).toHaveBeenCalledWith('http://gw.example.com', 'nous')

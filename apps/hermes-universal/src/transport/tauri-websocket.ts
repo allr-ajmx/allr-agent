@@ -98,13 +98,22 @@ export class TauriWebSocket {
         spanInboundFrame(payload, () => this.dispatch('message', { data: payload }))
 
         break
-
-      case 'close':
+      case 'close': {
         this.readyState = this.CLOSED
-        this.dispatch('close', {})
+        // Rust has always sent `{code, reason}` (src-tauri/src/transport.rs) and
+        // this always threw them away, on the assumption — written into the Rust
+        // comment — that the JSON-RPC gateway socket does not care. It does: the
+        // gateway closes 4401 for a refused credential and 4403 for a host/origin
+        // mismatch, and with the code discarded those were indistinguishable from
+        // a dropped connection. The reconnect supervisor then retried a REFUSED
+        // credential on the unbounded network ladder, forever.
+        const close = (payload ?? {}) as { code?: null | number; reason?: null | string }
+
+        this.dispatch('close', { code: close.code ?? undefined, reason: close.reason ?? undefined })
         this.teardown()
 
         break
+      }
 
       case 'error':
         this.dispatch('error', { message: String(payload) })
@@ -113,7 +122,7 @@ export class TauriWebSocket {
     }
   }
 
-  private dispatch(type: string, extra: { data?: unknown; message?: string }): void {
+  private dispatch(type: string, extra: { code?: number; data?: unknown; message?: string; reason?: string }): void {
     const set = this.listeners.get(type)
 
     if (!set) {

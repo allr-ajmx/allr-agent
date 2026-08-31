@@ -103,10 +103,19 @@ export async function resolveGatewayWsUrl(deps: ResolveGatewayWsUrlDeps, conn: G
     try {
       return await mint(profile)
     } catch (error) {
-      throw new GatewayReauthRequiredError(
-        'Your remote gateway session has expired. Open Settings -> Gateway and click "Sign in" again.',
-        { cause: error }
-      )
+      // Only a REFUSAL means the session expired, and `mintWsTicket` already
+      // raises the typed error for that (an HTTP 401 from the ws-ticket mint).
+      // Everything else reaching here — DNS, connection refused, TLS, a timeout —
+      // is a network fault, and relabelling it "your session has expired" was the
+      // mirror image of the bug on the other side: it spent the supervisor's
+      // 3-attempt AUTH budget on a blip that the unbounded network ladder would
+      // have ridden out, and told the user to sign in again when nothing was
+      // wrong with their credential.
+      if (isGatewayReauthRequired(error)) {
+        throw error
+      }
+
+      throw error instanceof Error ? error : new Error(String(error))
     }
   }
 
