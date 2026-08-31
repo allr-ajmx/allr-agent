@@ -10,7 +10,10 @@ vi.mock('@/store/connection', () => ({
   loadSavedLogin: vi.fn().mockResolvedValue({ token: 'T', password: 'P' })
 }))
 
-vi.mock('@/lib/auth', () => ({ oauthStatus: vi.fn().mockResolvedValue({ signedIn: false }) }))
+vi.mock('@/lib/auth', () => ({
+  oauthStatus: vi.fn().mockResolvedValue({ signedIn: false, reachable: true }),
+  oauthStatusIsUnknown: (s: { reachable?: boolean }) => s?.reachable === false
+}))
 vi.mock('@/store/gateway-switch-broadcast', () => ({ broadcastGatewaySwitch: vi.fn() }))
 
 import { oauthStatus } from '@/lib/auth'
@@ -221,6 +224,33 @@ describe('ssh restore', () => {
   // A refused CREDENTIAL is not transient — asking again cannot change the answer
   // — so it must not sit behind three backoffs the user has to watch before the
   // sign-in affordance appears.
+  it('spends the ladder immediately when a sign-in is required', async () => {
+    const needsSignIn = Object.assign(new Error('Sign in to https://gw.example.com to continue'), {
+      needsInteractiveSignIn: true
+    })
+
+    vi.mocked(connect).mockRejectedValue(needsSignIn)
+    saveGatewayTarget({ mode: 'remote', url: 'https://gw.example.com' })
+
+    await autoRestoreConnection()
+
+    // Once, not three times. Retrying cannot conjure a credential, and each
+    // retry used to be another interactive sign-in — three of them inside one
+    // second, which is what the device log records as "refusing a second
+    // sign-in for webview \"main\"".
+    expect(connect).toHaveBeenCalledTimes(1)
+    expect($restoring.get()).toBe(false)
+  })
+
+  // The restore must never be the thing that opens a login page.
+  it('never asks the boot dial to open a login page', async () => {
+    saveGatewayTarget({ mode: 'remote', url: 'https://gw.example.com' })
+
+    await autoRestoreConnection()
+
+    expect(connect).toHaveBeenCalledWith(expect.objectContaining({ allowInteractive: false }))
+  })
+
   it('spends the ladder immediately when the credential is refused', async () => {
     const expired = Object.assign(new Error('Session expired — sign in again'), {
       needsOauthLogin: true

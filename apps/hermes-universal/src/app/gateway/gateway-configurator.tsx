@@ -459,7 +459,14 @@ export function GatewayConfigurator({
 
     try {
       await runConnect(() =>
-        connect({ url: trimmedUrl, token: authRequired ? undefined : remoteToken.trim() || undefined })
+        connect({
+          url: trimmedUrl,
+          token: authRequired ? undefined : remoteToken.trim() || undefined,
+          // The one place in the app allowed to open a login page: a person just
+          // pressed Connect. Every other caller leaves this false and surfaces a
+          // Sign in CTA instead of hijacking the webview.
+          allowInteractive: true
+        })
       )
       setRemoteToken('')
 

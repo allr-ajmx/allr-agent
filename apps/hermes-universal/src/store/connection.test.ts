@@ -6,6 +6,7 @@ vi.mock('@/lib/auth', () => ({
   oauthLogin: vi.fn().mockResolvedValue(undefined),
   oauthLogout: vi.fn().mockResolvedValue(undefined),
   oauthStatus: vi.fn().mockResolvedValue({ signedIn: false }),
+  oauthStatusIsUnknown: (s: { reachable?: boolean }) => s?.reachable === false,
   fetchAuthProviders: vi.fn().mockResolvedValue([]),
   portalLogout: vi.fn().mockResolvedValue(undefined),
   portalAgentSignIn: vi.fn().mockResolvedValue({ connected: true, baseUrl: 'https://a1' })
@@ -105,12 +106,43 @@ describe('connect — gated auth path selection', () => {
   it('oauth with a still-live session → skips the interactive sign-in', async () => {
     status({ auth_required: true })
     mockProviders.mockResolvedValue([oauthProvider])
-    mockOauthStatus.mockResolvedValue({ signedIn: true })
+    mockOauthStatus.mockResolvedValue({ signedIn: true, reachable: true })
 
+    // No `allowInteractive`: a live session must connect without one, which is
+    // what makes the default-false safe for the boot restore.
     await connect({ url: 'gw.example.com' })
 
     expect(mockOauthLogin).not.toHaveBeenCalled()
     expect($connection.get()).toMatchObject({ authMode: 'oauth' })
+  })
+
+  // The bug the user hit: a signed-out restore drove an interactive sign-in that
+  // navigated the app's only webview away, three callers deep.
+  it('signed out + not user-driven → refuses to open a login page', async () => {
+    status({ auth_required: true })
+    mockProviders.mockResolvedValue([oauthProvider])
+    mockOauthStatus.mockResolvedValue({ signedIn: false, reachable: true })
+
+    await expect(connect({ url: 'gw.example.com' })).rejects.toMatchObject({
+      needsInteractiveSignIn: true
+    })
+
+    expect(mockOauthLogin).not.toHaveBeenCalled()
+    expect($connection.get()).toBeNull()
+  })
+
+  // An unreachable gateway says nothing about the credential. It must surface as a
+  // network fault (retryable) and never as "sign in again".
+  it('unreachable gateway → a network error, not a sign-in prompt', async () => {
+    status({ auth_required: true })
+    mockProviders.mockResolvedValue([oauthProvider])
+    mockOauthStatus.mockResolvedValue({ signedIn: false, reachable: false, error: 'host is down' })
+
+    const err = await connect({ url: 'gw.example.com' }).catch(e => e)
+
+    expect(err.needsInteractiveSignIn).toBeUndefined()
+    expect(String(err)).toContain('host is down')
+    expect(mockOauthLogin).not.toHaveBeenCalled()
   })
 
   it('ungated backend with a token → token mode', async () => {
@@ -435,7 +467,7 @@ describe('beginOAuthLogin — the mobile resume marker', () => {
       return { busy: false }
     })
 
-    await conn.connect({ url: 'gw.example.com' })
+    await conn.connect({ url: 'gw.example.com', allowInteractive: true })
 
     // Written before, not after: on a real device there is no "after".
     expect(parkedAtHandoff).toContain('gw.example.com')
@@ -448,8 +480,27 @@ describe('beginOAuthLogin — the mobile resume marker', () => {
     // (or instead of) navigating. The parked marker is now garbage.
     vi.mocked(auth.oauthLogin).mockRejectedValue(new Error('could not open a loopback listener'))
 
-    await expect(conn.connect({ url: 'gw.example.com' })).rejects.toThrow()
+    await expect(conn.connect({ url: 'gw.example.com', allowInteractive: true })).rejects.toThrow()
     expect(localStorage.getItem(PENDING_OAUTH_KEY)).toBeNull()
+  })
+
+  // The bug behind "I signed in successfully and was never taken back into the app".
+  //
+  // Losing the sign-in race used to arrive as a rejection, and the handler above
+  // reads a rejection as "we never navigated" and clears the marker. But the
+  // WINNER had navigated, and the marker is global — so the loser deleted the
+  // winner's. After the round trip the SPA rebooted with nothing to resume.
+  it('leaves the winner\'s resume marker alone when it loses the sign-in race', async () => {
+    const { auth, conn } = await loadOn(true)
+
+    vi.mocked(auth.oauthLogin).mockResolvedValue({ busy: true })
+
+    await expect(conn.connect({ url: 'gw.example.com', allowInteractive: true })).rejects.toMatchObject({
+      signInAlreadyRunning: true
+    })
+
+    // Still parked: it is the only thing that finishes the connect after the reload.
+    expect(localStorage.getItem(PENDING_OAUTH_KEY)).toContain('gw.example.com')
   })
 
   it('parks nothing on desktop, where the promise resolves normally', async () => {
@@ -457,7 +508,7 @@ describe('beginOAuthLogin — the mobile resume marker', () => {
 
     vi.mocked(auth.oauthLogin).mockResolvedValue({ busy: false })
 
-    await conn.connect({ url: 'gw.example.com' })
+    await conn.connect({ url: 'gw.example.com', allowInteractive: true })
 
     expect(localStorage.getItem(PENDING_OAUTH_KEY)).toBeNull()
   })

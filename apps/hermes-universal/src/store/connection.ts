@@ -1,12 +1,15 @@
-import { isGatewayReauthRequired } from '@/gateway'
+import { GatewaySignInBusyError, GatewaySignInRequiredError, isGatewayReauthRequired } from '@/gateway'
 import {
   fetchAuthProviders,
   oauthLogin,
   oauthLogout,
+  type OauthStatus,
   oauthStatus,
+  oauthStatusIsUnknown,
   passwordLogin,
   portalAgentSignIn,
-  portalLogout
+  portalLogout,
+  type SignInOutcome
 } from '@/lib/auth'
 import { errorText } from '@/lib/error-text'
 import { loadString, saveString } from '@/lib/persist'
@@ -84,6 +87,18 @@ export interface ConnectInput {
   token?: string
   username?: string
   password?: string
+  /**
+   * May this connect hand the user to a login page?
+   *
+   * **Defaults to false, and that default is the point.** An interactive sign-in
+   * is a one-way door on mobile — it navigates the app's only webview away — and
+   * an unrequested window on desktop. It must only ever happen because a person
+   * pressed something, so the single caller that passes `true` is the gateway
+   * configurator's connect button. Everything else (boot restore, the reconnect
+   * supervisor, a peer's gateway-switch broadcast) leaves it false and gets a
+   * {@link GatewaySignInRequiredError} it can surface as a CTA instead.
+   */
+  allowInteractive?: boolean
 }
 
 // Non-secret conveniences live in localStorage for a synchronous prefill; the
@@ -166,15 +181,21 @@ export async function probeStatus(rawUrl: string): Promise<StatusInfo> {
  */
 async function beginOAuthLogin(base: string, provider?: string, username?: string): Promise<void> {
   if (!IS_NATIVE_MOBILE) {
-    await oauthLogin(base, provider)
+    const outcome = await oauthLogin(base, provider)
+
+    if (outcome?.busy) {
+      throw new GatewaySignInBusyError('A sign-in is already in progress')
+    }
 
     return
   }
 
   savePendingOAuth({ base, provider, username })
 
+  let outcome: SignInOutcome
+
   try {
-    await oauthLogin(base, provider)
+    outcome = await oauthLogin(base, provider)
   } catch (err) {
     // A REJECTION on mobile means we never navigated (Rust failed to bind the loopback
     // listener, or the webview refused the load) — this JS context is still alive and
@@ -182,10 +203,44 @@ async function beginOAuthLogin(base: string, provider?: string, username?: strin
     // that would otherwise sit in localStorage and fire on some unrelated later launch,
     // seeding `$restoring` and sending the boot down the resume branch for a sign-in
     // that never happened.
+    //
+    // This reasoning is only sound because losing the sign-in race is NO LONGER a
+    // rejection. It used to be, and the assumption above was then flatly false: the
+    // winner HAD navigated, and this line — `takePendingOAuth` is a global
+    // read-and-clear — deleted the winner's marker. The user completed the sign-in,
+    // the SPA reloaded, `autoRestoreConnection` found nothing to resume, and dropped
+    // them on the connect screen holding a login they had just finished.
     takePendingOAuth()
 
     throw err
   }
+
+  if (outcome?.busy) {
+    // Someone else owns the flow and has already navigated this webview. Leave their
+    // marker exactly where it is — it is the only thing that will finish the connect
+    // after the reload — and stop without reporting a failure, because none happened.
+    throw new GatewaySignInBusyError('A sign-in is already in progress')
+  }
+}
+
+/** The reply shape for "the probe never got an answer", so callers branch on one thing. */
+function unknownOauthStatus(): OauthStatus {
+  return { signedIn: false, reachable: false }
+}
+
+/**
+ * Refuse to open a login page unless someone asked for one.
+ *
+ * Throws {@link GatewaySignInRequiredError}, which no retry ladder treats as
+ * retryable — a missing credential does not come back on its own, so spinning on
+ * it only delays the CTA the user actually needs.
+ */
+function requireInteractive(input: ConnectInput, base: string): void {
+  if (input.allowInteractive) {
+    return
+  }
+
+  throw new GatewaySignInRequiredError(`Sign in to ${base} to continue`)
 }
 
 export async function connect(input: ConnectInput): Promise<void> {
@@ -222,9 +277,19 @@ export async function connect(input: ConnectInput): Promise<void> {
         oauthProvider = choice.provider
         // Reuse a still-live session (e.g. a restored cookie jar, R2b) rather than
         // forcing an interactive sign-in; only open the webview when signed out.
-        const live = await oauthStatus(base).catch(() => ({ signedIn: false }))
+        const live = await oauthStatus(base).catch(() => unknownOauthStatus())
+
+        // "Could not tell" is not "signed out". A gateway we cannot reach says
+        // nothing about the credential we hold, and treating it as signed out is
+        // what sent users with perfectly good sessions to a login page whenever
+        // the network wobbled. Fail as a network fault so the caller's retry
+        // ladder handles it.
+        if (oauthStatusIsUnknown(live)) {
+          throw new Error(live.error || 'Could not reach the gateway')
+        }
 
         if (!live.signedIn) {
+          requireInteractive(input, base)
           // On mobile this navigates the app away and never returns here — the reload
           // resumes via the pending marker (see beginOAuthLogin / autoRestoreConnection).
           await beginOAuthLogin(base, oauthProvider, input.username)
@@ -245,8 +310,11 @@ export async function connect(input: ConnectInput): Promise<void> {
       await connectGateway(conn)
     } catch (err) {
       // An OAuth session that expired between the status check and the ws-ticket
-      // mint surfaces as GatewayReauthRequiredError — re-run sign-in once.
+      // mint surfaces as GatewayReauthRequiredError — re-run sign-in once. This
+      // honours `allowInteractive` too: the expiry is real either way, but only a
+      // user-driven connect may answer it by opening a login page.
       if (conn.authMode === 'oauth' && isGatewayReauthRequired(err)) {
+        requireInteractive(input, base)
         await beginOAuthLogin(base, oauthProvider, input.username)
         await connectGateway(conn)
       } else {
