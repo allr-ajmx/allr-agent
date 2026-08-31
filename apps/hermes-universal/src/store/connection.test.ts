@@ -26,8 +26,11 @@ vi.mock('@/lib/secure-store', () => ({
   clearSecrets: vi.fn().mockResolvedValue(undefined)
 }))
 vi.mock('@/lib/session-persist', () => ({
+  clearSessionJar: vi.fn().mockResolvedValue(undefined),
   forgetPersistedSessionCookies: vi.fn(),
-  persistSessionCookies: vi.fn().mockResolvedValue(undefined)
+  persistSessionCookies: vi.fn().mockResolvedValue(undefined),
+  resumeSessionCookiePersistence: vi.fn(),
+  suspendSessionCookiePersistence: vi.fn()
 }))
 vi.mock('@/store/local-backend', () => ({
   spawnLocalBackend: vi.fn(),
@@ -44,6 +47,7 @@ import {
   portalLogout
 } from '@/lib/auth'
 import { clearSecrets, saveSecrets } from '@/lib/secure-store'
+import { clearSessionJar, suspendSessionCookiePersistence } from '@/lib/session-persist'
 import { $gatewayState, connectGateway } from '@/store/gateway'
 import { spawnLocalBackend, stopLocalBackend } from '@/store/local-backend'
 import { httpRequest } from '@/transport/http'
@@ -314,13 +318,75 @@ describe('connect — auto-reconnect target (D8)', () => {
     expect(saved).toMatchObject({ mode: 'remote', url: 'host:9' })
   })
 
-  it('signOut does NOT clear the restore target (always reconnect on next launch)', async () => {
+  // This used to assert the OPPOSITE — that sign-out kept the target so the next
+  // launch would always reconnect. That is the bug: with the credential gone but
+  // the target still there, the next boot seeded `$restoring`, painted
+  // "Reconnecting", dialled a gateway it could not authenticate to, and opened an
+  // interactive sign-in nobody had asked for.
+  it('signOut clears the restore target so the next launch does not auto-dial', async () => {
     status({ auth_required: false })
     await connect({ url: 'host:9', token: 'TOK' })
     expect(localStorage.getItem('hermes.connection.last')).not.toBeNull()
     $connection.set({ baseUrl: 'https://gw', mode: 'remote', authMode: 'oauth' })
     await signOut()
-    expect(localStorage.getItem('hermes.connection.last')).not.toBeNull()
+    expect(localStorage.getItem('hermes.connection.last')).toBeNull()
+  })
+
+  // The URL and username are the prefill, not credentials. Dropping them would
+  // send the user back to an empty box and make them retype a gateway they use
+  // every day.
+  it('signOut keeps the url + username so the sign-in screen stays prefilled', async () => {
+    status({ auth_required: true })
+    mockProviders.mockResolvedValue([passwordProvider])
+    await connect({ url: 'host:1', username: 'admin', password: 'pw' })
+
+    $connection.set({ baseUrl: 'https://gw', mode: 'remote', authMode: 'ticket' })
+    await signOut()
+
+    expect(localStorage.getItem('hermes.url')).toBe('host:1')
+    expect(localStorage.getItem('hermes.username')).toBe('admin')
+  })
+
+  it('signOut clears a queued mobile resume marker', async () => {
+    localStorage.setItem('hermes.oauth.pending', JSON.stringify({ base: 'https://gw' }))
+    localStorage.setItem('hermes.portal.pending', '1')
+
+    $connection.set({ baseUrl: 'https://gw', mode: 'remote', authMode: 'oauth' })
+    await signOut()
+
+    expect(localStorage.getItem('hermes.oauth.pending')).toBeNull()
+    expect(localStorage.getItem('hermes.portal.pending')).toBeNull()
+  })
+
+  // A password session's cookie lives in the same Rust jar as an OAuth one, so
+  // skipping the logout POST for it left the gateway believing the session was
+  // still live. Sign-out was cosmetic for every `ticket` connection.
+  it('signOut revokes a ticket session, not just an oauth one', async () => {
+    $connection.set({ baseUrl: 'https://gw', mode: 'remote', authMode: 'ticket' })
+    await signOut()
+
+    expect(oauthLogout).toHaveBeenCalledWith('https://gw')
+  })
+
+  // The logout POST needs a network. Signing out offline must not come back
+  // signed in, so the jar is emptied locally whatever the POST did.
+  it('signOut empties the live cookie jar even when the logout call fails', async () => {
+    vi.mocked(oauthLogout).mockRejectedValueOnce(new Error('offline'))
+    $connection.set({ baseUrl: 'https://gw', mode: 'remote', authMode: 'oauth' })
+
+    await signOut()
+
+    expect(clearSessionJar).toHaveBeenCalled()
+  })
+
+  // Sign-out is not instantaneous, and `flushSessionCookies()` fires on the very
+  // next backgrounding. Without the latch that flush re-exports the jar into the
+  // keyring the sign-out just cleared.
+  it('signOut suspends cookie persistence so a later flush cannot resurrect it', async () => {
+    $connection.set({ baseUrl: 'https://gw', mode: 'remote', authMode: 'oauth' })
+    await signOut()
+
+    expect(suspendSessionCookiePersistence).toHaveBeenCalled()
   })
 })
 
