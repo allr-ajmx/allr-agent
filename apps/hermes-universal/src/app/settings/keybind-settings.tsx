@@ -223,7 +223,10 @@ function KeybindRow({ action }: { action: KeybindActionMeta }) {
       )}
 
       {conflict && (
-        <span className="flex size-4 items-center justify-center text-(--ui-yellow)/90" title={k.conflictWith(conflict)}>
+        <span
+          className="flex size-4 items-center justify-center text-(--ui-yellow)/90"
+          title={k.conflictWith(conflict)}
+        >
           <Codicon name="warning" size="0.8125rem" />
         </span>
       )}

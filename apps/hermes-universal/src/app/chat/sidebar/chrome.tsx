@@ -64,11 +64,7 @@ export function SidebarRowShell({
   ...props
 }: React.ComponentProps<'div'> & { actions?: React.ReactNode }) {
   return (
-    <div
-      className={cn(sidebarRowShellVariants(), className)}
-      data-slot="sidebar-row-shell"
-      {...props}
-    >
+    <div className={cn(sidebarRowShellVariants(), className)} data-slot="sidebar-row-shell" {...props}>
       {children}
       {actions ? <div className="flex shrink-0 items-center self-center">{actions}</div> : null}
     </div>

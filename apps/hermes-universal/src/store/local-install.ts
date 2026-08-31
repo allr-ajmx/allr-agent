@@ -45,14 +45,7 @@ export type InstallEvent =
   | { type: 'manifest'; stages: StageInfo[]; protocolVersion: null | number }
   | { type: 'stage'; name: string; state: Exclude<StageState, 'pending'>; durationMs?: number; reason?: null | string }
 
-export type InstallPhase =
-  | 'choosing'
-  | 'detecting'
-  | 'done'
-  | 'failed'
-  | 'found'
-  | 'installing'
-  | 'missing'
+export type InstallPhase = 'choosing' | 'detecting' | 'done' | 'failed' | 'found' | 'installing' | 'missing'
 
 export interface LocalInstallState {
   phase: InstallPhase

@@ -57,10 +57,7 @@ describe('downloadGatewayMediaFile on Tauri', () => {
   it('unwraps a file: URL before handing the path to the gateway', async () => {
     await downloadGatewayMediaFile('file:///work/out/q3%20report.pdf')
 
-    expect(invoke).toHaveBeenCalledWith(
-      'download_file',
-      expect.objectContaining({ path: '/work/out/q3 report.pdf' })
-    )
+    expect(invoke).toHaveBeenCalledWith('download_file', expect.objectContaining({ path: '/work/out/q3 report.pdf' }))
   })
 
   it('reports a dismissed dialog as "not downloaded" rather than an error', async () => {

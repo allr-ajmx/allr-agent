@@ -2212,10 +2212,10 @@ export const ja = defineLocale({
       foundVersion: version => `バージョン ${version}`,
       missingTitle: 'ローカルインストールが見つかりません',
       missingBody: 'このマシンにインストールする Allr のビルドを選択してください。',
-      upstreamTitle: 'NousResearch Hermes Agent',  // rebrand:keep — names the upstream project, not ours
-      upstreamDesc: 'NousResearch による公式の Hermes Agent。',  // rebrand:keep — names the upstream project, not ours
-      forkTitle: 'Hermes Agent の MJX フォーク',  // rebrand:keep — names the upstream project, not ours
-      forkDesc: 'Hermes Agent の実験的機能をテストするために作られたフォーク。',  // rebrand:keep — names the upstream project, not ours
+      upstreamTitle: 'NousResearch Hermes Agent', // rebrand:keep — names the upstream project, not ours
+      upstreamDesc: 'NousResearch による公式の Hermes Agent。', // rebrand:keep — names the upstream project, not ours
+      forkTitle: 'Hermes Agent の MJX フォーク', // rebrand:keep — names the upstream project, not ours
+      forkDesc: 'Hermes Agent の実験的機能をテストするために作られたフォーク。', // rebrand:keep — names the upstream project, not ours
       install: 'インストール',
       retry: '再試行',
       doneTitle: 'Allr の準備ができました',
@@ -2550,8 +2550,7 @@ export const ja = defineLocale({
       showConsole: 'プレビューコンソールを表示',
       hideDevTools: 'プレビュー DevTools を非表示',
       openDevTools: 'プレビュー DevTools を開く',
-      finishedRestarting: message =>
-        `Allr がプレビューサーバーの再起動を完了しました${message ? `: ${message}` : ''}`,
+      finishedRestarting: message => `Allr がプレビューサーバーの再起動を完了しました${message ? `: ${message}` : ''}`,
       failedRestarting: message => `サーバーの再起動に失敗しました: ${message}`,
       unknownError: '不明なエラー',
       restartedTitle: 'プレビューサーバーが再起動しました',
@@ -2758,8 +2757,7 @@ export const ja = defineLocale({
     sudoSendFailed: 'sudo パスワードを送信できませんでした',
     secretSendFailed: 'シークレットを送信できませんでした',
     sudoTitle: '管理者パスワード',
-    sudoDesc:
-      'Allr は特権コマンドを実行するために sudo パスワードが必要です。ローカルエージェントにのみ送信されます。',
+    sudoDesc: 'Allr は特権コマンドを実行するために sudo パスワードが必要です。ローカルエージェントにのみ送信されます。',
     sudoPlaceholder: 'sudo パスワード',
     secretTitle: 'シークレットが必要です',
     secretDesc: 'Allr は続行するための認証情報が必要です。',

@@ -67,10 +67,7 @@ export function SegmentedControl<T extends string>({
 }: SegmentedControlProps<T>) {
   return (
     <div
-      className={cn(
-        segmentedControlTrackVariants({ state: disabled ? 'disabled' : 'default' }),
-        className
-      )}
+      className={cn(segmentedControlTrackVariants({ state: disabled ? 'disabled' : 'default' }), className)}
       data-slot="segmented-control"
       data-state={disabled ? 'disabled' : 'default'}
     >

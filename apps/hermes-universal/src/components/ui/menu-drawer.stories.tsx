@@ -63,10 +63,7 @@ function Harness() {
   // so the bar stays legible instead of being dimmed behind a modal sheet.
   return (
     <div className="flex h-full flex-col">
-      <div
-        className="flex h-11 shrink-0 items-center border-b border-border/65 bg-(--ui-bg-chrome) px-3"
-        data-top-bar
-      >
+      <div className="flex h-11 shrink-0 items-center border-b border-border/65 bg-(--ui-bg-chrome) px-3" data-top-bar>
         <button
           className="text-sm font-medium"
           onClick={() => {
@@ -80,13 +77,7 @@ function Harness() {
         </button>
       </div>
       <div className="flex-1" />
-      <MenuDrawer
-        offsetTop={offsetTop}
-        onOpenChange={setOpen}
-        open={open}
-        render={render}
-        title="Session actions"
-      />
+      <MenuDrawer offsetTop={offsetTop} onOpenChange={setOpen} open={open} render={render} title="Session actions" />
     </div>
   )
 }

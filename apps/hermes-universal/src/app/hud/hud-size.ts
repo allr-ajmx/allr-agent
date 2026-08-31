@@ -124,7 +124,7 @@ export function hudWindowHeight({
 }
 
 /** Full width of the HUD window. Must match `SatelliteSpec.width` in `src-tauri/src/window.rs`. */
-export const HUD_WIDTH_PX = 600 
+export const HUD_WIDTH_PX = 600
 export const HUD_BASE_WIDTH_PX = HUD_WIDTH_PX
 export const HUD_EXPANDED_WIDTH_PX = HUD_WIDTH_PX
 

@@ -143,6 +143,7 @@ export function useHudCardMetrics(cardRef: RefObject<HTMLElement | null>, metric
       const box = card.getBoundingClientRect()
       let height = Math.ceil(box.height)
       let width = Math.ceil(box.width)
+
       const menuNodes = document.querySelectorAll<HTMLElement>(
         "[data-slot='dropdown-menu-content'], [data-slot='dropdown-menu-sub-content']"
       )

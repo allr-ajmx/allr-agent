@@ -76,7 +76,11 @@ function DrawerHarness({ startOpen }: { startOpen: boolean }) {
 
   return (
     <div className="flex h-full flex-col items-center justify-end p-4">
-      <button className="rounded-md border border-border/65 px-3 py-2 text-sm" onClick={() => setOpen(true)} type="button">
+      <button
+        className="rounded-md border border-border/65 px-3 py-2 text-sm"
+        onClick={() => setOpen(true)}
+        type="button"
+      >
         Open model picker
       </button>
       <ModelDrawer controller={controller} onOpenChange={setOpen} open={open} profile={null} sessionId={null} />

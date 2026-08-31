@@ -35,7 +35,7 @@ describe('homeFromHermesHome', () => {
     // Casing on Windows is not meaningful; the shape still is.
     expect(homeFromHermesHome('C:/Users/brooklyn/AppData/local/Allr')).toBe('C:/Users/brooklyn')
     // Pre-rename installs still report the old leaf.
-    expect(homeFromHermesHome('C:\\Users\\brooklyn\\AppData\\Local\\hermes')).toBe('C:/Users/brooklyn')  // rebrand:keep
+    expect(homeFromHermesHome('C:\\Users\\brooklyn\\AppData\\Local\\hermes')).toBe('C:/Users/brooklyn') // rebrand:keep
   })
 
   it('tolerates a trailing slash and repeated separators', () => {

@@ -13,12 +13,7 @@ import {
 } from '@/store/chat'
 import { $currentFastMode, $currentModel, $currentProvider, $currentReasoningEffort } from '@/store/model'
 import { $activeStoredSessionId, type BranchSource } from '@/store/session'
-import {
-  $activeSessionKey,
-  $sessionStates,
-  type ClientSessionState,
-  isDraftKey
-} from '@/store/session-state-types'
+import { $activeSessionKey, $sessionStates, type ClientSessionState, isDraftKey } from '@/store/session-state-types'
 
 /**
  * The store-surface a `ChatScreen` renders from — every field is a

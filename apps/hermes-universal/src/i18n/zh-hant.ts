@@ -769,8 +769,7 @@ export const zhHant = defineLocale({
       localTitle: '本機閘道',
       localDesc: '在 localhost 啟動私有 Allr 後端。這是預設方式，可離線使用。',
       remoteTitle: '遠端閘道',
-      remoteDesc:
-        '將此桌面殼層連線至遠端 Allr 後端。託管閘道使用 OAuth 或帳號密碼；自託管閘道也可使用工作階段 Token。',
+      remoteDesc: '將此桌面殼層連線至遠端 Allr 後端。託管閘道使用 OAuth 或帳號密碼；自託管閘道也可使用工作階段 Token。',
       remoteUrlTitle: '遠端 URL',
       remoteUrlDesc: '遠端儀表板後端的基礎 URL。支援路徑前綴，例如 /hermes。',
       probing: '正在檢查此閘道的驗證方式…',
@@ -2078,8 +2077,7 @@ export const zhHant = defineLocale({
     copy: '複製',
     copied: '已複製',
     done: '完成',
-    applyingBody:
-      'Allr 更新程式會在自己的視窗中接管，並在完成後自動重新開啟 Allr。更新期間請勿自行重新開啟 Allr。',
+    applyingBody: 'Allr 更新程式會在自己的視窗中接管，並在完成後自動重新開啟 Allr。更新期間請勿自行重新開啟 Allr。',
     applyingBodyBackend: '遠端後端正在套用更新並將重新啟動。恢復後 Allr 會自動重新連線。',
     applyingClose: '此視窗會在更新期間關閉，隨後 Allr 會自動重新開啟。',
     errorTitle: '更新未完成',
@@ -2146,10 +2144,10 @@ export const zhHant = defineLocale({
       foundVersion: version => `版本 ${version}`,
       missingTitle: '找不到本機安裝',
       missingBody: '選擇要安裝到這台電腦的 Allr 版本。',
-      upstreamTitle: 'NousResearch Hermes Agent',  // rebrand:keep — names the upstream project, not ours
-      upstreamDesc: '來自 NousResearch 的官方 Hermes Agent。',  // rebrand:keep — names the upstream project, not ours
-      forkTitle: 'Hermes Agent 的 MJX 分支',  // rebrand:keep — names the upstream project, not ours
-      forkDesc: '用於測試 Hermes Agent 實驗性功能的分支版本。',  // rebrand:keep — names the upstream project, not ours
+      upstreamTitle: 'NousResearch Hermes Agent', // rebrand:keep — names the upstream project, not ours
+      upstreamDesc: '來自 NousResearch 的官方 Hermes Agent。', // rebrand:keep — names the upstream project, not ours
+      forkTitle: 'Hermes Agent 的 MJX 分支', // rebrand:keep — names the upstream project, not ours
+      forkDesc: '用於測試 Hermes Agent 實驗性功能的分支版本。', // rebrand:keep — names the upstream project, not ours
       install: '安裝',
       retry: '重試',
       doneTitle: 'Allr 已就緒',
@@ -2821,8 +2819,7 @@ export const zhHant = defineLocale({
     keepRunning: '保持背景執行',
     tooltip: 'Allr',
     closeDialogTitle: '讓 Allr 留在背景嗎？',
-    closeDialogDesc:
-      '關閉此視窗後，可以讓 Allr 繼續在背景執行，也可以完全結束。你隨時可以在設定或系統匣選單中變更。',
+    closeDialogDesc: '關閉此視窗後，可以讓 Allr 繼續在背景執行，也可以完全結束。你隨時可以在設定或系統匣選單中變更。',
     keepInBackground: '留在背景',
     closeApp: '結束 Allr',
     status: {

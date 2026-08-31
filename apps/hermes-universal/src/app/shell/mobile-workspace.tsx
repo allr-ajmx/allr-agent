@@ -125,7 +125,6 @@ export function MobileWorkspace({ onClose }: { onClose: () => void }) {
     }
   }, [onClose])
 
-
   const badges: Partial<Record<TabId, boolean | number>> = {
     editor: dirtyPaths.size > 0,
     review: reviewFiles.length

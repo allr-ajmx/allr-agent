@@ -698,8 +698,7 @@ export const en: Translations = {
       profileConnection: profile =>
         `Connection used only when “${profile}” is the active profile. Set it to Local to inherit the default.`,
       envOverrideTitle: 'Environment variables are controlling this desktop session.',
-      envOverrideDesc:
-        'Unset ALLR_DESKTOP_REMOTE_URL and ALLR_DESKTOP_REMOTE_TOKEN to use the saved setting below.',
+      envOverrideDesc: 'Unset ALLR_DESKTOP_REMOTE_URL and ALLR_DESKTOP_REMOTE_TOKEN to use the saved setting below.',
       modeTitle: 'Connection mode',
       localTitle: 'Local gateway',
       localDesc: 'Start a private Allr backend on localhost. This is the default and works offline.',
@@ -2387,10 +2386,10 @@ export const en: Translations = {
       foundVersion: version => `Version ${version}`,
       missingTitle: 'No local installation found',
       missingBody: 'Choose which build of Allr to install on this machine.',
-      upstreamTitle: 'NousResearch Hermes Agent',  // rebrand:keep — names the upstream project, not ours
-      upstreamDesc: 'The official Hermes Agent from NousResearch.',  // rebrand:keep — names the upstream project, not ours
-      forkTitle: 'MJX Fork of Hermes Agent',  // rebrand:keep — names the upstream project, not ours
-      forkDesc: 'A fork of Hermes Agent built for testing experimental features in Hermes Agent.',  // rebrand:keep — names the upstream project, not ours
+      upstreamTitle: 'NousResearch Hermes Agent', // rebrand:keep — names the upstream project, not ours
+      upstreamDesc: 'The official Hermes Agent from NousResearch.', // rebrand:keep — names the upstream project, not ours
+      forkTitle: 'MJX Fork of Hermes Agent', // rebrand:keep — names the upstream project, not ours
+      forkDesc: 'A fork of Hermes Agent built for testing experimental features in Hermes Agent.', // rebrand:keep — names the upstream project, not ours
       install: 'Install',
       retry: 'Try again',
       doneTitle: 'Allr is ready',

@@ -73,6 +73,7 @@ describe('useHudDrag', () => {
       metaKey: false,
       preventDefault: vi.fn()
     } as unknown as React.PointerEvent
+
     result.current.onPointerDown(plainEvent)
     expect(startDraggingMock).not.toHaveBeenCalled()
     expect(plainEvent.preventDefault).not.toHaveBeenCalled()
@@ -83,6 +84,7 @@ describe('useHudDrag', () => {
       metaKey: true,
       preventDefault: vi.fn()
     } as unknown as React.PointerEvent
+
     result.current.onPointerDown(cmdEvent)
     expect(cmdEvent.preventDefault).toHaveBeenCalled()
     expect(startDraggingMock).toHaveBeenCalledTimes(1)
@@ -93,6 +95,7 @@ describe('useHudDrag', () => {
       metaKey: false,
       preventDefault: vi.fn()
     } as unknown as React.PointerEvent
+
     result.current.onPointerDown(ctrlEvent)
     expect(ctrlEvent.preventDefault).toHaveBeenCalled()
     expect(startDraggingMock).toHaveBeenCalledTimes(2)
@@ -119,6 +122,7 @@ describe('useHudDrag', () => {
       metaKey: true,
       preventDefault: vi.fn()
     } as unknown as React.PointerEvent
+
     result.current.onPointerDown(cmdEvent)
 
     expect(startDraggingMock).toHaveBeenCalledTimes(1)

@@ -259,7 +259,12 @@ interface ExternalLinkProps extends Omit<ComponentProps<'a'>, 'href' | 'target'>
 }
 
 export function ExternalLinkIcon({ className }: { className?: string }) {
-  return <ArrowUpRight aria-hidden className={cn('ms-1 inline size-[0.78em] align-[-0.08em] opacity-70 rtl:-scale-x-100', className)} />
+  return (
+    <ArrowUpRight
+      aria-hidden
+      className={cn('ms-1 inline size-[0.78em] align-[-0.08em] opacity-70 rtl:-scale-x-100', className)}
+    />
+  )
 }
 
 // Brand mark for a known host, sized in `em` so it tracks the surrounding text
