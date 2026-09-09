@@ -133,6 +133,7 @@ def _make_provider(
     scopes: str | None = None,
     client_secret: str | None = None,
     auth_methods: Any = "__unset__",
+    allowed_emails: str | None = None,
 ):
     """Construct a provider with discovery + JWKS stubbed (no network).
 
@@ -146,6 +147,8 @@ def _make_provider(
         kwargs["scopes"] = scopes
     if client_secret is not None:
         kwargs["client_secret"] = client_secret
+    if allowed_emails is not None:
+        kwargs["allowed_emails"] = allowed_emails
     p = oidc_plugin.SelfHostedOIDCProvider(**kwargs)
     # Pre-seed discovery so nothing hits the network.
     disco = dict(_DISCOVERY_DOC)
@@ -206,6 +209,13 @@ class TestConstruction:
             oidc_plugin.SelfHostedOIDCProvider(
                 issuer="http://auth.example.com", client_id=_CLIENT_ID
             )
+
+    def test_allows_http_dot_localhost_issuer(self):
+        # *.localhost is loopback (RFC 6761) — local multi-host dev.
+        p = oidc_plugin.SelfHostedOIDCProvider(
+            issuer="http://auth.localhost", client_id=_CLIENT_ID
+        )
+        assert p._issuer == "http://auth.localhost"
 
 
 # ---------------------------------------------------------------------------
@@ -361,6 +371,53 @@ class TestCompleteLogin:
         # The verified ID token is stored in the access_token slot.
         assert session.access_token == id_token
         assert session.refresh_token == "rt_initial"
+
+    def test_allowed_emails_rejects_other_account(self, rsa_keypair):
+        provider = _make_provider(rsa_keypair, allowed_emails="Bob@Example.com")
+        id_token = _mint_id_token(rsa_keypair)  # alice@example.com
+        mock_resp = _mock_post(200, {"id_token": id_token, "token_type": "Bearer"})
+        with patch(
+            "plugins.dashboard_auth.self_hosted.httpx.post", return_value=mock_resp
+        ):
+            with pytest.raises(ProviderError, match="not allowed"):
+                provider.complete_login(
+                    code="abc",
+                    state="s",
+                    code_verifier="vfy",
+                    redirect_uri="https://hermes.example/auth/callback",
+                )
+
+    def test_allowed_emails_accepts_listed_account_case_insensitively(
+        self, rsa_keypair
+    ):
+        provider = _make_provider(rsa_keypair, allowed_emails="ALICE@example.com, bob@x")
+        id_token = _mint_id_token(rsa_keypair)
+        mock_resp = _mock_post(200, {"id_token": id_token, "token_type": "Bearer"})
+        with patch(
+            "plugins.dashboard_auth.self_hosted.httpx.post", return_value=mock_resp
+        ):
+            session = provider.complete_login(
+                code="abc",
+                state="s",
+                code_verifier="vfy",
+                redirect_uri="https://hermes.example/auth/callback",
+            )
+        assert session.email == "alice@example.com"
+
+    def test_allowed_emails_rejects_unverified_email(self, rsa_keypair):
+        provider = _make_provider(rsa_keypair, allowed_emails="alice@example.com")
+        id_token = _mint_id_token(rsa_keypair, extra_claims={"email_verified": False})
+        mock_resp = _mock_post(200, {"id_token": id_token, "token_type": "Bearer"})
+        with patch(
+            "plugins.dashboard_auth.self_hosted.httpx.post", return_value=mock_resp
+        ):
+            with pytest.raises(ProviderError, match="not allowed"):
+                provider.complete_login(
+                    code="abc",
+                    state="s",
+                    code_verifier="vfy",
+                    redirect_uri="https://hermes.example/auth/callback",
+                )
 
     def test_tolerates_missing_refresh_token(self, provider, rsa_keypair):
         id_token = _mint_id_token(rsa_keypair)

@@ -79,7 +79,7 @@ cd /opt/data
 cd "$_hermes_orig_cwd"
 
 if [ $# -eq 0 ]; then
-    drop hermes
+    drop allr
 fi
 
 if command -v "$1" >/dev/null 2>&1; then
@@ -88,4 +88,4 @@ if command -v "$1" >/dev/null 2>&1; then
 fi
 
 # Allr subcommand pass-through.
-drop hermes "$@"
+drop allr "$@"

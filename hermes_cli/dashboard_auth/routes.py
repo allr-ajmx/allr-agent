@@ -21,7 +21,7 @@ import time
 from collections import defaultdict, deque
 from typing import Any, Deque, Dict
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
@@ -47,7 +47,10 @@ from hermes_cli.dashboard_auth.cookies import (
     set_pkce_cookie,
     set_session_cookies,
 )
-from hermes_cli.dashboard_auth.login_page import render_login_html
+from hermes_cli.dashboard_auth.login_page import (
+    render_auth_error_html,
+    render_login_html,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -131,7 +134,7 @@ def _prefix(request: Request) -> str:
 
 
 @router.get("/login", name="login_page")
-async def login_page(request: Request) -> HTMLResponse:
+async def login_page(request: Request) -> Response:
     # Read the ``next=`` query the gate's ``_unauth_response`` set on
     # the redirect URL. Validate against the same same-origin rules the
     # callback applies (defence in depth — the gate already filters,
@@ -139,6 +142,24 @@ async def login_page(request: Request) -> HTMLResponse:
     next_path = _validate_post_login_target(
         request.query_params.get("next", "")
     )
+    # Single non-password provider ⇒ the chooser adds nothing — go straight
+    # to the IdP (same condition as the middleware's auto-SSO). No loop
+    # guard needed: /auth/login always leaves for the IdP. Multi-provider
+    # and password setups still render the chooser.
+    providers = list_session_providers()
+    if len(providers) == 1 and not getattr(
+        providers[0], "supports_password", False
+    ):
+        from urllib.parse import quote
+
+        prefix = _prefix(request)
+        url = (
+            f"{prefix}/auth/login?"
+            f"provider={quote(providers[0].name, safe='')}"
+        )
+        if next_path:
+            url = f"{url}&next={quote(next_path, safe='')}"
+        return RedirectResponse(url=url, status_code=302)
     return HTMLResponse(
         render_login_html(next_path=next_path),
         headers={"Cache-Control": "no-store, no-cache, must-revalidate"},
@@ -211,9 +232,13 @@ async def auth_login(request: Request, provider: str, next: str = ""):
             reason="provider_unreachable",
             ip=_client_ip(request),
         )
-        raise HTTPException(
+        _log.warning("start_login failed for %r: %s", provider, e)
+        return _auth_error_response(
             status_code=503,
-            detail=f"Provider unreachable: {e}",
+            title="Sign-in unavailable",
+            message="The identity provider could not be reached to start the "
+            "sign-in. Try again in a moment.",
+            provider_name=provider,
         )
 
     audit_log(
@@ -377,6 +402,35 @@ async def auth_native_authorize(
     return resp
 
 
+def _auth_error_response(
+    *,
+    status_code: int,
+    title: str,
+    message: str,
+    provider_name: str = "",
+    hint: str = "",
+) -> HTMLResponse:
+    """Branded HTML error page for browser-facing auth failures.
+
+    The callback and login routes are top-level browser navigations, so
+    FastAPI's default JSON ``{"detail": ...}`` renders as raw text in the
+    user's browser. Audit logging stays at the call sites.
+    """
+    from urllib.parse import quote
+
+    retry = (
+        f"/auth/login?provider={quote(provider_name, safe='')}"
+        if provider_name
+        else "/login"
+    )
+    return HTMLResponse(
+        render_auth_error_html(
+            title=title, message=message, retry_href=retry, hint=hint
+        ),
+        status_code=status_code,
+    )
+
+
 @router.get("/auth/callback", name="auth_callback")
 async def auth_callback(
     request: Request,
@@ -392,9 +446,11 @@ async def auth_callback(
             reason="missing_pkce_cookie",
             ip=_client_ip(request),
         )
-        raise HTTPException(
+        return _auth_error_response(
             status_code=400,
-            detail="Missing PKCE state cookie",
+            title="Sign-in expired",
+            message="Your sign-in attempt expired or was started in another "
+            "browser. Start again from the dashboard.",
         )
 
     # Parse ``provider=...;state=...;verifier=...;next=...`` — the
@@ -420,9 +476,11 @@ async def auth_callback(
 
     p = get_provider(provider_name)
     if p is None:
-        raise HTTPException(
+        return _auth_error_response(
             status_code=400,
-            detail=f"Unknown provider in cookie: {provider_name!r}",
+            title="Sign-in failed",
+            message="This sign-in attempt referenced an authentication "
+            "provider that is no longer configured.",
         )
 
     if error:
@@ -433,9 +491,13 @@ async def auth_callback(
             error=error,
             ip=_client_ip(request),
         )
-        raise HTTPException(
+        return _auth_error_response(
             status_code=400,
-            detail=f"OAuth error from provider: {error} ({error_description})",
+            title="Sign-in failed",
+            message="The identity provider reported an error and the sign-in "
+            "could not be completed.",
+            provider_name=provider_name,
+            hint=f"{error}: {error_description}" if error_description else error,
         )
 
     if not state or state != expected_state:
@@ -445,9 +507,12 @@ async def auth_callback(
             reason="state_mismatch",
             ip=_client_ip(request),
         )
-        raise HTTPException(
+        return _auth_error_response(
             status_code=400,
-            detail="OAuth state mismatch (CSRF check failed)",
+            title="Sign-in failed",
+            message="The security check for this sign-in did not match "
+            "(possible stale or replayed link). Start again.",
+            provider_name=provider_name,
         )
 
     try:
@@ -464,17 +529,44 @@ async def auth_callback(
             reason="invalid_code",
             ip=_client_ip(request),
         )
-        raise HTTPException(status_code=400, detail=f"Invalid code: {e}")
+        return _auth_error_response(
+            status_code=400,
+            title="Sign-in link expired",
+            message="The sign-in code was invalid, expired, or already used. "
+            "Start again.",
+            provider_name=provider_name,
+        )
     except ProviderError as e:
+        # An identity-allowlist rejection is a policy decision, not an
+        # availability problem — report it as 403 with honest copy.
+        if "not allowed" in str(e):
+            audit_log(
+                AuditEvent.LOGIN_FAILURE,
+                provider=provider_name,
+                reason="account_not_allowed",
+                ip=_client_ip(request),
+            )
+            return _auth_error_response(
+                status_code=403,
+                title="Access denied",
+                message="You signed in successfully, but this account is not "
+                "allowed on this dashboard.",
+                provider_name=provider_name,
+                hint="Signed into the wrong account? Switch accounts at your "
+                "identity provider and try again.",
+            )
         audit_log(
             AuditEvent.LOGIN_FAILURE,
             provider=provider_name,
             reason="provider_unreachable",
             ip=_client_ip(request),
         )
-        raise HTTPException(
+        return _auth_error_response(
             status_code=503,
-            detail=f"Provider unreachable: {e}",
+            title="Sign-in unavailable",
+            message="The identity provider could not be reached to complete "
+            "the sign-in. Try again in a moment.",
+            provider_name=provider_name,
         )
 
     audit_log(
