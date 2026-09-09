@@ -16860,6 +16860,11 @@ def mount_spa(application: FastAPI):
             html = html.replace('href="/assets/', f'href="{prefix}/assets/')
             html = html.replace('src="/assets/', f'src="{prefix}/assets/')
             html = html.replace('href="/favicon.ico"', f'href="{prefix}/favicon.ico"')
+            # The PNG icon sizes and the apple-touch icon sit beside the
+            # .ico at the web root and need the same prefixing, or a
+            # proxied dashboard falls back to the host's own favicon.
+            html = html.replace('href="/favicon-', f'href="{prefix}/favicon-')
+            html = html.replace('href="/apple-touch-icon.png"', f'href="{prefix}/apple-touch-icon.png"')
             html = html.replace('href="/fonts/', f'href="{prefix}/fonts/')
             html = html.replace('href="/ds-assets/', f'href="{prefix}/ds-assets/')
             html = html.replace('src="/ds-assets/', f'src="{prefix}/ds-assets/')
