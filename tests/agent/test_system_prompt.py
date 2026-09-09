@@ -339,3 +339,51 @@ class TestSkillsInVolatileBand:
         full = _build(build_system_prompt)
         assert full.index(_CONTEXT) < full.index(_SKILLS)
         assert full.index(_SKILLS) < full.index("Conversation started:")
+
+
+class TestIntentClarificationBlock:
+    """The block only ships where a live user can actually answer."""
+
+    def test_injected_when_clarify_loaded(self):
+        stable = _stable_prompt(_make_agent(valid_tool_names=["clarify"]))
+        assert "Understand the request before you act" in stable
+
+    def test_absent_without_clarify(self):
+        # Naming a tool outside the schema invites a hallucinated call.
+        stable = _stable_prompt(_make_agent(valid_tool_names=["read_file"]))
+        assert "Understand the request before you act" not in stable
+
+    def test_absent_when_disabled_in_config(self):
+        agent = _make_agent(
+            valid_tool_names=["clarify"],
+            _intent_clarification_guidance=False,
+        )
+        assert "Understand the request before you act" not in _stable_prompt(agent)
+
+    def test_absent_for_kanban_worker(self):
+        # A board worker carries ``clarify`` (it's in the default toolset) but
+        # runs headless, and KANBAN_GUIDANCE forbids calling it. Shipping the
+        # ask-the-user block here would contradict that block directly.
+        agent = _make_agent(
+            valid_tool_names=["clarify", "kanban_show"],
+            _kanban_worker_guidance="# Kanban task execution protocol\n...",
+        )
+        assert "Understand the request before you act" not in _stable_prompt(agent)
+
+
+class TestServiceGuidanceBlock:
+    """Provisioned-service steering, detected from the connection environment."""
+
+    def test_absent_on_a_normal_install(self, monkeypatch):
+        monkeypatch.delenv("HELIX_URL", raising=False)
+        monkeypatch.delenv("HELIX_TOKEN", raising=False)
+        # _stable_prompt patches build_environment_hints but not the service
+        # guidance, so this exercises the real detection path.
+        assert "Helix" not in _stable_prompt(_make_agent())
+
+    def test_helix_block_when_provisioned(self, monkeypatch):
+        monkeypatch.setenv("HELIX_URL", "http://helix:9111")
+        monkeypatch.setenv("HELIX_TOKEN", "svc-token")
+        stable = _stable_prompt(_make_agent())
+        assert "Publishing and public links" in stable
+        assert "`helix` skill" in stable

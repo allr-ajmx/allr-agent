@@ -34,6 +34,7 @@ from agent.prompt_builder import (
     DEFAULT_AGENT_IDENTITY,
     GOOGLE_MODEL_OPERATIONAL_GUIDANCE,
     ALLR_AGENT_HELP_GUIDANCE,
+    INTENT_CLARIFICATION_GUIDANCE,
     KANBAN_GUIDANCE,
     MEMORY_GUIDANCE,
     OPENAI_MODEL_EXECUTION_GUIDANCE,
@@ -223,6 +224,24 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
     if getattr(agent, "_parallel_tool_call_guidance", True) and agent.valid_tool_names:
         stable_parts.append(PARALLEL_TOOL_CALL_GUIDANCE)
 
+    # Intent-clarification guidance.  Steers the model to establish what the
+    # user actually wants before executing, and — just as importantly — to
+    # stop asking once the request is already clear.  Gated three ways:
+    #   * config.yaml ``agent.intent_clarification_guidance`` (default True)
+    #   * the ``clarify`` tool being loaded — the block tells the model to ask
+    #     *through clarify*, and naming a tool outside the schema invites a
+    #     hallucinated call
+    #   * NOT a kanban worker.  ``clarify`` ships in the default toolset, so a
+    #     headless board worker carries it, but KANBAN_GUIDANCE explicitly
+    #     forbids calling it there (no live user — the call just times out).
+    #     Injecting this would contradict that a few hundred tokens later.
+    if (
+        getattr(agent, "_intent_clarification_guidance", True)
+        and "clarify" in agent.valid_tool_names
+        and not getattr(agent, "_kanban_worker_guidance", None)
+    ):
+        stable_parts.append(INTENT_CLARIFICATION_GUIDANCE)
+
     # Tool-aware behavioral guidance: only inject when the tools are loaded
     tool_guidance = []
     if "memory" in agent.valid_tool_names:
@@ -346,6 +365,17 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
     _env_hints = _r.build_environment_hints()
     if _env_hints:
         stable_parts.append(_env_hints)
+
+    # Guidance for services a provisioner (Allr.OS) wired up alongside this
+    # agent — e.g. the user's private Helix app hosting, which is how work
+    # they need to open in a browser gets a public URL. Detected from the
+    # connection environment the provisioner injects; emits nothing on a
+    # normal install. Sits beside the environment hints deliberately: both
+    # describe the machine, so together they form one contiguous "where you
+    # are" region of the cached prefix.
+    _service_guidance = _r.build_service_guidance()
+    if _service_guidance:
+        stable_parts.append(_service_guidance)
 
     # Coding posture (base Allr, any interactive coding surface in a code
     # workspace — see agent/coding_context.py). Keep the operating brief in

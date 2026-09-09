@@ -1827,6 +1827,11 @@ def init_agent(
     # single turn; the runtime already executes such batches concurrently.
     agent._parallel_tool_call_guidance = bool(_agent_section.get("parallel_tool_call_guidance", True))
 
+    # Intent-clarification guidance toggle.  Default True.  The block itself
+    # is additionally gated on the ``clarify`` tool being loaded and on this
+    # not being a kanban worker — see agent/system_prompt.py.
+    agent._intent_clarification_guidance = bool(_agent_section.get("intent_clarification_guidance", True))
+
     # Local Python toolchain probe toggle.  Default True.  When False,
     # the probe is skipped entirely (no subprocess calls, no system-prompt
     # line).  Useful for users on exotic setups where the probe heuristics

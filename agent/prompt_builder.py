@@ -398,6 +398,118 @@ PARALLEL_TOOL_CALL_GUIDANCE = (
     "in doubt and the calls are independent, batch them."
 )
 
+# Universal intent-clarification guidance — injected when the ``clarify`` tool
+# is loaded (i.e. there is a live user who can actually answer).
+#
+# The gap this fills: nothing in the prompt told the model to establish what
+# the user wants before acting.  The only ask/don't-ask steering shipped today
+# is the ``<act_dont_ask>`` stanza inside OPENAI_MODEL_EXECUTION_GUIDANCE,
+# which is suppression-only and reaches GPT/Codex/Grok alone.
+#
+# The framing is a *resolvability* test rather than a confidence test, and
+# that choice is deliberate.  Models are badly calibrated at "am I uncertain?"
+# — CLAMBER (ACL 2024) found chain-of-thought and few-shot prompting actually
+# increase overconfidence on ambiguity detection — but they are decent at the
+# mechanical question "is this recoverable from somewhere I can look?".  So
+# the block names the sources (request, files, sensible default) instead of
+# asking the model to introspect.
+#
+# Equally important is what it suppresses.  Left unchecked, an ask-first steer
+# degrades into question spam: measured redundant-question rates run 5-9 per
+# task on some models.  Three defenses are baked in — a hard numeric cap, a
+# batching requirement, and an explicit list of banned question shapes (asking
+# what context already answers, asking permission to begin, re-asking).  The
+# "otherwise take the obvious option, name it as an assumption, and proceed"
+# clause is the escape valve: without it, "don't ask" collapses into silent
+# guessing, which is the worse failure.
+#
+# Short on purpose — it ships in the cached system prompt to every interactive
+# session.  Keep it tight.
+INTENT_CLARIFICATION_GUIDANCE = (
+    "# Understand the request before you act\n"
+    "Before acting, state your working hypothesis of the request in one line: "
+    "the goal, the scope you'll touch, and any assumptions you're filling in.\n"
+    "Then apply this test. Ask only when the answer is genuinely the user's to "
+    "give — a decision you cannot resolve from the request, the files, or a "
+    "sensible default — and when guessing wrong would cost real work or be "
+    "hard to undo. Otherwise take the obvious option, name it as an "
+    "assumption, and proceed.\n"
+    "When you do ask, ask everything at once: one to three specific questions "
+    "through `clarify`, each offering concrete options in `choices`, your "
+    "recommendation first. Never ask what the conversation, the files, or the "
+    "project's docs already answer. Never ask permission to begin. Never ask "
+    "the same thing twice — if the user doesn't answer, proceed on your stated "
+    "assumptions."
+)
+
+# ---------------------------------------------------------------------------
+# Provisioned-service guidance
+#
+# Allr.OS (the per-customer deployment repo) gives every user an isolated
+# stack: this agent plus a private Helix app-hosting control plane, a Postgres
+# database, and a shared Redis.  It wires each service in twice — the
+# connection environment lands in the agent container and the matching skill
+# is mounted read-only onto ``skills.external_dirs``.
+#
+# That means the *how* already reaches the model: the skills index carries
+# each SKILL.md description.  What was missing is the *reach* — a skill
+# description is a passive index entry competing with a hundred others, so
+# "make this public" was being answered with a localhost port or an external
+# host instead of the deploy target the user already owns.  These blocks
+# supply only that steer; the operational detail stays in the skill.
+#
+# Detection is by environment variable because that is the sole programmatic
+# signal in the container (Helix is a REST control plane, not an MCP server
+# and not a native tool, so it never appears in ``valid_tool_names``).  The
+# vars are process-lifetime stable, which is what lets this ride the cached
+# stable tier.  Emits nothing — zero tokens — on any install that isn't
+# running under a provisioner, which is the overwhelmingly common case.
+# ---------------------------------------------------------------------------
+
+HELIX_DEPLOY_GUIDANCE = (
+    "# Publishing and public links\n"
+    "This machine has a private Helix instance — the user's own app hosting. "
+    "When a task ends in something a person needs to open in a browser (a "
+    "site, a dashboard, a demo, a tool you just built), publishing it to "
+    "Helix is the deliverable, not a local file or a localhost port. Load the "
+    "`helix` skill and deploy; report back the `url` and `slug` Helix returns, "
+    "since a colliding slug gets a suffix and a URL you assembled yourself "
+    "would be wrong. Do not reach for an external host and do not hand the "
+    "work back for the user to deploy — the target is already theirs and "
+    "already running."
+)
+
+# (service name, env vars that must ALL be set, guidance block).
+#
+# Helix deliberately does not advertise ``helix-preview`` here: `preview
+# start` is refused with ``preview_requires_docker_runtime_mode`` whenever
+# COOKIE_SECURE is on and RUNTIME_MODE isn't docker, which is exactly the
+# production configuration.  Steering the model onto a path that 403s in prod
+# is worse than leaving it to the skill index, where it stays reachable for
+# the dev setups it does work on.
+SERVICE_GUIDANCE: "tuple[tuple[str, tuple[str, ...], str], ...]" = (
+    ("helix", ("HELIX_URL", "HELIX_TOKEN"), HELIX_DEPLOY_GUIDANCE),
+)
+
+
+def build_service_guidance() -> str:
+    """Guidance for provisioned services detected in the environment.
+
+    Returns ``""`` when no service matches — the zero-cost default for a
+    normal install, mirroring ``build_environment_hints`` and
+    ``get_environment_probe_line``.  A var that is set but empty does not
+    count as present: the provisioner writes real connection values, and an
+    empty string is far more likely to be a half-finished ``.env`` than a
+    live service.
+    """
+    blocks = [
+        text
+        for _name, env_vars, text in SERVICE_GUIDANCE
+        if all((os.getenv(var) or "").strip() for var in env_vars)
+    ]
+    return "\n\n".join(blocks)
+
+
 # OpenAI GPT/Codex-specific execution guidance.  Addresses known failure modes
 # where GPT models abandon work on partial results, skip prerequisite lookups,
 # hallucinate instead of using tools, and declare "done" without verification.

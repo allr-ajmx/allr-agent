@@ -129,6 +129,17 @@ DEFAULT_CONFIG = {
         # compounds over a long conversation.  Costs ~70 tokens in the cached
         # system prompt.  Set False to disable globally.
         "parallel_tool_call_guidance": True,
+        # Intent-clarification guidance — short prompt block that makes the
+        # model state a working hypothesis of the request before acting, ask
+        # a small batched set of questions when the answer is genuinely the
+        # user's to give, and otherwise proceed on a stated assumption.  It
+        # suppresses as much as it prompts: a hard cap of three questions,
+        # batched into one message, and an explicit ban on asking what
+        # context already answers or asking permission to begin.  Injected
+        # only when the ``clarify`` tool is loaded and never for kanban
+        # workers (headless — no live user to answer).  Costs ~120 tokens in
+        # the cached system prompt.  Set False to disable globally.
+        "intent_clarification_guidance": True,
         # Local-environment toolchain probe — surfaces Python/pip/uv/PEP-668
         # state in the system prompt when something non-default is detected
         # (e.g. python3 has no pip module, pip→python version mismatch, PEP
