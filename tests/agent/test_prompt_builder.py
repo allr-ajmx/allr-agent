@@ -8,6 +8,7 @@ import sys
 
 import pytest
 
+from agent import prompt_builder
 from agent.prompt_builder import (
     _scan_context_content,
     _truncate_content,
@@ -996,3 +997,43 @@ class TestParallelToolCallGuidance:
 # =========================================================================
 
 
+
+
+class TestBuildServiceGuidance:
+    """Env-var detection for services a provisioner wired up beside the agent.
+
+    Helix is a REST control plane reached through a shipped skill, not an MCP
+    server and not a native tool, so it never appears in ``valid_tool_names``
+    — the connection environment is the only programmatic signal there is.
+    """
+
+    def test_empty_without_any_service(self, monkeypatch):
+        monkeypatch.delenv("HELIX_URL", raising=False)
+        monkeypatch.delenv("HELIX_TOKEN", raising=False)
+        assert prompt_builder.build_service_guidance() == ""
+
+    def test_helix_detected_when_both_vars_set(self, monkeypatch):
+        monkeypatch.setenv("HELIX_URL", "http://helix:9111")
+        monkeypatch.setenv("HELIX_TOKEN", "svc-token")
+        out = prompt_builder.build_service_guidance()
+        assert "Publishing and public links" in out
+        assert "`helix` skill" in out
+
+    def test_partial_env_does_not_count(self, monkeypatch):
+        # The client needs both; a URL alone means the service isn't wired up.
+        monkeypatch.setenv("HELIX_URL", "http://helix:9111")
+        monkeypatch.delenv("HELIX_TOKEN", raising=False)
+        assert prompt_builder.build_service_guidance() == ""
+
+    def test_blank_var_does_not_count(self, monkeypatch):
+        # A half-finished .env is far likelier than a live tokenless service.
+        monkeypatch.setenv("HELIX_URL", "http://helix:9111")
+        monkeypatch.setenv("HELIX_TOKEN", "   ")
+        assert prompt_builder.build_service_guidance() == ""
+
+    def test_does_not_steer_toward_preview(self, monkeypatch):
+        # `preview start` 403s in production (RUNTIME_MODE=process), so the
+        # steer stays off it; the skill remains in the index for dev.
+        monkeypatch.setenv("HELIX_URL", "http://helix:9111")
+        monkeypatch.setenv("HELIX_TOKEN", "svc-token")
+        assert "helix-preview" not in prompt_builder.build_service_guidance()

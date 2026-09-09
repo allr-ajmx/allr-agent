@@ -242,7 +242,6 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
     ):
         stable_parts.append(INTENT_CLARIFICATION_GUIDANCE)
 
-
     # Tool-aware behavioral guidance: only inject when the tools are loaded
     tool_guidance = []
     if "memory" in agent.valid_tool_names:
@@ -366,6 +365,17 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
     _env_hints = _r.build_environment_hints()
     if _env_hints:
         stable_parts.append(_env_hints)
+
+    # Guidance for services a provisioner (Allr.OS) wired up alongside this
+    # agent — e.g. the user's private Helix app hosting, which is how work
+    # they need to open in a browser gets a public URL. Detected from the
+    # connection environment the provisioner injects; emits nothing on a
+    # normal install. Sits beside the environment hints deliberately: both
+    # describe the machine, so together they form one contiguous "where you
+    # are" region of the cached prefix.
+    _service_guidance = _r.build_service_guidance()
+    if _service_guidance:
+        stable_parts.append(_service_guidance)
 
     # Coding posture (base Allr, any interactive coding surface in a code
     # workspace — see agent/coding_context.py). Keep the operating brief in

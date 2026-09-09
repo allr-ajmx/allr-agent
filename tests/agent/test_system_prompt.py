@@ -370,3 +370,20 @@ class TestIntentClarificationBlock:
         )
         assert "Understand the request before you act" not in _stable_prompt(agent)
 
+
+class TestServiceGuidanceBlock:
+    """Provisioned-service steering, detected from the connection environment."""
+
+    def test_absent_on_a_normal_install(self, monkeypatch):
+        monkeypatch.delenv("HELIX_URL", raising=False)
+        monkeypatch.delenv("HELIX_TOKEN", raising=False)
+        # _stable_prompt patches build_environment_hints but not the service
+        # guidance, so this exercises the real detection path.
+        assert "Helix" not in _stable_prompt(_make_agent())
+
+    def test_helix_block_when_provisioned(self, monkeypatch):
+        monkeypatch.setenv("HELIX_URL", "http://helix:9111")
+        monkeypatch.setenv("HELIX_TOKEN", "svc-token")
+        stable = _stable_prompt(_make_agent())
+        assert "Publishing and public links" in stable
+        assert "`helix` skill" in stable
