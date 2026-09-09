@@ -339,3 +339,34 @@ class TestSkillsInVolatileBand:
         full = _build(build_system_prompt)
         assert full.index(_CONTEXT) < full.index(_SKILLS)
         assert full.index(_SKILLS) < full.index("Conversation started:")
+
+
+class TestIntentClarificationBlock:
+    """The block only ships where a live user can actually answer."""
+
+    def test_injected_when_clarify_loaded(self):
+        stable = _stable_prompt(_make_agent(valid_tool_names=["clarify"]))
+        assert "Understand the request before you act" in stable
+
+    def test_absent_without_clarify(self):
+        # Naming a tool outside the schema invites a hallucinated call.
+        stable = _stable_prompt(_make_agent(valid_tool_names=["read_file"]))
+        assert "Understand the request before you act" not in stable
+
+    def test_absent_when_disabled_in_config(self):
+        agent = _make_agent(
+            valid_tool_names=["clarify"],
+            _intent_clarification_guidance=False,
+        )
+        assert "Understand the request before you act" not in _stable_prompt(agent)
+
+    def test_absent_for_kanban_worker(self):
+        # A board worker carries ``clarify`` (it's in the default toolset) but
+        # runs headless, and KANBAN_GUIDANCE forbids calling it. Shipping the
+        # ask-the-user block here would contradict that block directly.
+        agent = _make_agent(
+            valid_tool_names=["clarify", "kanban_show"],
+            _kanban_worker_guidance="# Kanban task execution protocol\n...",
+        )
+        assert "Understand the request before you act" not in _stable_prompt(agent)
+

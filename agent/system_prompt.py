@@ -34,6 +34,7 @@ from agent.prompt_builder import (
     DEFAULT_AGENT_IDENTITY,
     GOOGLE_MODEL_OPERATIONAL_GUIDANCE,
     ALLR_AGENT_HELP_GUIDANCE,
+    INTENT_CLARIFICATION_GUIDANCE,
     KANBAN_GUIDANCE,
     MEMORY_GUIDANCE,
     OPENAI_MODEL_EXECUTION_GUIDANCE,
@@ -222,6 +223,25 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
     # (default True) and only injected when tools are actually loaded.
     if getattr(agent, "_parallel_tool_call_guidance", True) and agent.valid_tool_names:
         stable_parts.append(PARALLEL_TOOL_CALL_GUIDANCE)
+
+    # Intent-clarification guidance.  Steers the model to establish what the
+    # user actually wants before executing, and — just as importantly — to
+    # stop asking once the request is already clear.  Gated three ways:
+    #   * config.yaml ``agent.intent_clarification_guidance`` (default True)
+    #   * the ``clarify`` tool being loaded — the block tells the model to ask
+    #     *through clarify*, and naming a tool outside the schema invites a
+    #     hallucinated call
+    #   * NOT a kanban worker.  ``clarify`` ships in the default toolset, so a
+    #     headless board worker carries it, but KANBAN_GUIDANCE explicitly
+    #     forbids calling it there (no live user — the call just times out).
+    #     Injecting this would contradict that a few hundred tokens later.
+    if (
+        getattr(agent, "_intent_clarification_guidance", True)
+        and "clarify" in agent.valid_tool_names
+        and not getattr(agent, "_kanban_worker_guidance", None)
+    ):
+        stable_parts.append(INTENT_CLARIFICATION_GUIDANCE)
+
 
     # Tool-aware behavioral guidance: only inject when the tools are loaded
     tool_guidance = []

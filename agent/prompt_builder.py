@@ -398,6 +398,51 @@ PARALLEL_TOOL_CALL_GUIDANCE = (
     "in doubt and the calls are independent, batch them."
 )
 
+# Universal intent-clarification guidance — injected when the ``clarify`` tool
+# is loaded (i.e. there is a live user who can actually answer).
+#
+# The gap this fills: nothing in the prompt told the model to establish what
+# the user wants before acting.  The only ask/don't-ask steering shipped today
+# is the ``<act_dont_ask>`` stanza inside OPENAI_MODEL_EXECUTION_GUIDANCE,
+# which is suppression-only and reaches GPT/Codex/Grok alone.
+#
+# The framing is a *resolvability* test rather than a confidence test, and
+# that choice is deliberate.  Models are badly calibrated at "am I uncertain?"
+# — CLAMBER (ACL 2024) found chain-of-thought and few-shot prompting actually
+# increase overconfidence on ambiguity detection — but they are decent at the
+# mechanical question "is this recoverable from somewhere I can look?".  So
+# the block names the sources (request, files, sensible default) instead of
+# asking the model to introspect.
+#
+# Equally important is what it suppresses.  Left unchecked, an ask-first steer
+# degrades into question spam: measured redundant-question rates run 5-9 per
+# task on some models.  Three defenses are baked in — a hard numeric cap, a
+# batching requirement, and an explicit list of banned question shapes (asking
+# what context already answers, asking permission to begin, re-asking).  The
+# "otherwise take the obvious option, name it as an assumption, and proceed"
+# clause is the escape valve: without it, "don't ask" collapses into silent
+# guessing, which is the worse failure.
+#
+# Short on purpose — it ships in the cached system prompt to every interactive
+# session.  Keep it tight.
+INTENT_CLARIFICATION_GUIDANCE = (
+    "# Understand the request before you act\n"
+    "Before acting, state your working hypothesis of the request in one line: "
+    "the goal, the scope you'll touch, and any assumptions you're filling in.\n"
+    "Then apply this test. Ask only when the answer is genuinely the user's to "
+    "give — a decision you cannot resolve from the request, the files, or a "
+    "sensible default — and when guessing wrong would cost real work or be "
+    "hard to undo. Otherwise take the obvious option, name it as an "
+    "assumption, and proceed.\n"
+    "When you do ask, ask everything at once: one to three specific questions "
+    "through `clarify`, each offering concrete options in `choices`, your "
+    "recommendation first. Never ask what the conversation, the files, or the "
+    "project's docs already answer. Never ask permission to begin. Never ask "
+    "the same thing twice — if the user doesn't answer, proceed on your stated "
+    "assumptions."
+)
+
+
 # OpenAI GPT/Codex-specific execution guidance.  Addresses known failure modes
 # where GPT models abandon work on partial results, skip prerequisite lookups,
 # hallucinate instead of using tools, and declare "done" without verification.
