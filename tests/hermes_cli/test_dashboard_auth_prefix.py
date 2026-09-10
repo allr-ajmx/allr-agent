@@ -153,22 +153,38 @@ class TestForwardedPrefixNormalisation:
 # ---------------------------------------------------------------------------
 
 
+# Where an unauthenticated HTML load is sent depends on ``dashboard.login``:
+# ``internal`` renders our own page at /login, ``external`` hands straight to
+# the IdP at /auth/login. Both must carry the proxy prefix — that invariant is
+# what this class is about, so it is parametrized over the mode rather than
+# pinned to whichever target happens to be the default.
+LOGIN_TARGETS = {"internal": "/login", "external": "/auth/login"}
+
+
+@pytest.fixture(params=sorted(LOGIN_TARGETS))
+def login_mode(request, monkeypatch):
+    monkeypatch.setenv("ALLR_DASHBOARD_LOGIN", request.param)
+    return request.param
+
+
 class TestGateRedirectsCarryPrefix:
-    def test_html_redirect_to_login_carries_prefix(self, gated_app_proxied):
+    def test_html_redirect_to_login_carries_prefix(
+        self, gated_app_proxied, login_mode
+    ):
         r = gated_app_proxied.get(
             "/sessions",
             headers={"x-forwarded-prefix": "/hermes"},
             follow_redirects=False,
         )
         assert r.status_code == 302
-        # Phase 1 (cloud-auto-discovery): a single-provider unauth HTML load
-        # auto-initiates the OAuth redirect to /auth/login. That redirect must
-        # ALSO carry the prefix, or the browser follows it to
-        # mission-control.tilos.com/auth/login (which the proxy doesn't route
-        # to the dashboard). The prefix-carrying invariant is what's under
-        # test; only the target path moved from /login to /auth/login.
-        assert r.headers["location"].startswith("/hermes/auth/login"), (
-            f"Location header lost prefix: {r.headers['location']!r}"
+        # The redirect must carry the prefix, or the browser follows it to
+        # mission-control.tilos.com/... which the proxy doesn't route to the
+        # dashboard. True whether we send them to our own login page or
+        # straight on to the IdP.
+        expected = f"/hermes{LOGIN_TARGETS[login_mode]}"
+        assert r.headers["location"].startswith(expected), (
+            f"Location header lost prefix ({login_mode} mode): "
+            f"{r.headers['location']!r}"
         )
 
     def test_api_401_envelope_login_url_carries_prefix(self, gated_app_proxied):
@@ -186,7 +202,9 @@ class TestGateRedirectsCarryPrefix:
         )
 
 
-    def test_malformed_prefix_header_is_ignored(self, gated_app_proxied):
+    def test_malformed_prefix_header_is_ignored(
+        self, gated_app_proxied, login_mode
+    ):
         """A hostile proxy injects ``X-Forwarded-Prefix: <script>``;
         the normaliser rejects it and the gate falls back to unprefixed
         URLs. Defence against header-injection HTML inside Location."""
@@ -197,8 +215,9 @@ class TestGateRedirectsCarryPrefix:
         )
         assert r.status_code == 302
         assert "<script>" not in r.headers["location"]
-        # Phase 1: malformed prefix dropped → unprefixed auto-SSO redirect.
-        assert r.headers["location"].startswith("/auth/login")
+        # Malformed prefix dropped → the unprefixed form of whichever target
+        # the mode selects.
+        assert r.headers["location"].startswith(LOGIN_TARGETS[login_mode])
 
 
 # ---------------------------------------------------------------------------

@@ -1373,6 +1373,31 @@ DEFAULT_CONFIG = {
     # Web dashboard settings
     "dashboard": {
         "theme": "default",  # Dashboard visual theme: "default", "midnight", "ember", "mono", "cyberpunk", "rose"
+        # Where the login page comes from — us, or the identity provider.
+        #
+        #   "internal" (default) — render Allr's own /login: the provider
+        #       chooser, the password form, the no-providers notice. The
+        #       only login UI a plain self-hosted install has.
+        #   "external"           — a branded IdP sits in front of this
+        #       dashboard (Dex, under Allr.OS), so hand login straight to
+        #       it and skip the interstitial that would offer exactly one
+        #       option. Both /login and the unauthenticated document-load
+        #       auto-SSO redirect.
+        #
+        # Overridable by ``ALLR_DASHBOARD_LOGIN``, env winning when
+        # non-empty — the surface a provisioner sets, alongside the
+        # ALLR_DASHBOARD_OIDC_* vars.
+        #
+        # "external" still renders the page when the choice is genuinely
+        # ambiguous: two or more providers, or any password provider. That
+        # is deliberate — it is what keeps break-glass reachable, since
+        # adding basic-auth credentials to a locked-out deployment
+        # registers a password provider that needs a form.
+        #
+        # Default is "internal" so an install that has NOT put an IdP in
+        # front never ends up with no login UI at all. Deployments that
+        # want the hand-off declare it.
+        "login": "internal",
         # Process-isolation rollout controls. Runtime reads these through the
         # raw config loader, so tui_gateway.server also owns explicit defaults.
         "turn_isolation": False,

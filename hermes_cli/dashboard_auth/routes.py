@@ -51,6 +51,7 @@ from hermes_cli.dashboard_auth.login_page import (
     render_auth_error_html,
     render_login_html,
 )
+from hermes_cli.dashboard_auth.login_mode import login_is_external
 
 _log = logging.getLogger(__name__)
 
@@ -142,12 +143,22 @@ async def login_page(request: Request) -> Response:
     next_path = _validate_post_login_target(
         request.query_params.get("next", "")
     )
-    # Single non-password provider ⇒ the chooser adds nothing — go straight
-    # to the IdP (same condition as the middleware's auto-SSO). No loop
-    # guard needed: /auth/login always leaves for the IdP. Multi-provider
-    # and password setups still render the chooser.
+    # ``dashboard.login: external`` hands login off to the IdP: a single
+    # non-password provider means the chooser adds nothing but a click, so
+    # go straight there (same condition as the middleware's auto-SSO). No
+    # loop guard needed: /auth/login always leaves for the IdP.
+    #
+    # Two things still render the page even under ``external`` — a
+    # multi-provider setup (we cannot pick for the user) and any password
+    # provider (credentials need a form). That is what keeps Allr.OS's
+    # break-glass reachable: adding ALLR_DASHBOARD_BASIC_AUTH_* to a
+    # locked-out user's container registers a second, password-backed
+    # provider, and the chooser is how they get in.
+    #
+    # Under the default ``internal`` we always render — see
+    # ``login_mode.resolve_login_mode`` for why that is the default.
     providers = list_session_providers()
-    if len(providers) == 1 and not getattr(
+    if login_is_external() and len(providers) == 1 and not getattr(
         providers[0], "supports_password", False
     ):
         from urllib.parse import quote

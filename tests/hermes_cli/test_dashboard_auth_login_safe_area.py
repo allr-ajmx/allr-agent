@@ -29,30 +29,40 @@ import re
 
 import pytest
 
-from hermes_cli.dashboard_auth.login_page import _EMPTY_HTML, _LOGIN_HTML_TEMPLATE
+from hermes_cli.dashboard_auth.login_page import _EMPTY_HTML, render_login_html
 
-# Both documents are CSS-in-a-Python-string. ``_LOGIN_HTML_TEMPLATE`` is a
-# ``str.format`` template, so its CSS braces are doubled; ``_EMPTY_HTML`` is
-# emitted verbatim. Un-double the former so one parser handles both.
+# Both documents are fully rendered pages rather than raw templates. The
+# page was once a single ``str.format`` template whose CSS braces had to be
+# un-doubled here; it is now assembled from ``_SHELL_CSS`` plus a card, so
+# rendering is both simpler and closer to what a phone actually receives.
 DOCUMENTS = {
-    "_LOGIN_HTML_TEMPLATE": _LOGIN_HTML_TEMPLATE.replace("{{", "{").replace("}}", "}"),
+    "login_page": render_login_html(),
     "_EMPTY_HTML": _EMPTY_HTML,
 }
 
+# Which rule owns which edge. The page is a flex column — a header strip, then
+# a centred ``main`` — so the insets are split rather than sitting on one
+# centred ``body`` block as they did when this page was a single card:
+#   * the header is the topmost painted thing, so it clears the status bar;
+#   * ``main`` is the bottommost, so it clears the gesture strip;
+#   * both span the full width, so both clear a landscape notch.
+# Keyed by selector so a re-ordered stylesheet cannot point this at the wrong
+# block, which is what the old ``place-items`` lookup was protecting against.
+EDGE_OWNERS = {
+    ".site-header": ("top", "left", "right"),
+    "main": ("bottom", "left", "right"),
+}
 
-def body_layout_rule(document: str) -> str:
-    """The declaration block of the ``body`` rule that lays the page out.
 
-    Both documents declare ``body`` more than once (a shared ``html, body``
-    reset, a backdrop rule). The one under test is the one that centres the
-    card — identified by ``place-items``, not by ordinal, so re-ordering the
-    stylesheet cannot silently point this test at the wrong block.
-    """
+def rule_block(document: str, selector: str) -> str:
+    """The declaration block for ``selector``, comments stripped."""
     stripped = re.sub(r"/\*.*?\*/", "", document, flags=re.DOTALL)
-    for match in re.finditer(r"(?:^|[};])\s*body\s*\{([^}]*)\}", stripped, re.MULTILINE):
-        if "place-items" in match.group(1):
-            return match.group(1)
-    pytest.fail("no `body` rule with `place-items` found")
+    pattern = rf"(?:^|[}};])\s*{re.escape(selector)}\s*\{{([^}}]*)\}}"
+    for match in re.finditer(pattern, stripped, re.MULTILINE):
+        block = match.group(1)
+        if "padding" in block:
+            return block
+    pytest.fail(f"no `{selector}` rule with padding found")
 
 
 @pytest.mark.parametrize("name", sorted(DOCUMENTS))
@@ -67,19 +77,33 @@ class TestLoginPageSafeArea:
         ), f"{name} does not request viewport-fit=cover"
 
     def test_pads_every_side_by_at_least_the_device_inset(self, name: str) -> None:
-        rule = body_layout_rule(DOCUMENTS[name])
         # Top clears the status bar, bottom the gesture strip / home indicator,
         # and left/right the notch on a phone held in landscape either way.
-        for side in ("top", "bottom", "left", "right"):
-            assert re.search(
-                rf"padding-{side}:\s*max\([^;]*env\(safe-area-inset-{side}\)",
-                rule,
-            ), f"{name}: padding-{side} does not account for safe-area-inset-{side}"
+        # Every edge must be claimed by some rule, or that edge draws under a
+        # system bar.
+        document = DOCUMENTS[name]
+        for selector, sides in EDGE_OWNERS.items():
+            rule = rule_block(document, selector)
+            for side in sides:
+                # `top` has no design padding to preserve, so a bare env() is
+                # correct there; the others must not shrink below their floor.
+                expected = (
+                    rf"padding-{side}:\s*env\(safe-area-inset-{side}\)"
+                    if side == "top"
+                    else rf"padding-{side}:\s*max\([^;]*env\(safe-area-inset-{side}\)"
+                )
+                assert re.search(expected, rule), (
+                    f"{name}: {selector} padding-{side} does not account for "
+                    f"safe-area-inset-{side}"
+                )
 
     def test_leaves_no_shorthand_padding_to_override_them(self, name: str) -> None:
-        # A `padding: clamp(...) 1.25rem` in the same block — which is what this
-        # page shipped before — silently wins and reinstates the bug.
-        rule = body_layout_rule(DOCUMENTS[name])
-        assert not re.search(r"(^|[;\s])padding:", rule), (
-            f"{name}: a `padding` shorthand would override the safe-area longhands"
-        )
+        # A `padding: 48px 20px` in the same block — which is what this page
+        # shipped before — silently wins and reinstates the bug.
+        document = DOCUMENTS[name]
+        for selector in EDGE_OWNERS:
+            rule = rule_block(document, selector)
+            assert not re.search(r"(^|[;\s])padding:", rule), (
+                f"{name}: a `padding` shorthand in {selector} would override "
+                f"the safe-area longhands"
+            )

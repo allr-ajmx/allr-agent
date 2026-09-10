@@ -1684,6 +1684,15 @@ updates:
 #   dashboard.oauth.self_hosted.client_id      <-  ALLR_DASHBOARD_OIDC_CLIENT_ID
 #   dashboard.oauth.self_hosted.scopes         <-  ALLR_DASHBOARD_OIDC_SCOPES
 #   dashboard.oauth.self_hosted.client_secret  <-  ALLR_DASHBOARD_OIDC_CLIENT_SECRET
+#   dashboard.login                            <-  ALLR_DASHBOARD_LOGIN
+#
+# ``dashboard.login`` decides whether this dashboard renders its own login
+# page ("internal", the default) or hands sign-in straight to the IdP
+# ("external"). Set it to "external" when a branded IdP already fronts the
+# dashboard and Allr's provider chooser would just add a click offering one
+# option. "external" still renders the page when more than one provider is
+# registered, or when any provider takes a password — so adding basic-auth
+# credentials remains a usable way back into a locked-out deployment.
 #
 # dashboard:
 #   oauth:

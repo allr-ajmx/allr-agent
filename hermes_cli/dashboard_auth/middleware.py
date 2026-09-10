@@ -37,6 +37,7 @@ from hermes_cli.dashboard_auth.cookies import (
     set_session_provider_cookie,
     set_sso_attempt_cookie,
 )
+from hermes_cli.dashboard_auth.login_mode import login_is_external
 from hermes_cli.dashboard_auth.public_paths import PUBLIC_API_PATHS
 
 _log = logging.getLogger(__name__)
@@ -173,6 +174,13 @@ def _auto_sso_response(request: Request) -> Response | None:
     when ALL of the following hold, else ``None`` (caller falls back to the
     ordinary ``/login`` interstitial):
 
+      * ``dashboard.login`` is ``external`` — the deployment has put an IdP
+        in front of the dashboard and does not want our page. Under the
+        default ``internal`` this returns ``None`` immediately, so the
+        dashboard root renders the login page instead of bouncing. Gating
+        ``/login`` alone would not be enough: users arrive at ``/``, not at
+        ``/login``, so auto-SSO is the path that actually decides whether a
+        login page is ever seen;
       * the request is an HTML document navigation, not an ``/api/*`` fetch
         (a fetch() would follow the 302 into the cross-origin OAuth dance
         opaquely — same reason ``_unauth_response`` never redirects APIs);
@@ -193,6 +201,11 @@ def _auto_sso_response(request: Request) -> Response | None:
     removes a click, not a security check: the redirect lands on
     ``/auth/login`` which runs the unchanged PKCE auth-code flow.
     """
+    # Declared intent beats every heuristic below: under ``internal`` the
+    # operator wants Allr's own login page, so never bounce past it.
+    if not login_is_external():
+        return None
+
     path = request.url.path
     # APIs never auto-redirect (see _unauth_response). Only document loads.
     if path.startswith("/api/"):

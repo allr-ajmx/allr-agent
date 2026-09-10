@@ -566,6 +566,27 @@ When the dashboard is bound to a public or non-loopback address — anything oth
 
 Operator-owned dashboards bound to loopback are unaffected — no auth, no login page.
 
+### Rendering the login page, or handing it to your IdP
+
+By default the gate bounces to Allr's own `/login`, which lists the
+registered providers and shows the password form when one is configured.
+
+If a branded identity provider already fronts the dashboard, that page is an
+interstitial offering a single option. Set `dashboard.login: external` in
+`config.yaml` (or `ALLR_DASHBOARD_LOGIN=external`) and both `/login` and
+unauthenticated page loads redirect straight to the provider instead.
+
+```yaml
+dashboard:
+  login: external   # default: internal
+```
+
+`external` still renders the page whenever the choice is ambiguous — more
+than one provider registered, or any provider that takes a password. So
+adding the [username/password provider](#usernamepassword-provider-no-oauth-idp)
+to a deployment whose IdP is unreachable still gets you in, even with
+`external` set.
+
 ### When the gate engages
 
 | Flags | Auth gate | Use case |
