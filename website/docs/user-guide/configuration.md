@@ -2416,6 +2416,7 @@ dashboard:
   theme: "default"            # "default" | "midnight" | "ember" | "mono" | "cyberpunk" | "rose"
   show_token_analytics: false # Re-enable the (local-estimate-only) token/cost analytics surfaces
   public_url: ""              # Full public authority for OAuth redirect_uri (env: ALLR_DASHBOARD_PUBLIC_URL)
+  login: "internal"           # "internal" (render Allr's login page) | "external" (hand off to the IdP) (env: ALLR_DASHBOARD_LOGIN)
   oauth:                      # Portal OAuth gate (engaged with --host and not --insecure)
     client_id: ""             # agent:{instance_id} — Portal provisions this
     portal_url: ""            # blank → plugin default (production Portal)
@@ -2429,6 +2430,30 @@ dashboard:
     scope: "drain"            # capability label on the verified principal
     min_secret_chars: 43      # entropy bar (url-safe-b64 chars; 43 ≈ 256 bits)
 ```
+
+### Where the login page comes from
+
+`dashboard.login` decides whether Allr renders its own sign-in page or hands
+sign-in straight to your identity provider.
+
+| Value | Behaviour |
+| --- | --- |
+| `internal` *(default)* | `/login` renders Allr's page — the provider chooser, the password form, the no-providers notice. |
+| `external` | A branded IdP already fronts this dashboard, so skip our page: `/login` and unauthenticated page loads both redirect to the provider. |
+
+Use `external` when an IdP (Dex, Authentik, Keycloak, your portal) sits in
+front of the dashboard and owns the branded sign-in screen — otherwise users
+get an extra click through an interstitial offering exactly one option.
+
+`external` still renders the page when the choice is genuinely ambiguous:
+when more than one provider is registered, or when any provider takes a
+password. That is deliberate. It means adding
+`ALLR_DASHBOARD_BASIC_AUTH_USERNAME` / `_PASSWORD_HASH` / `_SECRET` to a
+deployment whose IdP is down still gets you back in — the password form
+appears even though the mode says `external`.
+
+The default is `internal` so that an install which has *not* put an IdP in
+front never ends up with no way to sign in.
 
 - `theme` — dashboard visual theme.
 - `show_token_analytics` — off by default. The Analytics page and token/cost figures are a **local lower-bound estimate** (they exclude auxiliary calls, retries, fallbacks, and cache writes), so they can read far below the provider bill. Set `true` only if you understand they're not billing.

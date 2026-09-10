@@ -265,7 +265,8 @@ class TestTransparentRefreshOnAccessTokenEviction:
 
 class TestHtmlRedirectNext:
 
-    def test_root_path_auto_sso(self, gated_app):
+    def test_root_path_auto_sso(self, gated_app, monkeypatch):
+        monkeypatch.setenv("ALLR_DASHBOARD_LOGIN", "external")
         r = gated_app.get("/", follow_redirects=False)
         # Root has no useful next= (login lands at "/" anyway).
         assert r.headers["location"] in (
@@ -277,9 +278,16 @@ class TestHtmlRedirectNext:
         """A request to /login itself must not produce ``?next=/login``
         because that'd be a loop after re-auth."""
         # /login is on the public allowlist so it doesn't go through the
-        # 401 path. But sanity: the page renders.
-        r = gated_app.get("/login")
+        # 401 path. Under the default ``internal`` mode it renders, and
+        # what matters is that nothing threads a next= back to /login.
+        #
+        # Do NOT follow redirects here. This assertion is about the URL,
+        # and following the chain lands on GET / — which answers 404
+        # whenever hermes_cli/web_dist is unbuilt and 200 (for entirely
+        # the wrong reason) when it is.
+        r = gated_app.get("/login", follow_redirects=False)
         assert r.status_code == 200
+        assert "next=" not in r.headers.get("location", "")
 
 
 # ---------------------------------------------------------------------------
@@ -292,7 +300,16 @@ class TestAutoSsoRedirect:
     unauthenticated HTML document load (single interactive provider), and a
     one-shot cookie guard prevents an infinite redirect loop when the portal
     has no session for the user.
+
+    Auto-SSO is the ``dashboard.login: external`` behaviour: it bypasses
+    Allr's own login page, so it only fires where the deployment has said
+    an IdP owns sign-in. See TestLoginModeGovernsTheAutoSso for the
+    default.
     """
+
+    @pytest.fixture(autouse=True)
+    def _external(self, monkeypatch):
+        monkeypatch.setenv("ALLR_DASHBOARD_LOGIN", "external")
 
     from hermes_cli.dashboard_auth.cookies import SSO_ATTEMPT_COOKIE
 
@@ -666,8 +683,18 @@ class TestAuthLoginPkceCookieNext:
 
 
 class TestLoginRedirectsToIdp:
-    """Single non-password provider ⇒ /login 302s straight to /auth/login
-    (the Dex-first login), threading a validated next= through."""
+    """``dashboard.login: external`` + a single non-password provider ⇒
+    /login 302s straight to /auth/login (the Dex-first login), threading a
+    validated next= through.
+
+    The mode is set through the real env var rather than by patching
+    ``resolve_login_mode``, so these exercise the resolution path a
+    provisioner actually uses (Allr.OS sets ALLR_DASHBOARD_LOGIN on the
+    agent container alongside its ALLR_DASHBOARD_OIDC_* vars)."""
+
+    @pytest.fixture(autouse=True)
+    def _external(self, monkeypatch):
+        monkeypatch.setenv("ALLR_DASHBOARD_LOGIN", "external")
 
     def test_login_redirects_with_next(self, gated_app):
         r = gated_app.get(
@@ -682,6 +709,68 @@ class TestLoginRedirectsToIdp:
         r = gated_app.get("/login", follow_redirects=False)
         assert r.status_code == 302
         assert r.headers["location"] == "/auth/login?provider=stub"
+
+
+class TestLoginModeGovernsThePage:
+    """``dashboard.login`` decides whether Allr renders its own page."""
+
+    def test_internal_is_the_default(self, gated_app):
+        # Nothing set anywhere: a lone OIDC provider must still get a page,
+        # or a plain self-hosted install has no login UI at all.
+        r = gated_app.get("/login", follow_redirects=False)
+        assert r.status_code == 200
+        assert "provider-btn" in r.text
+
+    def test_internal_renders_explicitly(self, gated_app, monkeypatch):
+        monkeypatch.setenv("ALLR_DASHBOARD_LOGIN", "internal")
+        assert gated_app.get("/login", follow_redirects=False).status_code == 200
+
+    def test_unrecognised_value_falls_back_to_rendering(
+        self, gated_app, monkeypatch
+    ):
+        # A typo must not cost the deployment its login page.
+        monkeypatch.setenv("ALLR_DASHBOARD_LOGIN", "extenral")
+        assert gated_app.get("/login", follow_redirects=False).status_code == 200
+
+    def test_external_still_renders_for_a_password_provider(
+        self, gated_app, monkeypatch
+    ):
+        """The break-glass invariant.
+
+        Adding ALLR_DASHBOARD_BASIC_AUTH_* to a locked-out deployment
+        registers a second, password-backed provider. ``external`` must
+        NOT force the 302 past it — the chooser and its password form are
+        the whole way back in.
+        """
+        from tests.hermes_cli.test_dashboard_auth_password_login import (
+            PasswordProvider,
+        )
+
+        monkeypatch.setenv("ALLR_DASHBOARD_LOGIN", "external")
+        register_provider(PasswordProvider())
+        r = gated_app.get("/login", follow_redirects=False)
+        assert r.status_code == 200
+
+
+class TestLoginModeGovernsTheAutoSso:
+    """The mode has to gate auto-SSO too, not just the /login route.
+
+    Users arrive at ``/``, not at ``/login``. If the unauthenticated
+    document load still bounced to the IdP, ``internal`` would render a
+    page nobody ever reaches — the setting would be cosmetic.
+    """
+
+    def test_internal_does_not_bypass_the_page(self, gated_app):
+        r = gated_app.get("/", follow_redirects=False)
+        loc = r.headers.get("location", "")
+        assert not loc.startswith("/auth/login"), (
+            f"auto-SSO fired under the default internal mode: {loc}"
+        )
+
+    def test_external_still_auto_ssos(self, gated_app, monkeypatch):
+        monkeypatch.setenv("ALLR_DASHBOARD_LOGIN", "external")
+        r = gated_app.get("/", follow_redirects=False)
+        assert r.headers["location"].startswith("/auth/login?provider=stub")
 
 
 class TestAuthErrorPage:
