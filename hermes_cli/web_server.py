@@ -25,6 +25,7 @@ import hashlib
 import hmac
 import inspect
 import importlib.util
+import io
 import json
 import logging
 import math
@@ -106,7 +107,7 @@ try:
         WebSocket, WebSocketDisconnect,
     )
     from fastapi.middleware.cors import CORSMiddleware
-    from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
+    from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
     from fastapi.staticfiles import StaticFiles
     from pydantic import BaseModel, SecretStr, field_validator
     from starlette.concurrency import run_in_threadpool
@@ -122,7 +123,7 @@ except ImportError:
             WebSocket, WebSocketDisconnect,
         )
         from fastapi.middleware.cors import CORSMiddleware
-        from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
+        from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
         from fastapi.staticfiles import StaticFiles
         from pydantic import BaseModel, SecretStr, field_validator
         from starlette.concurrency import run_in_threadpool
@@ -423,7 +424,12 @@ def _has_valid_session_token(request: Request) -> bool:
 # Routes that may also authenticate via a ``?token=`` query param, for download
 # links opened by the OS shell or a new browser tab where the session header
 # can't be set. Kept narrow — same query-token tradeoff as the /api/pty WS.
-_QUERY_TOKEN_API_PATHS: frozenset[str] = frozenset({"/api/files/download"})
+# ``/api/files/download-archive`` is here for exactly the same reason as
+# ``/api/files/download``: it is a download link, opened by the same clients.
+_QUERY_TOKEN_API_PATHS: frozenset[str] = frozenset({
+    "/api/files/download",
+    "/api/files/download-archive",
+})
 
 
 def _has_valid_query_token(request: Request, path: str) -> bool:
@@ -1780,6 +1786,15 @@ class ManagedFilesPolicy:
     can_change_path: bool
 
 
+# `GET /api/fs/search` reuses the gateway's fuzzy ranker rather than growing a
+# second one — `tui_gateway.file_search` is stdlib-only (no gateway import, no
+# cycle) and is the same module `complete.path` resolves its ranker from.
+from tui_gateway.file_search import (  # noqa: E402
+    FS_SEARCH_DEFAULT_LIMIT as _FS_SEARCH_DEFAULT_LIMIT,
+    search_entries as _fs_search_entries,
+)
+
+
 _FS_READDIR_HIDDEN = {
     ".git",
     ".hg",
@@ -2632,12 +2647,19 @@ async def download_managed_file(request: Request, path: str):
     if _is_sensitive_path(target):
         raise HTTPException(status_code=403, detail="Access to sensitive files is not allowed")
 
+    # No ``_MANAGED_FILE_MAX_BYTES`` ceiling here, deliberately, and the constant
+    # is NOT dead: /api/files/read still enforces it, because that route
+    # base64-encodes the whole file into a JSON body and genuinely cannot afford
+    # a large one, and /api/files/upload-stream enforces it on the way in.
+    # This route hands a FileResponse to the ASGI server, which sends the file
+    # in fixed-size chunks and never holds more than one chunk in memory — so
+    # the cap bought nothing here and cost the desktop app every download over
+    # 100 MB with an unexplained 413. The stat stays: an unreadable or vanished
+    # file should fail before the response starts, not halfway through it.
     try:
-        size = target.stat().st_size
+        target.stat()
     except OSError as exc:
         raise HTTPException(status_code=500, detail=f"Could not stat file: {exc}")
-    if size > _MANAGED_FILE_MAX_BYTES:
-        raise HTTPException(status_code=413, detail="File is too large")
 
     mime_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
 
@@ -2646,6 +2668,155 @@ async def download_managed_file(request: Request, path: str):
         media_type=mime_type,
         filename=target.name,
         content_disposition_type="attachment",
+    )
+
+
+# Folder downloads. A directory has no single-file representation, so the client
+# asks for one and gets a zip built ON THE FLY: there is no temp file and no
+# BytesIO, because the tree being zipped can be tens of gigabytes and this
+# process also serves every other dashboard request. `zipfile` writes into a
+# rolling buffer that the generator drains after every member chunk, so the
+# resident cost is one read chunk plus whatever deflate has not emitted yet.
+#
+# The generator is SYNCHRONOUS on purpose: StreamingResponse runs a sync
+# iterator on the threadpool (`iterate_in_threadpool`), and file reads plus
+# zlib compression are exactly the blocking work that must stay off the event
+# loop.
+_ARCHIVE_READ_CHUNK = 256 * 1024
+_ARCHIVE_FLUSH_BYTES = 512 * 1024
+
+
+class _ZipStreamBuffer(io.RawIOBase):
+    """The unseekable sink `zipfile` writes an archive into.
+
+    `ZipFile` probes for `seek`/`tell` and falls back to per-member data
+    descriptors when the sink cannot seek, which is precisely the mode a
+    streamed archive needs — `tell()` has to be real (it is the running offset
+    the central directory is written from), `seek()` must fail.
+    """
+
+    def __init__(self) -> None:
+        self._pending = bytearray()
+        self._offset = 0
+
+    def writable(self) -> bool:
+        return True
+
+    def write(self, data) -> int:
+        chunk = bytes(data)
+        self._pending += chunk
+        self._offset += len(chunk)
+        return len(chunk)
+
+    def tell(self) -> int:
+        return self._offset
+
+    def pending(self) -> int:
+        return len(self._pending)
+
+    def drain(self) -> bytes:
+        out = bytes(self._pending)
+        del self._pending[:]
+        return out
+
+
+def _archive_members(root: Path):
+    """Every file that may legally go into the archive for *root*.
+
+    Three exclusions, all of them the same ones the browsing routes apply:
+    `_FS_READDIR_HIDDEN` build/VCS directories, `_is_sensitive_path` credential
+    files and credential directory trees (#57505 — the archive must not become
+    the exfil path the listing endpoint refuses to be), and symlinks, which
+    could otherwise walk straight out of a locked managed root.
+    """
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        here = Path(dirpath)
+        dirnames[:] = sorted(
+            name
+            for name in dirnames
+            if name not in _FS_READDIR_HIDDEN
+            and not (here / name).is_symlink()
+            and not _is_sensitive_path(here / name)
+        )
+        for name in sorted(filenames):
+            member = here / name
+            if name in _FS_READDIR_HIDDEN or member.is_symlink() or _is_sensitive_path(member):
+                continue
+            yield member
+
+
+def _archive_filename_header(name: str) -> str:
+    """A `Content-Disposition` value that survives a non-ASCII directory name.
+
+    The quoted `filename=` form is ASCII-only by spec, so a name with any
+    non-ASCII character gets an ASCII fallback plus the RFC 5987 `filename*`
+    form that every current client prefers.
+    """
+    stem = name.strip() or "archive"
+    ascii_stem = "".join(ch for ch in stem if 32 <= ord(ch) < 127 and ch not in '"\\') or "archive"
+    quoted = f'attachment; filename="{ascii_stem}.zip"'
+    encoded = urllib.parse.quote(f"{stem}.zip", safe="")
+    return f"{quoted}; filename*=UTF-8''{encoded}"
+
+
+@app.get("/api/files/download-archive")
+async def download_managed_archive(request: Request, path: str):
+    """Stream a directory as a zip, built member by member as it is sent.
+
+    The single-file route above cannot answer "download this folder", and a
+    client cannot assemble one either: it would have to walk the tree over the
+    listing API and issue one authenticated request per file. Same auth, same
+    path hardening and the same sensitive-path denylist as every other
+    managed-files route.
+    """
+    _policy, target, _display_path = _resolve_managed_path(path, request)
+    if not target.exists():
+        raise HTTPException(status_code=404, detail="Directory not found")
+    if not target.is_dir():
+        raise HTTPException(status_code=400, detail="Path is not a directory")
+    if _is_sensitive_path(target):
+        raise HTTPException(status_code=403, detail="Access to sensitive files is not allowed")
+
+    def stream():
+        sink = _ZipStreamBuffer()
+        # ZIP_DEFLATED at level 6 — the same tradeoff hermes_cli/backup.py
+        # settled on: most of the win of level 9 at a fraction of the CPU, and
+        # this one is compressing on a request thread.
+        with zipfile.ZipFile(sink, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
+            for member in _archive_members(target):
+                try:
+                    arcname = member.relative_to(target)
+                    info = zipfile.ZipInfo.from_file(member, arcname)
+                except (OSError, ValueError):
+                    # A file that vanished or is unreadable mid-walk is skipped
+                    # rather than failing the whole archive: the response has
+                    # already started, so there is no status code left to send.
+                    continue
+                info.compress_type = archive.compression
+                info._compresslevel = archive.compresslevel
+                try:
+                    with member.open("rb") as source, archive.open(info, "w") as entry:
+                        while True:
+                            chunk = source.read(_ARCHIVE_READ_CHUNK)
+                            if not chunk:
+                                break
+                            entry.write(chunk)
+                            if sink.pending() >= _ARCHIVE_FLUSH_BYTES:
+                                yield sink.drain()
+                except OSError:
+                    continue
+                if sink.pending():
+                    yield sink.drain()
+        # The central directory is written by ZipFile.close() — i.e. on the way
+        # out of the `with`, after the last member — so this final drain is what
+        # makes the archive a valid zip rather than a bag of members.
+        if sink.pending():
+            yield sink.drain()
+
+    return StreamingResponse(
+        stream(),
+        media_type="application/zip",
+        headers={"Content-Disposition": _archive_filename_header(target.name)},
     )
 
 
@@ -2820,6 +2991,46 @@ async def fs_list(path: str):
         return {"entries": [], "error": getattr(exc, "strerror", None) or "read-error"}
 
 
+@app.get("/api/fs/search")
+async def fs_search(path: str, q: str = "", limit: int = _FS_SEARCH_DEFAULT_LIMIT):
+    """Fuzzy basename search under ``path`` — the picker's Cmd-P.
+
+    Shares the gateway's ranker (``tui_gateway.file_search``, the same code
+    ``complete.path`` uses) so the dashboard and the TUI agree on what
+    "matches" means. Entries carry ``fs_list``'s exact shape plus ``rank``
+    (0 = exact basename … 4 = subsequence; lower is better).
+
+    ADDITIVE ROUTE (MJXHRM-511 backend freeze): a client MUST feature-detect
+    before showing a search affordance, and MUST distinguish a missing route
+    from a missing directory **by body, not by status** — a 404 alone is
+    ambiguous because this app has two catch-alls that both 404. The contract
+    is: *this route always answers 200 with an ``entries`` list*, including
+    for a path that does not exist (``{"entries": [], "error": "ENOENT"}``,
+    the convention ``fs_list`` already uses). So `entries` present ⇒ route
+    exists; `entries` absent ⇒ route missing (an older gateway).
+    """
+    target = _fs_path(path)
+    try:
+        st = target.stat()
+    except FileNotFoundError:
+        return {"entries": [], "error": "ENOENT"}
+    except NotADirectoryError:
+        return {"entries": [], "error": "ENOTDIR"}
+    except PermissionError:
+        return {"entries": [], "error": "EACCES"}
+    except OSError as exc:
+        return {"entries": [], "error": getattr(exc, "strerror", None) or "read-error"}
+    if not stat.S_ISDIR(st.st_mode):
+        return {"entries": [], "error": "ENOTDIR"}
+
+    # `git ls-files` (and the fallback walk) block — keep them off the loop.
+    try:
+        entries = await asyncio.to_thread(_fs_search_entries, str(target), q or "", limit)
+    except OSError as exc:
+        return {"entries": [], "error": getattr(exc, "strerror", None) or "read-error"}
+    return {"entries": entries}
+
+
 @app.get("/api/fs/read-text")
 async def fs_read_text(path: str):
     target, st = _fs_regular_file(_fs_path(path))
@@ -2916,10 +3127,77 @@ async def fs_git_root(path: str):
     return {"root": _fs_find_git_root(start)}
 
 
+def _fs_profile_default_cwd() -> Optional[str]:
+    """The active project's primary folder, for the profile currently scoped.
+
+    MUST be called inside ``_profile_scope`` — ``projects_db.projects_db_path()``
+    resolves ``$ALLR_HOME/projects.db``, so the scope is what makes this read
+    the *requested* profile's DB instead of the launch profile's.
+
+    Degrades quietly at every step: no DB file, no active project, a project
+    with no folders, or a primary path that no longer exists all return None so
+    the caller falls through to ``terminal.cwd``.
+    """
+    try:
+        from hermes_cli import projects_db as pdb
+
+        db_path = pdb.projects_db_path()
+        if not db_path.exists():
+            # Never create a projects.db as a side effect of reading a cwd.
+            return None
+        with pdb.connect_closing(db_path) as conn:
+            active_id = pdb.get_active_id(conn)
+            if not active_id:
+                return None
+            project = pdb.get_project(conn, active_id)
+        if project is None:
+            return None
+        candidates = [f.path for f in project.folders if f.is_primary]
+        candidates += [f.path for f in project.folders if not f.is_primary]
+        if project.primary_path:
+            candidates.insert(0, project.primary_path)
+        for raw in candidates:
+            if not raw:
+                continue
+            try:
+                candidate = Path(raw).expanduser().resolve(strict=False)
+            except (OSError, RuntimeError, ValueError):
+                continue
+            if candidate.is_dir():
+                return str(candidate)
+    except Exception:
+        # A corrupt/locked DB must not take the file browser down.
+        _log.debug("projects.db default-cwd lookup failed", exc_info=True)
+    return None
+
+
 @app.get("/api/fs/default-cwd")
-async def fs_default_cwd():
-    cwd = _fs_default_cwd()
-    return {"cwd": cwd, "branch": _fs_git_branch(cwd)}
+async def fs_default_cwd(profile: Optional[str] = None):
+    """Where the file browser / terminal should open, for ``?profile=``.
+
+    Before this took ``profile`` the query param that ``profileScoped()``
+    appends was silently ignored and every profile got the *launch* profile's
+    answer. Resolution order, all inside the profile's scope:
+
+    1. that profile's active project's primary folder (``projects.db``),
+    2. that profile's ``terminal.cwd`` (its own ``config.yaml``),
+    3. ``_fs_default_cwd()``'s existing fallback (``TERMINAL_CWD`` / ``os.getcwd``).
+
+    ``home`` is the GATEWAY's home directory — the dashboard's Home button
+    must not use the client device's, which is a different machine over a
+    remote gateway.
+    """
+
+    def _run() -> dict:
+        with _profile_scope(profile):
+            cwd = _fs_profile_default_cwd() or _fs_default_cwd()
+        return {"cwd": cwd, "branch": _fs_git_branch(cwd), "home": str(Path.home())}
+
+    # _profile_scope takes the process-wide _SKILLS_PROFILE_LOCK and the body
+    # does file I/O + a git subprocess — keep both off the event loop.
+    # (asyncio.to_thread copies the contextvar context, so the ALLR_HOME
+    # override stays scoped to the worker thread.)
+    return await asyncio.to_thread(_run)
 
 
 # ---------------------------------------------------------------------------
