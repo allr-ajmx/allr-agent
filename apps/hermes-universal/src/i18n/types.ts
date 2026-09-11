@@ -146,6 +146,13 @@ export interface Translations {
     revealExplorer: string
     revealFileManager: string
     revealInSidebar: string
+    download: string
+    /** Menu action: download, but choose the destination in a save dialog. */
+    saveAs: string
+    /** Folder-only menu row: make this the working directory (and the tree's
+     *  root, which follows it). */
+    openFolderHere: string
+    setAsProjectFolder: string
     actions: string
     copyPath: string
     copyRelativePath: string
@@ -1602,6 +1609,7 @@ export interface Translations {
     chat: string
     copyUrl: string
     copyPath: string
+    download: (name: string) => string
   }
 
   sidebar: {
@@ -2293,6 +2301,9 @@ export interface Translations {
     loadingFiles: string
     filterFiles: string
     filterNoMatches: string
+    searchFiles: string
+    searchNoMatches: string
+    goHome: string
     terminalHide: string
     terminalConnecting: string
     terminalReconnecting: string

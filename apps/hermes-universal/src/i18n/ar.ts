@@ -64,6 +64,10 @@ export const ar = defineLocale({
     revealExplorer: 'إظهار في File Explorer',
     revealFileManager: 'فتح المجلد الحاوي',
     revealInSidebar: 'إظهار في شجرة الملفات',
+    download: 'تنزيل',
+    saveAs: 'حفظ باسم...',
+    openFolderHere: 'فتح المجلد هنا',
+    setAsProjectFolder: 'تعيين كمجلد المشروع',
     copyPath: 'نسخ المسار',
     copyRelativePath: 'نسخ المسار النسبي',
     rename: 'إعادة تسمية...',
@@ -1520,7 +1524,8 @@ export const ar = defineLocale({
     kindLink: 'رابط',
     chat: 'المحادثة',
     copyUrl: 'نسخ الرابط',
-    copyPath: 'نسخ المسار'
+    copyPath: 'نسخ المسار',
+    download: name => `تنزيل ${name}`
   },
   artifactCard: {
     kind: {
@@ -2182,6 +2187,9 @@ export const ar = defineLocale({
     }
   },
   rightSidebar: {
+    searchFiles: 'البحث في الملفات',
+    searchNoMatches: 'لا توجد ملفات مطابقة',
+    goHome: 'الانتقال إلى المجلد الرئيسي',
     aria: 'الشريط الجانبي الأيمن',
     panelsAria: 'لوحات الشريط الأيمن',
     files: 'الملفات',

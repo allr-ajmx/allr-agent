@@ -109,6 +109,10 @@ export const ja = defineLocale({
     revealExplorer: 'エクスプローラーで表示',
     revealFileManager: '格納フォルダーを開く',
     revealInSidebar: 'ファイルツリーで表示',
+    download: 'ダウンロード',
+    saveAs: '名前を付けて保存…',
+    openFolderHere: 'このフォルダーを開く',
+    setAsProjectFolder: 'プロジェクトフォルダーに設定',
     copyPath: 'パスをコピー',
     copyRelativePath: '相対パスをコピー',
     rename: '名前を変更…',
@@ -1720,7 +1724,8 @@ export const ja = defineLocale({
     kindLink: 'リンク',
     chat: 'チャット',
     copyUrl: 'URL をコピー',
-    copyPath: 'パスをコピー'
+    copyPath: 'パスをコピー',
+    download: name => `${name} をダウンロード`
   },
 
   sidebar: {
@@ -2442,6 +2447,9 @@ export const ja = defineLocale({
   },
 
   rightSidebar: {
+    searchFiles: 'ファイルを検索',
+    searchNoMatches: '一致するファイルはありません',
+    goHome: 'ホームフォルダーへ移動',
     aria: '右サイドバー',
     panelsAria: '右サイドバーパネル',
     files: 'ファイルシステム',

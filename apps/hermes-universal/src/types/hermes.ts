@@ -1460,6 +1460,24 @@ export interface ReadDirResult {
   error?: string
 }
 
+/** `fs_list`'s entry shape plus the ranker's tier (0 = exact basename …
+ *  4 = subsequence; lower is better). */
+export interface FsSearchEntry extends FsEntry {
+  rank: number
+}
+
+/**
+ * `GET /api/fs/search`. An ADDITIVE route (the MJXHRM-511 backend freeze), so
+ * clients feature-detect on the BODY: this route always answers 200 with
+ * `entries`, including for a missing path (`{entries: [], error: 'ENOENT'}`),
+ * while a gateway without it 404s from a catch-all that has no `entries` at
+ * all. See `lib/file-search.ts`.
+ */
+export interface FsSearchResult {
+  entries: FsSearchEntry[]
+  error?: string
+}
+
 export interface ReadFileTextResult {
   path: string
   text: string
@@ -1489,6 +1507,9 @@ export interface GitRootResult {
 export interface DefaultCwdResult {
   branch: string
   cwd: string
+  /** The GATEWAY's home directory — where sessions actually run, so it is the
+   *  right "Home" for the file tree. Absent on a gateway that predates it. */
+  home?: string
 }
 
 // Remote git status + diffs (Track K14) — read-only; no git binary on Android.

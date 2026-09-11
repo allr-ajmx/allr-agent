@@ -1,12 +1,21 @@
 import { open as openDialog } from '@tauri-apps/plugin-dialog'
 
-import { getDefaultCwd, getFileDiff, getGitRoot, readDir, readFileDataUrl, readFileText, writeFileText } from '@/hermes'
+import {
+  getDefaultCwd,
+  getFileDiff,
+  getGitRoot,
+  readDir,
+  readFileDataUrl,
+  readFileText,
+  searchDir,
+  writeFileText
+} from '@/hermes'
 import { translateNow } from '@/i18n'
 import { writeClipboardText } from '@/lib/clipboard'
 import { IS_DESKTOP } from '@/lib/platform'
 import { $connection } from '@/store/connection'
 import { type Connection, connectionCacheKey } from '@/store/gateway-config'
-import type { ReadDirResult, ReadFileTextResult } from '@/types/hermes'
+import type { FsSearchResult, ReadDirResult, ReadFileTextResult } from '@/types/hermes'
 
 // Ported from apps/desktop/src/lib/desktop-fs.ts — its REMOTE branch only.
 // Desktop reads the filesystem through Electron when it owns the disk and falls
@@ -65,6 +74,19 @@ export async function readDesktopDir(path: string): Promise<ReadDirResult> {
   return readDir(path)
 }
 
+/**
+ * Fuzzy-search the gateway's filesystem under `path`.
+ *
+ * Unlike its neighbours this one is NOT unconditionally available: the route is
+ * additive, and a frozen older gateway 404s it. The raw result is returned
+ * (rather than a hit list) precisely because the CALLER has to feature-detect
+ * on the body — see `store/file-search.ts`, which is the only place that
+ * should call this.
+ */
+export async function searchDesktopDir(path: string, query: string, limit: number): Promise<FsSearchResult> {
+  return searchDir(path, query, limit)
+}
+
 export async function readDesktopFileText(path: string): Promise<ReadFileTextResult> {
   return readFileText(path)
 }
@@ -85,10 +107,13 @@ export async function desktopGitRoot(path: string): Promise<string | null> {
   return (await getGitRoot(path)).root
 }
 
-export async function desktopDefaultCwd(): Promise<{ branch: string; cwd: string } | null> {
+export async function desktopDefaultCwd(): Promise<{ branch: string; cwd: string; home: string } | null> {
   const result = await getDefaultCwd()
 
-  return result ? { branch: result.branch ?? '', cwd: result.cwd ?? '' } : null
+  // `home` is additive (the gateway's own home directory). An older backend
+  // omits it, and the empty string is what hides the Home affordance rather
+  // than pointing it somewhere wrong.
+  return result ? { branch: result.branch ?? '', cwd: result.cwd ?? '', home: result.home ?? '' } : null
 }
 
 /** Reveal a path in the OS file manager — local only, so unavailable here. */

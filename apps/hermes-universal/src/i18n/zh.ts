@@ -96,6 +96,10 @@ export const zh: Translations = {
     revealExplorer: '在文件资源管理器中显示',
     revealFileManager: '打开所在文件夹',
     revealInSidebar: '在文件树中显示',
+    download: '下载',
+    saveAs: '另存为…',
+    openFolderHere: '在此打开文件夹',
+    setAsProjectFolder: '设为项目文件夹',
     actions: '文件操作',
     copyPath: '复制路径',
     copyRelativePath: '复制相对路径',
@@ -2045,7 +2049,8 @@ export const zh: Translations = {
     kindLink: '链接',
     chat: '对话',
     copyUrl: '复制 URL',
-    copyPath: '复制路径'
+    copyPath: '复制路径',
+    download: name => `下载 ${name}`
   },
 
   sidebar: {
@@ -2783,6 +2788,9 @@ export const zh: Translations = {
   },
 
   rightSidebar: {
+    searchFiles: '搜索文件',
+    searchNoMatches: '没有匹配的文件',
+    goHome: '前往主目录',
     aria: '右侧边栏',
     panelsAria: '右侧边栏面板',
     files: '文件系统',

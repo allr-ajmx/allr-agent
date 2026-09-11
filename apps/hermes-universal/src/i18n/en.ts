@@ -96,6 +96,10 @@ export const en: Translations = {
     revealExplorer: 'Reveal in File Explorer',
     revealFileManager: 'Open Containing Folder',
     revealInSidebar: 'Reveal in filetree',
+    download: 'Download',
+    saveAs: 'Save as…',
+    openFolderHere: 'Open Folder Here',
+    setAsProjectFolder: 'Set as Project Folder',
     actions: 'File actions',
     copyPath: 'Copy Path',
     copyRelativePath: 'Copy Relative Path',
@@ -1888,7 +1892,8 @@ export const en: Translations = {
     kindLink: 'link',
     chat: 'Chat',
     copyUrl: 'Copy URL',
-    copyPath: 'Copy path'
+    copyPath: 'Copy path',
+    download: name => `Download ${name}`
   },
 
   sidebar: {
@@ -2677,6 +2682,9 @@ export const en: Translations = {
     loadingFiles: 'Loading files',
     filterFiles: 'Filter open folders',
     filterNoMatches: 'No matches in the folders you have open',
+    searchFiles: 'Search files',
+    searchNoMatches: 'No matching files',
+    goHome: 'Go to home folder',
     terminalHide: 'Hide terminal',
     terminalConnecting: 'Connecting…',
     terminalReconnecting: 'Reconnecting…',

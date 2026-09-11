@@ -108,6 +108,10 @@ export const zhHant = defineLocale({
     revealExplorer: '在檔案總管中顯示',
     revealFileManager: '開啟所在資料夾',
     revealInSidebar: '在檔案樹中顯示',
+    download: '下載',
+    saveAs: '另存新檔…',
+    openFolderHere: '在此開啟資料夾',
+    setAsProjectFolder: '設為專案資料夾',
     copyPath: '複製路徑',
     copyRelativePath: '複製相對路徑',
     rename: '重新命名…',
@@ -1666,7 +1670,8 @@ export const zhHant = defineLocale({
     kindLink: '連結',
     chat: '聊天',
     copyUrl: '複製 URL',
-    copyPath: '複製路徑'
+    copyPath: '複製路徑',
+    download: name => `下載 ${name}`
   },
 
   sidebar: {
@@ -2366,6 +2371,9 @@ export const zhHant = defineLocale({
   },
 
   rightSidebar: {
+    searchFiles: '搜尋檔案',
+    searchNoMatches: '沒有符合的檔案',
+    goHome: '前往主資料夾',
     aria: '右側邊欄',
     panelsAria: '右側邊欄面板',
     files: '檔案系統',
