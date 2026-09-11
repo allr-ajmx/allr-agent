@@ -18,6 +18,7 @@ import {
 import { RowButton } from '@/components/ui/row-button'
 import { Tip } from '@/components/ui/tooltip'
 import { getSessionMessages, listAllProfileSessions } from '@/hermes'
+import { useTapHandlers } from '@/hooks/use-tap'
 import { type Translations, useI18n } from '@/i18n'
 import {
   ExternalLink,
@@ -29,12 +30,13 @@ import {
 } from '@/lib/external-link'
 import { FileImage, FileText, FolderOpen, Link2, Loader2, RefreshCw } from '@/lib/icons'
 import { downloadGatewayMediaFile } from '@/lib/media'
-import { isFileMediaPath } from '@/lib/media-format'
+import { IS_TAURI } from '@/lib/platform'
 import { normalize } from '@/lib/text'
 import { fmtDayTime } from '@/lib/time'
 import { cn } from '@/lib/utils'
 import { useDisplayPath } from '@/store/display-home'
-import { notify, notifyError } from '@/store/notifications'
+import { downloadPath } from '@/store/downloads'
+import { notifyError } from '@/store/notifications'
 
 import { useRefreshHotkey } from '../hooks/use-refresh-hotkey'
 import { useRouteEnumParam } from '../hooks/use-route-enum-param'
@@ -42,6 +44,7 @@ import { PageSearchShell } from '../page-search-shell'
 import { sessionRoute } from '../routes'
 import type { SetStatusbarItemGroup } from '../shell/statusbar-controls'
 
+import { artifactOpenAction } from './artifact-open'
 import {
   ARTIFACT_FILTERS,
   type ArtifactFilter,
@@ -248,30 +251,45 @@ export function ArtifactsView({ setStatusbarItemGroup: _setStatusbarItemGroup, .
 
   const openArtifact = useCallback(
     async (artifact: ArtifactRecord) => {
+      // Which of the two it is is a pure question about the record — see
+      // `./artifact-open`, where the "a gateway path must never be handed to
+      // the OS browser" invariant is pinned without rendering anything.
+      const action = artifactOpenAction(artifact)
+
       try {
-        // A gateway-local artifact is bytes on the GATEWAY's disk, so Rust
-        // fetches it over the authenticated transport and writes it to the path
-        // the save dialog returned — the bytes never enter the webview. Sending
-        // the browser to `artifact.href` instead — the raw /api/files/download
-        // URL — cannot work behind a gated gateway: nothing outside the
-        // transport can authenticate that request, and it comes back 401.
-        // http(s) artifacts are somebody else's URL and still open outside.
-        if (isFileMediaPath(artifact.value)) {
-          // false = the user dismissed the save dialog, which is not an outcome
-          // worth a toast either way.
-          if (await downloadGatewayMediaFile(artifact.value)) {
-            notify({ kind: 'success', message: t.common.fileDownload.saved })
+        if (action.kind === 'download') {
+          // A gateway-local artifact is bytes on the GATEWAY's disk, so Rust
+          // fetches it over the authenticated transport and streams it to the
+          // path the save dialog returned — the bytes never enter the webview.
+          //
+          // `downloadPath` is the tray spine, and it resolves when the transfer
+          // is QUEUED, not when the bytes land: a 4 GB artifact must not hold
+          // this handler open for twenty minutes. It also does not reject when
+          // the transfer fails — the tray row is what reports that. Which is
+          // why there is no success toast here any more: the old one fired on
+          // "queued" and told the user the file was saved before a single byte
+          // had been written.
+          //
+          // Off-Tauri (plain-browser dev, vitest) there is no tray and no Rust
+          // transport, so `downloadPath` returns null having done nothing; the
+          // buffered blob fallback inside `downloadGatewayMediaFile` is the
+          // only route that works there.
+          if (IS_TAURI) {
+            await downloadPath(action.path)
+          } else {
+            await downloadGatewayMediaFile(action.path)
           }
 
           return
         }
 
-        await openExternalLink(artifact.href)
+        // http(s) artifacts are somebody else's URL and still open outside.
+        await openExternalLink(action.href)
       } catch (err) {
         notifyError(err, a.openFailed)
       }
     },
-    [a, t]
+    [a]
   )
 
   const markImageFailed = useCallback((id: string) => {
@@ -351,10 +369,10 @@ export function ArtifactsView({ setStatusbarItemGroup: _setStatusbarItemGroup, .
                   {pagedImageArtifacts.map(artifact => (
                     <ArtifactImageCard
                       artifact={artifact}
+                      ctx={cellCtx}
                       failedImage={failedImageIds.has(artifact.id)}
                       key={artifact.id}
                       onImageError={markImageFailed}
-                      onOpenChat={openChat}
                     />
                   ))}
                 </div>
@@ -440,16 +458,21 @@ function ArtifactsPagination({ className, itemLabel, onPageChange, page, pageSiz
 
 interface ArtifactImageCardProps {
   artifact: ArtifactRecord
+  /** The same ctx the table cells get — the card's title is a download target,
+   *  not decoration, and it must go through the one `openArtifact`. */
+  ctx: CellCtx
   failedImage: boolean
   onImageError: (id: string) => void
-  onOpenChat: (sessionId: string) => void
 }
 
-function ArtifactImageCard({ artifact, failedImage, onImageError, onOpenChat }: ArtifactImageCardProps) {
+function ArtifactImageCard({ artifact, ctx, failedImage, onImageError }: ArtifactImageCardProps) {
   const { t } = useI18n()
   const a = t.artifacts
   const kindLabel = artifact.kind === 'image' ? a.kindImage : artifact.kind === 'file' ? a.kindFile : a.kindLink
   const [src, setSrc] = useState('')
+  // Rule 31: a card in a scrolling grid is exactly the target the Android
+  // WebView rules against when a quick jab is followed by a pixel of movement.
+  const openTap = useTapHandlers(() => void ctx.onOpen(artifact))
 
   useEffect(() => {
     let active = true
@@ -495,23 +518,35 @@ function ArtifactImageCard({ artifact, failedImage, onImageError, onOpenChat }: 
       </div>
 
       <div className="space-y-1.5 p-2">
-        <div className="min-w-0">
-          <div className="mb-0.5 flex items-center gap-1 text-[0.625rem] uppercase tracking-[0.08em] text-(--ui-text-tertiary)">
-            <FileImage className="size-3" />
-            {kindLabel}
-          </div>
-          <div className="truncate text-[length:var(--conversation-caption-font-size)] font-medium">
-            {artifact.label}
-          </div>
-          <div className="mt-0.5 truncate text-[0.625rem] text-(--ui-text-tertiary)">{artifact.value}</div>
-        </div>
+        {/* The card's body is a real button, not a labelled <div>: this is the
+            target the user reported as dead — "clicking the image title it does
+            nothing, it should download". A sibling of the two other targets on
+            the card rather than their parent, because a <button> inside a
+            <button> is invalid DOM and React says so at runtime: the image is
+            already the Zoomable's trigger, and Chat is its own button. */}
+        <RowButton
+          className="flex w-full min-w-0 cursor-pointer flex-col gap-1.5 text-start transition-colors hover:text-foreground"
+          title={a.download(artifact.label)}
+          {...openTap}
+        >
+          <span className="block min-w-0 w-full">
+            <span className="mb-0.5 flex items-center gap-1 text-[0.625rem] uppercase tracking-[0.08em] text-(--ui-text-tertiary)">
+              <FileImage className="size-3" />
+              {kindLabel}
+            </span>
+            <span className="block truncate text-[length:var(--conversation-caption-font-size)] font-medium">
+              {artifact.label}
+            </span>
+            <span className="mt-0.5 block truncate text-[0.625rem] text-(--ui-text-tertiary)">{artifact.value}</span>
+          </span>
 
-        <div className="truncate text-[0.625rem] text-(--ui-text-tertiary)">
-          {artifact.sessionTitle} · {formatArtifactTime(artifact.timestamp)}
-        </div>
+          <span className="block w-full truncate text-[0.625rem] text-(--ui-text-tertiary)">
+            {artifact.sessionTitle} · {formatArtifactTime(artifact.timestamp)}
+          </span>
+        </RowButton>
 
         <div className="flex flex-wrap gap-1.5">
-          <Button onClick={() => onOpenChat(artifact.sessionId)} size="xs" type="button" variant="textStrong">
+          <Button onClick={() => ctx.onOpenChat(artifact.sessionId)} size="xs" type="button" variant="textStrong">
             <FolderOpen className="size-3" />
             {a.chat}
           </Button>
@@ -535,6 +570,11 @@ function ArtifactCellAction({
   onClick?: () => void
   title?: string
 }) {
+  // Rule 31, unconditionally (hooks precede the branch): a table row is the
+  // other target a scrolling touch surface loses `click` on. The <a> branch
+  // needs none — an anchor activation is not the engine's verdict to withhold.
+  const tap = useTapHandlers(() => onClick?.())
+
   if (href) {
     return (
       <ExternalLink
@@ -551,7 +591,7 @@ function ArtifactCellAction({
   return (
     <RowButton
       className="flex h-full w-full min-w-0 items-center gap-2 px-2.5 py-1.5 text-start text-[length:var(--conversation-caption-font-size)] leading-(--conversation-caption-line-height) font-normal text-(--ui-text-secondary) no-underline underline-offset-4 decoration-current/20 transition-colors hover:text-foreground hover:underline"
-      onClick={onClick}
+      {...tap}
     >
       {children}
     </RowButton>
