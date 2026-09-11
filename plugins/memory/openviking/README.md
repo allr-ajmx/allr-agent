@@ -94,9 +94,10 @@ Allr sends `OPENVIKING_ACCOUNT` and `OPENVIKING_USER` as identity headers.
 
 `viking_remember` writes directly to OpenViking with `POST /api/v1/content/write`
 and `mode=create`. It creates peer-scoped memory files under
-`viking://user/peers/${OPENVIKING_AGENT}/memories/...`; OpenViking may return a
-canonical user-scoped form such as
-`viking://user/default/peers/${OPENVIKING_AGENT}/memories/...` in API-key mode.
+`viking://~/peers/${OPENVIKING_AGENT}/memories/...` (`~` is the caller's own user
+space; OpenViking 0.4 rejects the old uid-less `viking://user/peers/...` spelling).
+OpenViking returns the canonical user-scoped form such as
+`viking://user/default/peers/${OPENVIKING_AGENT}/memories/...`.
 Explicit remembers do not depend on session commit extraction.
 
 Allr built-in `memory` tool additions are mirrored to OpenViking after the
@@ -113,7 +114,7 @@ memory URI.
 
 `viking_forget` is intentionally narrow. It only accepts concrete user memory
 file URIs, such as
-`viking://user/peers/hermes/memories/preferences/mem_abc123.md` or the canonical
+`viking://~/peers/hermes/memories/preferences/mem_abc123.md` or the canonical
 `viking://user/default/peers/hermes/memories/preferences/mem_abc123.md`. Files
 directly under `memories/`, such as `viking://user/default/memories/profile.md`,
 are also allowed because OpenViking supports them. The tool rejects directories,

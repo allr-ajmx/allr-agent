@@ -93,9 +93,12 @@ _RECALL_QUERY_MIN_CHARS = 5
 _RECALL_MIN_TIMEOUT_SECONDS = 0.05
 _READ_BATCH_LIMIT = 3
 _READ_BATCH_FULL_LIMIT = 2500
-_PROFILE_URI = "viking://user/memories/profile.md"
-_PREFERENCES_URI = "viking://user/memories/preferences"
-_ENTITIES_URI = "viking://user/memories/entities"
+# ``viking://~`` is the caller's own user space. OpenViking 0.4 rejects the old uid-less
+# ``viking://user/memories/...`` spelling with INVALID_URI ("'memories' is a reserved name, not a
+# user id"), so these reads would fail on every current server.
+_PROFILE_URI = "viking://~/memories/profile.md"
+_PREFERENCES_URI = "viking://~/memories/preferences"
+_ENTITIES_URI = "viking://~/memories/entities"
 _SESSION_START_LIST_PARAMS = {
     "output": "agent",
     "recursive": True,
@@ -542,7 +545,7 @@ BROWSE_SCHEMA = {
             },
             "path": {
                 "type": "string",
-                "description": "Viking URI path (default: viking://). Examples: 'viking://resources/', 'viking://user/memories/'.",
+                "description": "Viking URI path (default: viking://). Examples: 'viking://resources/', 'viking://~/memories/'.",
             },
         },
         "required": ["action"],
@@ -690,6 +693,10 @@ def _is_remote_resource_source(value: str) -> bool:
 
 
 def _memory_segment_index(parts: List[str]) -> Optional[int]:
+    if len(parts) >= 2 and parts[0] == "~" and parts[1] == "memories":
+        return 1
+    if len(parts) >= 4 and parts[0] == "~" and parts[1] == "peers" and parts[3] == "memories":
+        return 3
     if len(parts) >= 2 and parts[0] == "user" and parts[1] == "memories":
         return 1
     if len(parts) >= 3 and parts[0] == "user" and parts[2] == "memories":
@@ -4723,7 +4730,7 @@ class OpenVikingMemoryProvider(MemoryProvider):
     def _build_memory_uri(self, subdir: str) -> str:
         """Build a viking:// memory URI under the configured peer namespace."""
         slug = uuid.uuid4().hex[:12]
-        return f"viking://user/peers/{self._agent}/memories/{subdir}/mem_{slug}.md"
+        return f"viking://~/peers/{self._agent}/memories/{subdir}/mem_{slug}.md"
 
     def on_memory_write(
         self,
