@@ -1,5 +1,5 @@
 import { useStore } from '@nanostores/react'
-import { type ComponentProps, useState } from 'react'
+import { type ComponentProps, type KeyboardEvent as ReactKeyboardEvent, useEffect, useRef, useState } from 'react'
 
 import { TreeSkeleton } from '@/components/chat/skeletons'
 import { ErrorBoundary } from '@/components/error-boundary'
@@ -8,19 +8,24 @@ import { Codicon } from '@/components/ui/codicon'
 import { SearchField } from '@/components/ui/search-field'
 import { Tip } from '@/components/ui/tooltip'
 import { useDelayedTrue } from '@/hooks/use-delayed-true'
+import { useTapHandlers } from '@/hooks/use-tap'
 import { useI18n } from '@/i18n'
+import { type FileSearchHit, nextSelectionIndex, parentLabel } from '@/lib/file-search'
 import { normalizeOrLocalPreviewTarget } from '@/lib/local-preview'
 import { IS_MOBILE } from '@/lib/platform'
 import { cn } from '@/lib/utils'
+import { setExplorerPath } from '@/store/explorer-path'
 import { $panesFlipped, revealFileInTree } from '@/store/layout'
 import { notifyError } from '@/store/notifications'
 import { setCurrentSessionPreviewTarget } from '@/store/preview'
-import { $effectiveCwd } from '@/store/workspace-events'
+import { $effectiveCwd, $workspaceHome } from '@/store/workspace-events'
 
 import { SidebarPanelLabel } from '../shell/sidebar-label'
 
+import { FileEntryContextMenu } from './file-actions'
 import { ProjectTree } from './files/tree'
-import { type TreeNode, useProjectTree } from './files/use-project-tree'
+import { useFileSearch } from './files/use-file-search'
+import { useProjectTree } from './files/use-project-tree'
 
 interface RightSidebarPaneProps {
   onActivateFile: (path: string) => void
@@ -41,6 +46,14 @@ export function RightSidebarPane({ onActivateFile, onActivateFolder, onFileOpene
   // (resolveNewSessionCwd → '') has none, so `$effectiveCwd` hands back the
   // backend workspace root instead of leaving the tree blank; it only stays
   // empty during the boot window before that root has landed.
+  //
+  // This is the ONLY thing that roots the tree. There used to be a
+  // `$fileTreeRootOverride` layered on top for the Home button, and it broke
+  // the binding in both directions at once: it moved the view while the session
+  // kept working elsewhere, and while it was set a real cwd change could not
+  // show through it. Choosing a folder now moves a cwd (`store/explorer-path`)
+  // and the tree follows from `$effectiveCwd`, which is derived and therefore
+  // cannot disagree with the session.
   const cwd = useStore($effectiveCwd).trim()
   const hasWorkspace = Boolean(cwd)
 
@@ -154,7 +167,56 @@ function FilesystemTab({
 }: FilesystemTabProps) {
   const { t } = useI18n()
   const r = t.rightSidebar
-  const [filter, setFilter] = useState('')
+  const [query, setQuery] = useState('')
+  const [selected, setSelected] = useState(-1)
+  const home = useStore($workspaceHome).trim()
+  const search = useFileSearch({ cwd, data, query })
+  const trimmed = query.trim()
+
+  // Never point the cursor at a row that is no longer there: the answer landing
+  // replaces the list under a held arrow key.
+  const selectedIndex = Math.min(selected, search.hits.length - 1)
+
+  // Home asks the same question every other folder pick asks — move this chat,
+  // or only new ones — instead of silently re-rooting the view. `home` is the
+  // GATEWAY's home directory (sessions run there, not here); it is an additive
+  // field, so an older backend leaves it empty and the button is not rendered.
+  const homeTap = useTapHandlers(() => setExplorerPath(home))
+
+  const openHit = (hit: FileSearchHit) => {
+    if (hit.isDirectory) {
+      // A folder answer is "take me there", not "open it": clearing the query
+      // puts the tree back with that folder revealed, which is where the user
+      // can actually work.
+      setQuery('')
+      setSelected(-1)
+      revealFileInTree(hit.path)
+    } else {
+      ;(onPreviewFile ?? onActivateFile)(hit.path)
+    }
+  }
+
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (!trimmed) {
+      return
+    }
+
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault()
+      setSelected(nextSelectionIndex(selectedIndex, event.key === 'ArrowDown' ? 1 : -1, search.hits.length))
+    } else if (event.key === 'Enter') {
+      const hit = search.hits[selectedIndex >= 0 ? selectedIndex : 0]
+
+      if (hit) {
+        event.preventDefault()
+        openHit(hit)
+      }
+    } else if (event.key === 'Escape') {
+      event.preventDefault()
+      setQuery('')
+      setSelected(-1)
+    }
+  }
 
   // No working directory (a bare/detached chat) → no tree, just a terse hint.
   // Switching workspace is a project/worktree action, never a raw folder picker.
@@ -162,12 +224,35 @@ function FilesystemTab({
     return <PaneEmptyState label={r.noProjectOpen} />
   }
 
+  // The bar says what it can actually do. On a gateway with the search route
+  // that is the whole tree; on one without it, only the folders already
+  // expanded — which is what the original mobile-only filter promised, and the
+  // promise it must go back to making rather than pretending to be
+  // project-wide and silently missing things.
+  const searchLabel = search.available === false ? r.filterFiles : r.searchFiles
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <RightSidebarSectionHeader>
         <div className="flex min-w-0 flex-1">
           <SidebarPanelLabel>{cwdName}</SidebarPanelLabel>
         </div>
+        {/* Only when the gateway told us where home IS. `home` is additive on
+            `/api/fs/default-cwd`, so an older backend leaves it empty and the
+            button is simply absent — better than one that roots the tree at ''. */}
+        {home && (
+          <Tip label={r.goHome}>
+            <Button
+              aria-label={r.goHome}
+              className={HEADER_ACTION_LABEL_REVEAL}
+              size="icon-xs"
+              variant="ghost"
+              {...homeTap}
+            >
+              <Codicon name="home" size="0.8125rem" />
+            </Button>
+          </Tip>
+        )}
         <Tip label={r.refreshTree}>
           <Button
             aria-label={r.refreshTree}
@@ -194,34 +279,13 @@ function FilesystemTab({
         </Tip>
       </RightSidebarSectionHeader>
 
-      {/* Scrolling a deep tree with a thumb is the worst part of every mobile
-          IDE, so the phone gets a filter as its first-class way in. It matches
-          only what's been loaded — the tree is lazy and the gateway has no file
-          search — which the placeholder says out loud rather than pretending to
-          be a project-wide search that silently misses things. */}
-      {IS_MOBILE && (
-        <div className="shrink-0 px-2 pb-1">
-          <SearchField
-            aria-label={r.filterFiles}
-            containerClassName="w-full"
-            onChange={setFilter}
-            onClear={() => setFilter('')}
-            placeholder={r.filterFiles}
-            value={filter}
-          />
-        </div>
-      )}
-
-      {IS_MOBILE && filter.trim() ? (
+      {trimmed ? (
         <FilterResults
           cwd={cwd}
-          data={data}
-          onOpenFile={onPreviewFile ?? onActivateFile}
-          onOpenFolder={path => {
-            setFilter('')
-            revealFileInTree(path)
-          }}
-          query={filter.trim()}
+          emptyLabel={search.source === 'local' && search.available === false ? r.filterNoMatches : r.searchNoMatches}
+          hits={search.hits}
+          onOpen={openHit}
+          selectedIndex={selectedIndex}
         />
       ) : (
         <FileTreeBody
@@ -239,84 +303,154 @@ function FilesystemTab({
           openState={openState}
         />
       )}
+
+      {/* Docked at the BOTTOM, on every platform — scrolling a deep tree with a
+          thumb is the worst part of every mobile IDE, and a desktop tree with no
+          filter at all is not much better.
+
+          Rule 32 and the soft keyboard: this needs NO `--keyboard-inset`. The
+          rule is for `fixed` and portalled surfaces, and this bar is in normal
+          flow inside the mobile shell — `app/shell/mobile-workspace.tsx` is
+          itself the fixed surface, already sized to the VISIBLE rectangle via
+          `--visual-viewport-height` / `--visual-viewport-top`, and AGENTS.md is
+          explicit that anything in flow inside such a shell is handled for
+          free and that shells must not double-lift. The bottom safe area is the
+          tab bar's below us, for the same reason. Adding an inset here would
+          lift the bar twice and leave a dead band. */}
+      <div
+        className="shrink-0 border-t border-(--ui-stroke-secondary) px-2 py-1"
+        // Keydown, not a SearchField prop: the events bubble from the input and
+        // this keeps the shared field free of one caller's navigation model.
+        onKeyDown={handleKeyDown}
+      >
+        <SearchField
+          aria-label={searchLabel}
+          containerClassName="w-full"
+          loading={search.loading}
+          onChange={value => {
+            setQuery(value)
+            setSelected(-1)
+          }}
+          onClear={() => {
+            setQuery('')
+            setSelected(-1)
+          }}
+          placeholder={searchLabel}
+          value={query}
+        />
+      </div>
     </div>
   )
 }
 
-/** Cap the flat result list: past this it stops being scannable and starts being
- *  another tree to scroll. */
-const FILTER_RESULT_CAP = 200
-
-function collectMatches(nodes: TreeNode[], needle: string, out: TreeNode[]): TreeNode[] {
-  for (const node of nodes) {
-    if (out.length >= FILTER_RESULT_CAP) {
-      return out
-    }
-
-    if (!node.placeholder && node.name.toLowerCase().includes(needle)) {
-      out.push(node)
-    }
-
-    if (node.children?.length) {
-      collectMatches(node.children, needle, out)
-    }
-  }
-
-  return out
-}
-
-/** Flat matches, files and folders alike. Flat beats a filtered tree on a phone:
- *  the answer is one tap away instead of behind the disclosure chain that led to
- *  it. Tapping a folder returns to the tree with that folder revealed. */
+/** Flat matches, files and folders alike. Flat beats a filtered tree: the answer
+ *  is one tap away instead of behind the disclosure chain that led to it, and
+ *  the gateway's ranker returns paths from folders that were never expanded, so
+ *  there is no chain to show in the first place. Tapping a folder returns to the
+ *  tree with that folder revealed. */
 function FilterResults({
   cwd,
-  data,
-  onOpenFile,
-  onOpenFolder,
-  query
+  emptyLabel,
+  hits,
+  onOpen,
+  selectedIndex
 }: {
   cwd: string
-  data: TreeNode[]
-  onOpenFile: (path: string) => void
-  onOpenFolder: (path: string) => void
-  query: string
+  emptyLabel: string
+  hits: FileSearchHit[]
+  onOpen: (hit: FileSearchHit) => void
+  selectedIndex: number
 }) {
-  const { t } = useI18n()
-  const r = t.rightSidebar
-  const matches = collectMatches(data, query.toLowerCase(), [])
-
-  if (matches.length === 0) {
-    return <PaneEmptyState label={r.filterNoMatches} />
+  if (hits.length === 0) {
+    return <PaneEmptyState label={emptyLabel} />
   }
 
-  const root = cwd.replace(/[\\/]+$/, '')
+  return (
+    // A listbox, because that is what ↑/↓/Enter make it: without the role the
+    // rows' `aria-selected` describes nothing a screen reader can act on.
+    <div className="min-h-0 flex-1 overflow-y-auto" role="listbox">
+      {hits.map((hit, index) => (
+        <FilterResultRow
+          cwd={cwd}
+          hit={hit}
+          key={hit.path}
+          onOpen={onOpen}
+          parent={parentLabel(hit.path, cwd)}
+          selected={index === selectedIndex}
+        />
+      ))}
+    </div>
+  )
+}
+
+function FilterResultRow({
+  cwd,
+  hit,
+  onOpen,
+  parent,
+  selected
+}: {
+  cwd: string
+  hit: FileSearchHit
+  onOpen: (hit: FileSearchHit) => void
+  parent: string
+  selected: boolean
+}) {
+  const ref = useRef<HTMLButtonElement>(null)
+  // Rule 31: a finger's tap is resolved here rather than waiting on the
+  // engine's click verdict, which it withholds for a quick jab inside a
+  // scrollable list.
+  const tap = useTapHandlers(() => onOpen(hit))
+
+  useEffect(() => {
+    if (selected) {
+      ref.current?.scrollIntoView({ block: 'nearest' })
+    }
+  }, [selected])
+
+  const row = (
+    <button
+      aria-selected={selected}
+      className={cn(
+        'flex min-h-11 w-full items-center gap-2 px-3 text-start',
+        // The same size the tree row reads at (files/tree.tsx), mobile branch
+        // included. A search hit and a tree row are the same object seen two
+        // ways; they had no business being set in two different sizes.
+        IS_MOBILE ? 'text-sm leading-normal' : 'text-xs',
+        selected && 'bg-(--ui-control-hover-background)'
+      )}
+      ref={ref}
+      role="option"
+      type="button"
+      {...tap}
+    >
+      <Codicon
+        className="shrink-0 text-(--ui-text-tertiary)"
+        name={hit.isDirectory ? 'folder' : 'file'}
+        size="0.95rem"
+      />
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className="truncate text-foreground">{hit.name}</span>
+        {/* One step under the name, the same step the review tree puts its own
+            secondary path line at (review/file-tree.tsx) — not a literal picked
+            for this one row. */}
+        {parent && <span className="truncate text-[0.68rem] text-(--ui-text-tertiary)">{parent}</span>}
+      </span>
+    </button>
+  )
+
+  // Same menu as the tree, from the same `fileEntryMenuItems` definition, and
+  // the same phone rule: no right-click trigger where Radix would arm a 700ms
+  // long-press against the tap handler above. `relativeTo` is what makes Copy
+  // Relative Path appear; `isDirectory` is what decides the folder-only rows.
+  if (IS_MOBILE) {
+    return row
+  }
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto">
-      {matches.map(node => {
-        const relative = node.id.startsWith(root) ? node.id.slice(root.length).replace(/^[\\/]+/, '') : node.id
-        const parent = relative.slice(0, Math.max(0, relative.lastIndexOf('/')))
-
-        return (
-          <button
-            className="flex min-h-11 w-full items-center gap-2 px-3 text-start"
-            key={node.id}
-            onClick={() => (node.isDirectory ? onOpenFolder(node.id) : onOpenFile(node.id))}
-            type="button"
-          >
-            <Codicon
-              className="shrink-0 text-(--ui-text-tertiary)"
-              name={node.isDirectory ? 'folder' : 'file'}
-              size="0.95rem"
-            />
-            <span className="flex min-w-0 flex-1 flex-col">
-              <span className="truncate text-sm text-foreground">{node.name}</span>
-              {parent && <span className="truncate text-[0.7rem] text-(--ui-text-tertiary)">{parent}</span>}
-            </span>
-          </button>
-        )
-      })}
-    </div>
+    <FileEntryContextMenu isDirectory={hit.isDirectory} name={hit.name} path={hit.path} relativeTo={cwd}>
+      {row}
+    </FileEntryContextMenu>
   )
 }
 

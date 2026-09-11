@@ -113,6 +113,169 @@ def test_download_authenticates_via_query_token(forced_files_client):
     ).status_code == 401
 
 
+# ---------------------------------------------------------------------------
+# Folder download (/api/files/download-archive) and the lifted download ceiling
+# ---------------------------------------------------------------------------
+
+
+def _seed_tree(root):
+    """A directory with one member of every category the archive must decide on."""
+    tree = root / "project"
+    (tree / "src").mkdir(parents=True, exist_ok=True)
+    (tree / "src" / "main.py").write_text("print('hi')\n")
+    (tree / "README.md").write_text("# readme\n")
+    # Sensitive: a credential basename the managed-files guard denies everywhere.
+    (tree / ".env").write_text("SECRET_KEY=abc123\n")
+    # Build/VCS noise the listing endpoint already hides.
+    (tree / "node_modules").mkdir(exist_ok=True)
+    (tree / "node_modules" / "junk.js").write_text("// vendored\n")
+    # A credential DIRECTORY tree, denied by component and not by basename.
+    (tree / "mcp-tokens").mkdir(exist_ok=True)
+    (tree / "mcp-tokens" / "github.json").write_text('{"access_token": "SECRET"}\n')
+    return tree
+
+
+def _archive_of(client, path):
+    """Fetch the archive and return ``(sorted names, {name: bytes})``."""
+    import io
+    import zipfile
+
+    response = client.get("/api/files/download-archive", params={"path": str(path)})
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"] == "application/zip"
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        # A streamed archive is written with per-member data descriptors rather
+        # than back-patched local headers; testzip() is what proves the result
+        # is a readable zip and not merely a plausible byte string.
+        assert archive.testzip() is None
+        names = sorted(archive.namelist())
+        return names, {name: archive.read(name) for name in names}
+
+
+def test_archive_contains_the_expected_members(forced_files_client):
+    client, root = forced_files_client
+    tree = _seed_tree(root)
+
+    names, contents = _archive_of(client, tree)
+    assert names == ["README.md", "src/main.py"]
+    assert contents["src/main.py"] == b"print('hi')\n"
+
+
+def test_archive_names_the_download_after_the_directory(forced_files_client):
+    client, root = forced_files_client
+    tree = _seed_tree(root)
+
+    response = client.get("/api/files/download-archive", params={"path": str(tree)})
+    assert response.headers["content-disposition"].startswith(
+        'attachment; filename="project.zip"'
+    )
+
+
+def test_archive_excludes_sensitive_and_hidden_members(forced_files_client):
+    """#57505 from the other side: the archive must not become the exfil path
+    the listing and read routes refuse to be."""
+    client, root = forced_files_client
+    tree = _seed_tree(root)
+
+    names, _contents = _archive_of(client, tree)
+    assert ".env" not in names
+    assert "mcp-tokens/github.json" not in names
+    assert not any(name.startswith("node_modules/") for name in names)
+
+
+def test_archive_skips_symlinked_members(forced_files_client):
+    """A symlink is the one member that could walk out of a locked root."""
+    client, root = forced_files_client
+    tree = _seed_tree(root)
+    outside = root.parent / "outside-secret.txt"
+    outside.write_text("not yours\n")
+    try:
+        (tree / "escape.txt").symlink_to(outside)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks unavailable on this platform")
+
+    names, _contents = _archive_of(client, tree)
+    assert "escape.txt" not in names
+
+
+def test_archive_refuses_a_path_outside_a_locked_root(forced_files_client):
+    client, root = forced_files_client
+    root.mkdir(parents=True, exist_ok=True)
+    outside = root.parent / "elsewhere"
+    outside.mkdir(exist_ok=True)
+    (outside / "file.txt").write_text("nope\n")
+
+    denied = client.get("/api/files/download-archive", params={"path": str(outside)})
+    assert denied.status_code == 403
+
+
+def test_archive_404_is_distinguishable_from_a_missing_route(forced_files_client):
+    """MJXHRM-511 freezes the gateway, so the desktop client must feature-detect
+    this route and hide the folder-download affordance on an older backend
+    instead of erroring. Both 404s look alike by status, so the client tells
+    them apart by BODY: this route's 404 always carries a FastAPI ``detail``
+    that does not mention a route, while an unmatched /api/* path lands on one
+    of the two catch-alls — ``{"detail": "No such API endpoint: ..."}`` when the
+    SPA is built, ``{"error": "Frontend not built..."}`` when it is not. Both
+    shapes are pinned here; breaking either one makes every folder download on a
+    current gateway silently disappear instead."""
+    client, root = forced_files_client
+    file_path = _seed_file(client, root)
+
+    not_a_dir = client.get("/api/files/download-archive", params={"path": str(file_path)})
+    assert not_a_dir.status_code == 400
+
+    missing = client.get(
+        "/api/files/download-archive", params={"path": str(root / "no-such-dir")}
+    )
+    assert missing.status_code == 404
+    body = missing.json()
+    assert "detail" in body
+    assert "No such API endpoint" not in body["detail"]
+
+    absent_route = client.get("/api/files/download-archive-that-does-not-exist").json()
+    assert "error" in absent_route or "No such API endpoint" in absent_route.get("detail", "")
+
+
+def test_archive_authenticates_via_query_token(forced_files_client):
+    client, root = forced_files_client
+    tree = _seed_tree(root)
+
+    del client.headers[web_server._SESSION_HEADER_NAME]
+
+    assert client.get(
+        "/api/files/download-archive",
+        params={"path": str(tree), "token": web_server._SESSION_TOKEN},
+    ).status_code == 200
+    assert client.get(
+        "/api/files/download-archive", params={"path": str(tree)}
+    ).status_code == 401
+
+
+def test_large_file_downloads_but_still_cannot_be_read(forced_files_client, monkeypatch):
+    """The 100 MB ceiling was the wrong guard on the wrong route.
+
+    /api/files/read base64-encodes the whole file into a JSON body and genuinely
+    cannot afford a large one, so it keeps the cap. /api/files/download hands a
+    FileResponse to the ASGI server, which streams it in fixed-size chunks — the
+    cap there only ever meant "the desktop app cannot download your 200 MB
+    checkpoint". The constant is lowered rather than a 100 MB file written, so
+    the test stays fast; what it pins is which route enforces it.
+    """
+    client, root = forced_files_client
+    monkeypatch.setattr(web_server, "_MANAGED_FILE_MAX_BYTES", 8)
+
+    root.mkdir(parents=True, exist_ok=True)
+    big = root / "big.bin"
+    big.write_bytes(b"x" * 64)
+
+    assert client.get("/api/files/read", params={"path": str(big)}).status_code == 413
+
+    downloaded = client.get("/api/files/download", params={"path": str(big)})
+    assert downloaded.status_code == 200
+    assert downloaded.content == b"x" * 64
+
+
 def test_query_token_does_not_authenticate_other_endpoints(forced_files_client):
     client, root = forced_files_client
     file_path = _seed_file(client, root)

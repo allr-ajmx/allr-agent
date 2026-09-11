@@ -1,5 +1,14 @@
 import { useStore } from '@nanostores/react'
-import { type KeyboardEvent as ReactKeyboardEvent, useCallback, useEffect, useRef, useState } from 'react'
+import {
+  createContext,
+  type KeyboardEvent as ReactKeyboardEvent,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState
+} from 'react'
 import { type NodeApi, type NodeRendererProps, type RowRendererProps, Tree, type TreeApi } from 'react-arborist'
 
 import { TreeSkeleton } from '@/components/chat/skeletons'
@@ -200,45 +209,90 @@ export function ProjectTree({
     beginInlineRename(node.data.id)
   }, [])
 
+  // Everything the row renderer needs that is NOT arborist's own node props.
+  // It travels by context rather than by closure for one reason, and it is the
+  // whole of MJXHRM's "the menu vanishes" bug: `props.children` IS the node
+  // renderer's ELEMENT TYPE (`tree.renderNode`, react-arborist
+  // row-container.js:61). An inline `{props => <ProjectTreeRow …/>}` is a new
+  // function identity on every render of this component, so every re-render
+  // handed React a different type for every visible row — which React can only
+  // service by UNMOUNTING each row and mounting a replacement. Each row carries
+  // two Radix roots; unmounting one closes its menu, mid-`onSelect` if that is
+  // when the re-render landed. A module-level component keeps the type constant,
+  // so a re-render updates the rows in place and an open menu survives it.
+  const rowContext = useMemo(
+    () => ({
+      changeByPath,
+      onAttachFile: onActivateFile,
+      onAttachFolder: onActivateFolder,
+      onPreviewFile,
+      relativeTo: cwd
+    }),
+    [changeByPath, cwd, onActivateFile, onActivateFolder, onPreviewFile]
+  )
+
   return (
     <div className="min-h-0 flex-1 overflow-hidden" onKeyDownCapture={handleRenameShortcut} ref={containerRef}>
       {height > 0 ? (
-        <Tree<TreeNode>
-          childrenAccessor={node => (node?.isDirectory ? (node.children ?? []) : null)}
-          data={data}
-          disableDrag
-          disableDrop
-          disableEdit
-          dndManager={getFileTreeDndManager()}
-          height={height}
-          indent={INDENT}
-          initialOpenState={openState}
-          key={`${cwd}:${collapseNonce}`}
-          onActivate={handleActivate}
-          onToggle={handleToggle}
-          openByDefault={false}
-          padding={0}
-          ref={treeRef}
-          renderRow={ProjectTreeRowContainer}
-          rowHeight={ROW_HEIGHT}
-          // CSS, not a measured pixel count — see the height-only note above.
-          width="100%"
-        >
-          {props => (
-            <ProjectTreeRow
-              {...props}
-              changeKind={props.node.data ? changeByPath.get(props.node.data.id) : undefined}
-              onAttachFile={onActivateFile}
-              onAttachFolder={onActivateFolder}
-              onPreviewFile={onPreviewFile}
-              relativeTo={cwd}
-            />
-          )}
-        </Tree>
+        <ProjectTreeRowContext.Provider value={rowContext}>
+          <Tree<TreeNode>
+            childrenAccessor={node => (node?.isDirectory ? (node.children ?? []) : null)}
+            data={data}
+            disableDrag
+            disableDrop
+            disableEdit
+            dndManager={getFileTreeDndManager()}
+            height={height}
+            indent={INDENT}
+            initialOpenState={openState}
+            key={`${cwd}:${collapseNonce}`}
+            onActivate={handleActivate}
+            onToggle={handleToggle}
+            openByDefault={false}
+            padding={0}
+            ref={treeRef}
+            renderRow={ProjectTreeRowContainer}
+            rowHeight={ROW_HEIGHT}
+            // CSS, not a measured pixel count — see the height-only note above.
+            width="100%"
+          >
+            {ProjectTreeNodeRenderer}
+          </Tree>
+        </ProjectTreeRowContext.Provider>
       ) : (
         <TreeSizingState />
       )}
     </div>
+  )
+}
+
+interface ProjectTreeRowContextValue {
+  changeByPath: Map<string, RepoChangeKind>
+  onAttachFile: (path: string) => void
+  onAttachFolder: (path: string) => void
+  onPreviewFile?: (path: string) => void
+  relativeTo?: null | string
+}
+
+const EMPTY_CHANGES: Map<string, RepoChangeKind> = new Map()
+
+const ProjectTreeRowContext = createContext<ProjectTreeRowContextValue>({
+  changeByPath: EMPTY_CHANGES,
+  onAttachFile: () => {},
+  onAttachFolder: () => {}
+})
+
+/** The node renderer, as a STABLE component type — see `rowContext` above for
+ *  why that identity is load-bearing rather than a micro-optimisation. */
+function ProjectTreeNodeRenderer(props: NodeRendererProps<TreeNode>) {
+  const { changeByPath, ...rest } = useContext(ProjectTreeRowContext)
+
+  return (
+    <ProjectTreeRow
+      {...props}
+      {...rest}
+      changeKind={props.node.data ? changeByPath.get(props.node.data.id) : undefined}
+    />
   )
 }
 
@@ -361,13 +415,55 @@ function ProjectTreeRow({
   const isErrorPlaceholder = node.data.placeholder === 'error'
   const editing = !isPlaceholder && renamingPath === node.data.id
 
-  const row = (
+  // The row's CONTENT, and the right-click trigger — deliberately not the row
+  // element itself, so that `FileEntryActionsMenu` below is this trigger's
+  // SIBLING rather than its descendant. Two Radix roots on one element share a
+  // pointer stream: the context trigger installs its own pointerdown/move/up for
+  // a 700ms long-press, and the kebab only ever stopped propagation at
+  // `pointerdown`, so the trigger kept seeing the rest of the gesture.
+  //
+  // `absolute inset-0` rather than an in-flow `flex-1`, and that is the whole
+  // point: in flow it would end where the kebab begins, leaving the row's last
+  // ~32px — the far right edge people habitually aim at — with no right-click at
+  // all. Filling the row keeps the trigger the full width while the kebab, which
+  // comes later in DOM order and is positioned, still paints and hits above it.
+  // The trailing padding reserves the kebab's own width so a long name
+  // ellipsizes before it instead of running underneath.
+  const label = (
+    <div
+      className={cn('absolute inset-0 flex items-center', IS_MOBILE ? 'gap-2 pe-14' : 'gap-1 pe-8')}
+      style={{ paddingLeft: withTreeInset(style.paddingLeft) }}
+    >
+      {/* No chevron column — the folder icon (open/closed) already carries the
+          expand state, so the extra glyph was pure noise. */}
+      <span aria-hidden className="flex w-3.5 items-center justify-center text-(--ui-text-tertiary)">
+        {isPlaceholder && !isErrorPlaceholder ? (
+          <Codicon name="loading" size="0.75rem" spinning />
+        ) : isErrorPlaceholder ? (
+          <Codicon name="warning" size="0.75rem" />
+        ) : isFolder ? (
+          <Codicon name={node.isOpen ? 'folder-opened' : 'folder'} size="0.875rem" />
+        ) : (
+          <Codicon name="file" size="0.875rem" />
+        )}
+      </span>
+      {editing ? (
+        <InlineRenameInput name={node.data.name} path={node.data.id} />
+      ) : (
+        // Git decoration (VS Code-style): tint changed files; the explicit color
+        // wins over the row's hover/selected text color, so it persists.
+        <span className={cn('min-w-0 flex-1 truncate', changeKind && CHANGE_TINT[changeKind])}>{node.data.name}</span>
+      )}
+    </div>
+  )
+
+  return (
     <div
       aria-expanded={isFolder ? node.isOpen : undefined}
       aria-selected={node.isSelected}
       className={cn(
-        'group/row row-hover flex h-full select-none items-center gap-1 border border-transparent px-3 font-normal leading-(--file-tree-row-height) text-(--ui-text-secondary) hover:text-foreground',
-        IS_MOBILE ? 'gap-2 text-sm leading-normal' : 'text-xs',
+        'group/row row-hover relative flex h-full select-none items-center border border-transparent font-normal leading-(--file-tree-row-height) text-(--ui-text-secondary) hover:text-foreground',
+        IS_MOBILE ? 'text-sm leading-normal' : 'text-xs',
         node.isSelected && 'bg-(--ui-row-active-background) text-foreground',
         isPlaceholder && 'pointer-events-none italic text-muted-foreground/70'
       )}
@@ -427,37 +523,30 @@ function ProjectTreeRow({
         event.dataTransfer.setData('text/plain', node.data.id)
       }}
       ref={dragHandle}
-      style={{
-        ...style,
-        paddingLeft: withTreeInset(style.paddingLeft)
-      }}
       title={displayPath(node.data.id)}
     >
-      {/* No chevron column — the folder icon (open/closed) already carries the
-          expand state, so the extra glyph was pure noise. */}
-      <span aria-hidden className="flex w-3.5 items-center justify-center text-(--ui-text-tertiary)">
-        {isPlaceholder && !isErrorPlaceholder ? (
-          <Codicon name="loading" size="0.75rem" spinning />
-        ) : isErrorPlaceholder ? (
-          <Codicon name="warning" size="0.75rem" />
-        ) : isFolder ? (
-          <Codicon name={node.isOpen ? 'folder-opened' : 'folder'} size="0.875rem" />
-        ) : (
-          <Codicon name="file" size="0.875rem" />
-        )}
-      </span>
-      {editing ? (
-        <InlineRenameInput name={node.data.name} path={node.data.id} />
+      {/* No context menu on a phone. Radix's trigger arms a 700ms touch
+          long-press of its own, which is the third thing competing for the same
+          press — and it is redundant there, because the kebab beside it exists
+          precisely so these actions have a touch path. Right-click keeps it on
+          every pointer that has one. */}
+      {isPlaceholder || IS_MOBILE ? (
+        label
       ) : (
-        // Git decoration (VS Code-style): tint changed files; the explicit color
-        // wins over the row's hover/selected text color, so it persists.
-        <span className={cn('min-w-0 flex-1 truncate', changeKind && CHANGE_TINT[changeKind])}>{node.data.name}</span>
+        <FileEntryContextMenu isDirectory={isFolder} name={node.data.name} path={node.data.id} relativeTo={relativeTo}>
+          {label}
+        </FileEntryContextMenu>
       )}
-      {/* The context menu below is right-click only, so without this the row's
-          actions have no touch path at all. Rendered for every row so the
+      {/* The context menu beside it is right-click only, so without this the
+          row's actions have no touch path at all. Rendered for every row so the
           column width is stable; it is the visibility that varies. */}
       {!editing && !isPlaceholder && (
         <FileEntryActionsMenu
+          // The row's only IN-FLOW child, so `ms-auto` is what puts it at the
+          // end; `relative` is what puts it above the absolutely-positioned
+          // trigger it shares the row with (both are positioned, so DOM order
+          // decides, and it comes second).
+          className="relative ms-auto me-3"
           isDirectory={isFolder}
           name={node.data.name}
           path={node.data.id}
@@ -465,19 +554,5 @@ function ProjectTreeRow({
         />
       )}
     </div>
-  )
-
-  // No context menu on a phone. Radix's trigger arms a 700ms touch long-press of
-  // its own, which is the third thing competing for the same press — and it is
-  // redundant here, because the kebab above exists precisely so these actions
-  // have a touch path. Right-click keeps it on every pointer that has one.
-  if (isPlaceholder || IS_MOBILE) {
-    return row
-  }
-
-  return (
-    <FileEntryContextMenu isDirectory={isFolder} name={node.data.name} path={node.data.id} relativeTo={relativeTo}>
-      {row}
-    </FileEntryContextMenu>
   )
 }

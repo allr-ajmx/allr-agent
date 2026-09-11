@@ -161,7 +161,24 @@ futures-util = { version = "0.3", default-features = false, features = ["sink"] 
 # for its extension check without hand-rolling a decoder.
 percent-encoding = "2"
 # rustls so we don't need OpenSSL/NDK-cross OpenSSL on the Android build.
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "cookies", "multipart"] }
+#
+# BOTH root sources, deliberately in step with tokio-tungstenite below —
+# `rustls-tls` alone expands to `rustls-tls-webpki-roots`, i.e. the bundled
+# Mozilla set and nothing else, so HTTP did NOT honor the OS trust store while
+# the WEBSOCKET did. One hostname, two verdicts: `wss://` connected and every
+# REST call to the same gateway failed the handshake. That asymmetry bites any
+# self-signed or corporate-MITM gateway, not just a dev box with a local CA.
+#
+# The two sources are additive rather than exclusive — reqwest builds ONE
+# `RootCertStore` and extends it with webpki roots and then native certs
+# (async_impl/client.rs) — and both default to on once their feature is
+# enabled, so no `ClientBuilder` call is needed at the construction sites in
+# transport.rs. Android keeps working for the same reason spelled out below:
+# its empty native store yields zero valid and zero invalid certs, which skips
+# reqwest's "zero valid certificates" error, and webpki still fills the store.
+# `rustls-native-certs` was already in the lockfile via tokio-tungstenite, so
+# this pulls in no new dependency and no second crypto provider.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "rustls-tls-native-roots", "json", "cookies", "multipart"] }
 # Enable BOTH root sources: native-roots so desktop honors the OS trust store (corporate
 # / self-signed CAs), AND webpki-roots as the fallback. Android exposes no file-based
 # native cert store, so native-roots alone fails at the wss:// handshake with "no native

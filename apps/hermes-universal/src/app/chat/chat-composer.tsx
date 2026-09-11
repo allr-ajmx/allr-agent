@@ -11,6 +11,7 @@ import {
 } from '@/app/chat/attachments'
 import { ChatBar } from '@/app/chat/composer'
 import { useComposerScope } from '@/app/chat/composer/scope'
+import type { DroppedFile } from '@/app/chat/hooks/use-composer-actions'
 import { useSlashCommand } from '@/app/chat/hooks/use-slash-command'
 import { useSessionView } from '@/app/chat/session-view'
 import { setPrimarySlashRunner } from '@/app/chat/slash-runner'
@@ -189,6 +190,50 @@ export function ChatComposer() {
     [addStagedToScope]
   )
 
+  // HTML5 FILE DROP. The same story as the image paste above, one gesture over:
+  // the composer has had a whole drag-and-drop engine since the port
+  // (`use-composer-drop.ts`) and nothing ever handed it a handler, so every
+  // branch of it dead-ended on `!onAttachDroppedItems` — including, until this
+  // was wired, the `preventDefault()` that stops the webview navigating to the
+  // dropped `file://` URL (MJXHRM-A2).
+  //
+  // `extractDroppedFiles` splits by ORIGIN, not by path: an in-app drag (project
+  // tree, gutter) carries a workspace-relative path and no `File`, and stays an
+  // inline `@file:`/`@line:` ref the gateway resolves itself. What reaches HERE
+  // is the other half — real OS drops, which on every webview Tauri is not
+  // intercepting carry `File` bytes and an EMPTY path (`DroppedFile.path`), so
+  // there is nothing for `droppedFileInlineRef` to build a ref out of and bytes
+  // are the only thing to send. That is `stageAttachmentFromBlob`'s arm, the same
+  // `file.attach` `data_url` upload a pasted screenshot takes; the file's own
+  // name rides along so the chip and the gateway agree on what it is called.
+  //
+  // Desktop-under-Tauri never gets here at all: `dragDropEnabled` swallows HTML5
+  // DnD at the window level and `use-file-drop.ts` stages by absolute path
+  // instead. This is the path for everywhere else.
+  const onAttachDroppedItems = useCallback(
+    async (candidates: DroppedFile[]) => {
+      let attached = false
+
+      for (const candidate of candidates) {
+        const file = candidate.file
+
+        if (!file) {
+          continue
+        }
+
+        const staged = await stageAttachmentFromBlob(file, file.name || undefined)
+
+        if (staged) {
+          addStagedToScope(staged)
+          attached = true
+        }
+      }
+
+      return attached
+    },
+    [addStagedToScope]
+  )
+
   // The explicit "Paste image" action, and the fallback for a paste event that
   // arrives EMPTY — which is what a WSL2/WSLg host screenshot looks like, since
   // the Windows clipboard doesn't bridge images to the Linux clipboard the DOM
@@ -266,6 +311,7 @@ export function ChatComposer() {
       disabled={gatewayState !== 'open'}
       focusKey={sessionId}
       gateway={getGatewayClient()}
+      onAttachDroppedItems={onAttachDroppedItems}
       onAttachImageBlob={onAttachImageBlob}
       onCancel={onCancel}
       onPasteClipboardImage={canReadClipboardImage() ? onPasteClipboardImage : undefined}

@@ -18,6 +18,7 @@ import {
   reactToMessage,
   respondPreviewRead,
   respondWindowRead,
+  setSessionCwd,
   steerSubagent,
   WAKE_FEED_SAMPLE_RATE
 } from './gateway-rpc'
@@ -90,6 +91,42 @@ describe('preview/window read respond', () => {
     rpc.mockResolvedValue({ status: 'expired' })
 
     await expect(respondWindowRead('req-3', '{}')).resolves.toEqual({ status: 'expired' })
+  })
+})
+
+describe('session.cwd.set', () => {
+  it('sends the RUNTIME session_id, not a stored key', async () => {
+    // Rule 17, and the trap this whole file exists for: the gateway resolves
+    // this method with a straight `_sessions[session_id]` lookup, so a stored
+    // key does not fail loudly — it comes back as a bare `4001 session not
+    // found`. The sibling `session.workspace.move` below takes the STORED key
+    // under a DIFFERENT parameter name, and the two are not interchangeable.
+    await setSessionCwd({ cwd: '/repo/app', sessionId: 'runtime-1' })
+
+    expect(rpc).toHaveBeenCalledWith('session.cwd.set', { cwd: '/repo/app', session_id: 'runtime-1' })
+    expect(sentParams()).not.toHaveProperty('session_key')
+  })
+
+  it('returns the info snapshot the handler answers with', async () => {
+    // The same record it re-emits as `session.info`, which is what actually
+    // moves the client's slice — and therefore the file tree.
+    rpc.mockResolvedValue({ branch: 'main', cwd: '/repo/app', lazy: false, project: null })
+
+    await expect(setSessionCwd({ cwd: '~/repo/app', sessionId: 'runtime-1' })).resolves.toEqual({
+      branch: 'main',
+      cwd: '/repo/app',
+      lazy: false,
+      project: null
+    })
+  })
+
+  it('propagates the busy refusal with its code intact', async () => {
+    // `4009` is how a mid-turn session declines. The caller distinguishes it
+    // from a real failure by CODE (store/explorer-path-decision), so the helper
+    // must not flatten the rejection into a plain Error.
+    rpc.mockRejectedValue(new GatewayRpcError('session busy', 4009))
+
+    await expect(setSessionCwd({ cwd: '/repo/app', sessionId: 'runtime-1' })).rejects.toMatchObject({ code: 4009 })
   })
 })
 

@@ -10,6 +10,7 @@ import { translateNow, useI18n } from '@/i18n'
 import { isDesktopFsRemoteMode } from '@/lib/desktop-fs'
 import { IS_MAC } from '@/lib/keybinds/combo'
 import { cn } from '@/lib/utils'
+import { $folderDownloadAvailable, downloadFolder, downloadPath } from '@/store/downloads'
 import {
   $fileActionDialog,
   beginInlineRename,
@@ -38,6 +39,34 @@ export function pickRevealLabel(finder: string, explorer: string, fileManager: s
   return IS_MAC ? finder : IS_WIN ? explorer : fileManager
 }
 
+/**
+ * Make `path` the folder the explorer — and the chat — is working in.
+ *
+ * Both folder rows land here, differing only in `adoptProject`: "Open Folder
+ * Here" changes the working directory and nothing else, while "Set as Project
+ * Folder" also adopts the folder as a project (`store/projects` refreshes the
+ * tree, adopts or creates the project, navigates to it and starts a work
+ * session). The session half is identical for the two, which is the point: one
+ * decision, one prompt, one source of truth for where we are
+ * (`store/explorer-path`).
+ *
+ * Reached through a dynamic import (the seam §6.4 names) rather than a static
+ * one: this module is a LEAF that both file trees and the git review tree
+ * mount, while `store/explorer-path` reaches the gateway client — and, for the
+ * project half, `store/chat` and `store/session` behind it. A user-initiated
+ * menu row can afford the chunk load; making every tree row's menu drag the
+ * session layer in cannot.
+ */
+async function goToFolder(path: string, adoptProject: boolean): Promise<void> {
+  try {
+    const { setExplorerPath } = await import('@/store/explorer-path')
+
+    setExplorerPath(path, { adoptProject })
+  } catch (error) {
+    notifyError(error, translateNow('errors.genericFailure'))
+  }
+}
+
 export interface FileEntryTarget {
   isDirectory: boolean
   /** Display name (basename). */
@@ -58,13 +87,26 @@ export interface FileEntryTarget {
  */
 export function fileEntryMenuItems(
   { isDirectory, name, path, relativeTo }: FileEntryTarget,
-  m: ReturnType<typeof useI18n>['t']['fileMenu']
+  m: ReturnType<typeof useI18n>['t']['fileMenu'],
+  d: Pick<ReturnType<typeof useI18n>['t']['downloads'], 'downloadFolder'>
 ): (kit: MenuKit) => ReactNode {
   // Reveal / rename / delete need the local filesystem; hide them on a remote
   // backend (copy-path still works everywhere).
   const localFs = !isDesktopFsRemoteMode()
   const target: FileActionTarget = { isDirectory, name, path }
   const revealLabel = pickRevealLabel(m.revealFinder, m.revealExplorer, m.revealFileManager)
+  // Deliberately OUTSIDE the `localFs` guard, and the reason is the whole point
+  // of the row: in Universal `isDesktopFsRemoteMode()` is unconditionally true,
+  // which is why this menu currently offers two copy-path items and nothing
+  // else. Download is meaningful PRECISELY because the file is on the gateway
+  // rather than on this device.
+  //
+  // The folder variant needs the gateway's archive route, which the MJXHRM-511
+  // backend freeze means an older one does not have. `$folderDownloadAvailable`
+  // is read at render time (not subscribed): this function is called from the
+  // menu's own render, so a change re-runs it the next time the menu opens,
+  // which is the only moment the answer can matter.
+  const canDownloadFolder = $folderDownloadAvailable.get() !== false
 
   return (kit: MenuKit) => (
     <>
@@ -77,6 +119,42 @@ export function fileEntryMenuItems(
       <kit.Item onSelect={() => void copyFilePath(path)}>{m.copyPath}</kit.Item>
       {relativeTo && (
         <kit.Item onSelect={() => void copyFilePath(toRelativePath(path, relativeTo))}>{m.copyRelativePath}</kit.Item>
+      )}
+      {/* `downloadPath` / `downloadFolder` resolve when the transfer is QUEUED,
+          not when the bytes land, and neither throws on a transfer failure —
+          the downloads tray is what reports one. So there is nothing to await
+          and nothing to catch here. */}
+      {(!isDirectory || canDownloadFolder) && (
+        <>
+          <kit.Separator />
+          <kit.Item onSelect={() => void (isDirectory ? downloadFolder(path) : downloadPath(path))}>
+            {isDirectory ? d.downloadFolder : m.download}
+          </kit.Item>
+          {/* The same transfer with the destination chosen by hand. Download
+              itself never opens a dialog any more (a browser's does not
+              either), so this row is the only way to ask for one — which is
+              why it sits beside Download rather than replacing it. */}
+          <kit.Item
+            onSelect={() =>
+              void (isDirectory ? downloadFolder(path, { prompt: true }) : downloadPath(path, { prompt: true }))
+            }
+          >
+            {m.saveAs}
+          </kit.Item>
+        </>
+      )}
+      {isDirectory && (
+        <>
+          {/* The download row above already opened this group — unless it was
+              dropped, in which case this row needs the separator itself. */}
+          {!canDownloadFolder && <kit.Separator />}
+          {/* The gesture the tree was missing: rows only expanded and collapsed,
+              so there was no way to say "this is where I am working now". It
+              sits above Set as Project Folder because it is the lighter half of
+              it — the same cwd move, without adopting a project. */}
+          <kit.Item onSelect={() => void goToFolder(path, false)}>{m.openFolderHere}</kit.Item>
+          <kit.Item onSelect={() => void goToFolder(path, true)}>{m.setAsProjectFolder}</kit.Item>
+        </>
       )}
       {localFs && (
         <>
@@ -98,7 +176,7 @@ interface FileEntryContextMenuProps extends FileEntryTarget {
 /** Right-click menu shared by both file trees (browser + review/git). */
 export function FileEntryContextMenu({ children, ...target }: FileEntryContextMenuProps) {
   const { t } = useI18n()
-  const items = fileEntryMenuItems(target, t.fileMenu)
+  const items = fileEntryMenuItems(target, t.fileMenu, t.downloads)
 
   return (
     <ContextMenu>
@@ -124,10 +202,18 @@ export function FileEntryContextMenu({ children, ...target }: FileEntryContextMe
  */
 export function FileEntryActionsMenu({ className, ...target }: FileEntryTarget & { className?: string }) {
   const { t } = useI18n()
-  const items = fileEntryMenuItems(target, t.fileMenu)
+  const items = fileEntryMenuItems(target, t.fileMenu, t.downloads)
+  // Open state held in React rather than read back off the button with
+  // `data-[state=open]:opacity-100`. The menu CONTENT is portalled to <body>,
+  // so the moment the pointer travels toward it the row's `group/row` hover is
+  // gone and the only thing still painting the button is that one selector —
+  // on a DOM node that lives inside a virtualized row and has to survive every
+  // re-render for the rule to keep holding. A state this component owns cannot
+  // be lost that way.
+  const [open, setOpen] = useState(false)
 
   return (
-    <DropdownMenu>
+    <DropdownMenu onOpenChange={setOpen} open={open}>
       <DropdownMenuTrigger asChild>
         <button
           aria-label={t.fileMenu.actions}
@@ -138,7 +224,8 @@ export function FileEntryActionsMenu({ className, ...target }: FileEntryTarget &
             // press — so it has to be a deliberate target, not an accidental
             // one. `size-11` is 44px; the glyph inside keeps its size.
             'coarse:size-11',
-            'fine:opacity-0 fine:group-hover/row:opacity-100 fine:group-focus-within/row:opacity-100 fine:data-[state=open]:opacity-100',
+            'fine:group-hover/row:opacity-100 fine:group-focus-within/row:opacity-100',
+            open ? 'fine:opacity-100' : 'fine:opacity-0',
             className
           )}
           // The tree row navigates on click and starts a drag on pointerdown;

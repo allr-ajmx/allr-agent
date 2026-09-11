@@ -8,6 +8,11 @@
  * confirmation (MJXHRM-390), which lived in `ContribController` — the DOCKED
  * TILE TREE only — so a phone could park a "this chat is still working" prompt
  * that nothing would ever draw.
+ *
+ * The folder-pick prompt (`ExplorerPathDialog`) joins them for the same reason:
+ * it is asked by a titlebar button, a tree row's context menu and a search
+ * hit's kebab — all transient, one of them unmounted by Radix the instant it is
+ * selected — so the window has to own it, in every root.
  */
 
 import { render, screen } from '@testing-library/react'
@@ -24,6 +29,14 @@ vi.mock('@/app/right-pane/files/remote-picker', () => ({
 }))
 vi.mock('@/components/find-bar', () => ({ FindBar: () => <div data-testid="find-bar" /> }))
 vi.mock('@/app/close-confirm', () => ({ CloseConfirm: () => <div data-testid="close-confirm" /> }))
+// Stubbed like its neighbours, and for the extra reason the `@/store/windows`
+// mock below warns about: the real dialog reaches `store/explorer-path` →
+// `store/session-states` → the pane-shell layout store, which calls
+// `isSecondaryWindow()` at module scope. A partial mock of `@/store/windows`
+// turns that into a collection error rather than a failed assertion.
+vi.mock('@/app/explorer-path-dialog', () => ({
+  ExplorerPathDialog: () => <div data-testid="explorer-path-dialog" />
+}))
 
 let activity = false
 let tile = false
@@ -66,7 +79,7 @@ const ROOTS: [name: string, arrange: () => void, marker: string][] = [
 ]
 
 describe('App', () => {
-  it.each(ROOTS)('mounts the find bar, the folder picker and the close gate in %s', (_name, arrange, marker) => {
+  it.each(ROOTS)('mounts the find bar, the folder picker and the two gates in %s', (_name, arrange, marker) => {
     arrange()
 
     render(<App />)
@@ -75,5 +88,6 @@ describe('App', () => {
     expect(screen.getByTestId('find-bar')).toBeInTheDocument()
     expect(screen.getByTestId('remote-picker')).toBeInTheDocument()
     expect(screen.getByTestId('close-confirm')).toBeInTheDocument()
+    expect(screen.getByTestId('explorer-path-dialog')).toBeInTheDocument()
   })
 })

@@ -61,6 +61,79 @@ export function swallowsTriggerTab(options: {
   return options.open && options.loading && options.itemCount === 0 && options.key === 'Tab'
 }
 
+/**
+ * What an Enter-family keystroke means, before anything is done about it.
+ *
+ * - `line-break` — Shift+Enter: put a newline in the message.
+ * - `accept-completion` — an open `@` / `/` / `:emoji` menu takes the key.
+ * - `queue` — ⌘/Ctrl+Enter: line this up behind the running turn
+ *   (`composer.queue`, `lib/keybinds/actions.ts`). A composer with no queue
+ *   simply does nothing with it, which is the point: it must not fall through
+ *   and send.
+ * - `send` — plain Enter.
+ * - `pass-through` — not ours; let the webview have it.
+ */
+export type ComposerEnterIntent = 'accept-completion' | 'line-break' | 'pass-through' | 'queue' | 'send'
+
+/**
+ * The Enter half of a composer's keydown decision, as a pure function.
+ *
+ * Extracted because the ORDER is the whole rule and the order is what kept
+ * getting this wrong. Two bugs lived in it:
+ *
+ *  1. Shift+Enter was never claimed at all — it fell through to the webview's
+ *     own `insertLineBreak`, whose DOM differs per engine, and the normalizer
+ *     downstream then deleted the newline on WebKit (see
+ *     `insertComposerLineBreak`). It has to be answered FIRST, ahead of the
+ *     completion menu, which otherwise eats it: the accept test was `Enter ||
+ *     Tab || space` with no `shiftKey` guard, so typing `@fi` and pressing
+ *     Shift+Enter committed a chip instead of breaking the line.
+ *  2. In the message-EDIT composer the send test was `Enter && !shiftKey` with
+ *     no modifier guard, so ⌘+Enter — the queue chord everywhere else — resent
+ *     the edited message outright, and that composer's send is destructive
+ *     (it rewinds the conversation to that turn).
+ *
+ * The composer's real handler cannot be mounted in a unit test; this is the
+ * whole of the decision it makes, so the rule is pinned here instead (house
+ * rule 35).
+ */
+export function composerEnterIntent(options: {
+  key: string
+  shiftKey: boolean
+  metaKey: boolean
+  ctrlKey: boolean
+  /** A completion popover is open AND has items to accept. */
+  completionOpen: boolean
+}): ComposerEnterIntent {
+  const { completionOpen, ctrlKey, key, metaKey, shiftKey } = options
+
+  if (key !== 'Enter') {
+    return 'pass-through'
+  }
+
+  // Ahead of the menu, deliberately. A newline is what the user asked for with
+  // their fingers; the menu is a suggestion.
+  if (shiftKey && !metaKey && !ctrlKey) {
+    return 'line-break'
+  }
+
+  if (completionOpen) {
+    return 'accept-completion'
+  }
+
+  if ((metaKey || ctrlKey) && !shiftKey) {
+    return 'queue'
+  }
+
+  // Alt is deliberately NOT excluded: ⌥+Enter has always sent, and no binding
+  // claims it.
+  if (!shiftKey && !metaKey && !ctrlKey) {
+    return 'send'
+  }
+
+  return 'pass-through'
+}
+
 /** A `/` query is at its arg stage once it's past the command name. */
 export const slashArgStage = (query: string) => query.includes(' ')
 

@@ -64,6 +64,10 @@ export const ar = defineLocale({
     revealExplorer: 'إظهار في File Explorer',
     revealFileManager: 'فتح المجلد الحاوي',
     revealInSidebar: 'إظهار في شجرة الملفات',
+    download: 'تنزيل',
+    saveAs: 'حفظ باسم...',
+    openFolderHere: 'فتح المجلد هنا',
+    setAsProjectFolder: 'تعيين كمجلد المشروع',
     copyPath: 'نسخ المسار',
     copyRelativePath: 'نسخ المسار النسبي',
     rename: 'إعادة تسمية...',
@@ -73,6 +77,14 @@ export const ar = defineLocale({
     deleteTitle: name => `حذف ${name}؟`,
     deleteBody: 'سيتم نقله إلى سلة المهملات — يمكنك استعادته من هناك.',
     pathCopied: 'تم نسخ المسار'
+  },
+  explorerPath: {
+    title: 'العمل في هذا المجلد؟',
+    body: 'يمكن نقل هذه المحادثة إلى هنا، أو تركها في مكانها وبدء المحادثات الجديدة هنا.',
+    moveChat: 'نقل هذه المحادثة',
+    newChatsOnly: 'المحادثات الجديدة فقط',
+    busy: 'هذه المحادثة في منتصف دور — انتظر انتهاءه قبل تغيير مجلدها.',
+    moveFailed: 'تعذر نقل هذه المحادثة إلى ذلك المجلد.'
   },
   notifications: {
     region: 'الإشعارات',
@@ -146,7 +158,6 @@ export const ar = defineLocale({
     unmuteHaptics: 'تفعيل الاهتزازات',
     openSettings: 'فتح الإعدادات',
     openStarmap: 'فتح خريطة الذاكرة',
-    enterHud: 'وضع HUD',
     exitHud: 'إنهاء وضع HUD'
   },
   hud: {
@@ -1520,7 +1531,8 @@ export const ar = defineLocale({
     kindLink: 'رابط',
     chat: 'المحادثة',
     copyUrl: 'نسخ الرابط',
-    copyPath: 'نسخ المسار'
+    copyPath: 'نسخ المسار',
+    download: name => `تنزيل ${name}`
   },
   artifactCard: {
     kind: {
@@ -2182,6 +2194,9 @@ export const ar = defineLocale({
     }
   },
   rightSidebar: {
+    searchFiles: 'البحث في الملفات',
+    searchNoMatches: 'لا توجد ملفات مطابقة',
+    goHome: 'الانتقال إلى المجلد الرئيسي',
     aria: 'الشريط الجانبي الأيمن',
     panelsAria: 'لوحات الشريط الأيمن',
     files: 'الملفات',
@@ -2679,6 +2694,25 @@ export const ar = defineLocale({
   },
   nav: {
     webhooks: 'الويب هوك'
+  },
+  downloads: {
+    title: 'التنزيلات',
+    inProgress: (count: number) => `${count} تنزيل قيد التقدم`,
+    cancel: 'إلغاء التنزيل',
+    reveal: 'إظهار في المجلد',
+    open: 'فتح',
+    dismiss: 'إزالة من القائمة',
+    clearFinished: 'مسح المكتملة',
+    empty: 'لا توجد تنزيلات بعد',
+    downloadFolder: 'تنزيل المجلد كملف مضغوط',
+    ofTotal: (received: string, total: string) => `${received} من ${total}`,
+    status: {
+      queued: 'في الانتظار',
+      running: 'جارٍ التنزيل…',
+      done: 'تم الحفظ',
+      cancelled: 'أُلغي',
+      failed: 'فشل'
+    }
   },
   tray: {
     show: 'إظهار Allr',

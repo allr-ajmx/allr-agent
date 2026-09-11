@@ -109,6 +109,10 @@ export const ja = defineLocale({
     revealExplorer: 'エクスプローラーで表示',
     revealFileManager: '格納フォルダーを開く',
     revealInSidebar: 'ファイルツリーで表示',
+    download: 'ダウンロード',
+    saveAs: '名前を付けて保存…',
+    openFolderHere: 'このフォルダーを開く',
+    setAsProjectFolder: 'プロジェクトフォルダーに設定',
     copyPath: 'パスをコピー',
     copyRelativePath: '相対パスをコピー',
     rename: '名前を変更…',
@@ -118,6 +122,14 @@ export const ja = defineLocale({
     deleteTitle: name => `${name} を削除しますか？`,
     deleteBody: 'ゴミ箱に移動します。そこから復元できます。',
     pathCopied: 'パスをコピーしました'
+  },
+  explorerPath: {
+    title: 'このフォルダーで作業しますか？',
+    body: 'このチャットをここへ移動できます。移動せずに、新しいチャットだけをここで開始することもできます。',
+    moveChat: 'このチャットを移動',
+    newChatsOnly: '新しいチャットのみ',
+    busy: 'このチャットはターンの実行中です。完了してからフォルダーを変更してください。',
+    moveFailed: 'このチャットをそのフォルダーへ移動できませんでした。'
   },
 
   notifications: {
@@ -1720,7 +1732,8 @@ export const ja = defineLocale({
     kindLink: 'リンク',
     chat: 'チャット',
     copyUrl: 'URL をコピー',
-    copyPath: 'パスをコピー'
+    copyPath: 'パスをコピー',
+    download: name => `${name} をダウンロード`
   },
 
   sidebar: {
@@ -2442,6 +2455,9 @@ export const ja = defineLocale({
   },
 
   rightSidebar: {
+    searchFiles: 'ファイルを検索',
+    searchNoMatches: '一致するファイルはありません',
+    goHome: 'ホームフォルダーへ移動',
     aria: '右サイドバー',
     panelsAria: '右サイドバーパネル',
     files: 'ファイルシステム',
@@ -2927,6 +2943,25 @@ export const ja = defineLocale({
     zoneCount: count => `${count} 個のゾーン`
   },
 
+  downloads: {
+    title: 'ダウンロード',
+    inProgress: (count: number) => `${count} 件のダウンロードを実行中`,
+    cancel: 'ダウンロードをキャンセル',
+    reveal: 'フォルダーに表示',
+    open: '開く',
+    dismiss: 'リストから削除',
+    clearFinished: '完了分を消去',
+    empty: 'ダウンロードはまだありません',
+    downloadFolder: 'フォルダーを ZIP でダウンロード',
+    ofTotal: (received: string, total: string) => `${total} 中 ${received}`,
+    status: {
+      queued: '待機中',
+      running: 'ダウンロード中…',
+      done: '保存しました',
+      cancelled: 'キャンセルしました',
+      failed: '失敗しました'
+    }
+  },
   tray: {
     show: 'Allr を表示',
     hud: 'HUD を開く',

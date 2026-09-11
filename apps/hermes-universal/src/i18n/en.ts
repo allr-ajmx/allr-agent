@@ -96,6 +96,10 @@ export const en: Translations = {
     revealExplorer: 'Reveal in File Explorer',
     revealFileManager: 'Open Containing Folder',
     revealInSidebar: 'Reveal in filetree',
+    download: 'Download',
+    saveAs: 'Save as…',
+    openFolderHere: 'Open Folder Here',
+    setAsProjectFolder: 'Set as Project Folder',
     actions: 'File actions',
     copyPath: 'Copy Path',
     copyRelativePath: 'Copy Relative Path',
@@ -106,6 +110,19 @@ export const en: Translations = {
     deleteTitle: name => `Delete ${name}?`,
     deleteBody: 'It will be moved to the Trash — you can restore it from there.',
     pathCopied: 'Path copied'
+  },
+
+  // "You picked a folder — does this chat move there, or only the next one?"
+  // The explorer and the agent's cwd are one value now (store/explorer-path),
+  // so the question is which cwd a click means, and it is asked every time
+  // rather than guessed.
+  explorerPath: {
+    title: 'Work in this folder?',
+    body: 'This chat can move here, or you can leave it where it is and start new chats here instead.',
+    moveChat: 'Move this chat',
+    newChatsOnly: 'New chats only',
+    busy: 'This chat is mid-turn — wait for it to finish before changing its folder.',
+    moveFailed: 'Could not move this chat to that folder.'
   },
 
   notifications: {
@@ -200,7 +217,6 @@ export const en: Translations = {
     openSettings: 'Open settings',
     openStarmap: 'Open memory graph',
     openKeybinds: 'Keyboard shortcuts',
-    enterHud: 'HUD mode',
     exitHud: 'Exit HUD mode',
     minimize: 'Minimize',
     maximize: 'Maximize',
@@ -1888,7 +1904,8 @@ export const en: Translations = {
     kindLink: 'link',
     chat: 'Chat',
     copyUrl: 'Copy URL',
-    copyPath: 'Copy path'
+    copyPath: 'Copy path',
+    download: name => `Download ${name}`
   },
 
   sidebar: {
@@ -2677,6 +2694,9 @@ export const en: Translations = {
     loadingFiles: 'Loading files',
     filterFiles: 'Filter open folders',
     filterNoMatches: 'No matches in the folders you have open',
+    searchFiles: 'Search files',
+    searchNoMatches: 'No matching files',
+    goHome: 'Go to home folder',
     terminalHide: 'Hide terminal',
     terminalConnecting: 'Connecting…',
     terminalReconnecting: 'Reconnecting…',
@@ -3195,6 +3215,25 @@ export const en: Translations = {
     zoneCount: count => `${count} zones`
   },
 
+  downloads: {
+    title: 'Downloads',
+    inProgress: (count: number) => `${count} download${count === 1 ? '' : 's'} in progress`,
+    cancel: 'Cancel download',
+    reveal: 'Show in folder',
+    open: 'Open',
+    dismiss: 'Remove from list',
+    clearFinished: 'Clear finished',
+    empty: 'No downloads yet',
+    downloadFolder: 'Download folder as zip',
+    ofTotal: (received: string, total: string) => `${received} of ${total}`,
+    status: {
+      queued: 'Queued',
+      running: 'Downloading…',
+      done: 'Saved',
+      cancelled: 'Cancelled',
+      failed: 'Failed'
+    }
+  },
   tray: {
     show: 'Show Allr',
     hud: 'Open HUD',

@@ -1,6 +1,4 @@
 import { TITLEBAR_AREAS } from '@/app/contrib/surfaces'
-import { toggleHud } from '@/app/hud/hud'
-import { useCanUseHud } from '@/app/hud/use-hud-surface'
 import { Codicon } from '@/components/ui/codicon'
 import { Slot } from '@/contrib/react/slot'
 import { useI18n } from '@/i18n'
@@ -17,6 +15,7 @@ import {
 } from '@/store/layout'
 import { openAppRoute } from '@/store/windows'
 
+import { DownloadsTray } from './downloads-tray'
 import { LayoutMenu } from './layout-menu'
 import { TitlebarButton } from './titlebar-button'
 import { WindowControls } from './window-controls'
@@ -36,7 +35,6 @@ export function Titlebar({ connected }: { connected: boolean }) {
   // its own side of main, so a swap never leaves a button lying about its pane.
   const leftEdgeOpen = useStore($leftEdgeOpen)
   const rightEdgeOpen = useStore($rightEdgeOpen)
-  const hudAvailable = useCanUseHud()
 
   return (
     <div
@@ -92,6 +90,13 @@ export function Titlebar({ connected }: { connected: boolean }) {
       {connected && (
         <div className="pointer-events-auto flex items-center gap-0.5">
           <Slot area={TITLEBAR_AREAS.right} />
+          {/* Gateway files being written to this device. Always present, the way
+              a browser's download button is: the panel is the only route back to
+              a finished transfer, so a button that came and went would hide the
+              history it exists to show. Activity is carried by the badge, not by
+              the button's presence. It lists peers' downloads too (rule 21), so
+              a file queued from the HUD lands here. */}
+          <DownloadsTray />
           {/* Layout / tile-preview button — pick a workspace preset (Default /
               Focus / Terminal deck / Quad) or reset the layout. */}
           <LayoutMenu />
@@ -102,20 +107,12 @@ export function Titlebar({ connected }: { connected: boolean }) {
           >
             <Codicon name={hapticsMuted ? 'mute' : 'unmute'} />
           </TitlebarButton>
-          {/* The HUD — the same conversation, over whatever you are working in
-              (MJXHRM-213). Sits next to the other view affordances rather than
-              in the layout menu: it is a different window, not a pane
-              arrangement. `actionId` makes the tooltip carry its live chord.
-
-              Behind the capability gate `lib/surface.ts` tells callers to read
-              before offering the affordance: where there is no floating surface
-              this button opens an ordinary window that sits BEHIND whatever the
-              user is working in, which is worse than not offering it at all. */}
-          {hudAvailable && (
-            <TitlebarButton actionId="view.toggleHud" label={t.titlebar.enterHud} onClick={() => void toggleHud()}>
-              <Codicon name="comment-discussion" />
-            </TitlebarButton>
-          )}
+          {/* No HUD button here. The HUD itself is untouched — `view.toggleHud`
+              is still a keybind (`lib/keybinds/actions.ts`, mod+shift+H, claimed
+              globally) and `app/hooks/use-keybinds.ts` still runs it — only the
+              titlebar affordance is gone, by request. Note that the chord is
+              currently the ONLY route in: there is no command-palette entry for
+              it, so deleting the binding would strand the feature. */}
           <TitlebarButton
             actionId="keybinds.openPanel"
             label={t.titlebar.openKeybinds}

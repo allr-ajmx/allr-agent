@@ -1,6 +1,7 @@
 import { atom } from 'nanostores'
 
 import type { ComposerAttachment } from './composer'
+import { addSessionKeyHooks } from './session-state-types'
 
 export interface QueuedPromptEntry {
   id: string
@@ -281,6 +282,31 @@ export const migrateQueuedPrompts = (fromKey: string | null | undefined, toKey: 
 
   return true
 }
+
+/**
+ * Follow the slice whenever a session key MOVES — `draft:N` promoted to a real
+ * runtime id by `session.create`, or a fresh runtime id minted by a resume.
+ *
+ * The composer already migrates on a runtime-id change (`use-composer-queue.ts`),
+ * but only through a heuristic: it must not migrate on a genuine chat switch, and
+ * the only signal it has is whether the key is runtime-derived — so it skips
+ * every surface that passes a stable `queueSessionKey`, which is what the main
+ * chat does. A `rekeySession` call carries no such ambiguity: it means "the same
+ * conversation, under a new id", which is exactly when the queue must move.
+ *
+ * Idempotent with that effect rather than a replacement for it: whichever runs
+ * first empties the source, and `migrateQueuedPrompts` no-ops on an empty one.
+ */
+addSessionKeyHooks({
+  // Deliberately nothing: a queued prompt is text the user asked to SEND, and
+  // evicting a slice is not them withdrawing it. Entries survive a reload today
+  // (they are persisted), so discarding them on a lifecycle event would be a new
+  // way to lose typed work, not a cleanup.
+  drop() {},
+  rekey(fromKey, toKey) {
+    migrateQueuedPrompts(fromKey, toKey)
+  }
+})
 
 /**
  * Park a session's queue after an explicit user halt (Stop / Esc): entries stay

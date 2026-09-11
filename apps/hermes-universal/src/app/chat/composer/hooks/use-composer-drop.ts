@@ -39,12 +39,26 @@ export function useComposerDrop({
   if (IS_MOBILE) {
     const noop = () => {}
 
+    // Inert, but not silent on a FILE drag. "No file DnD" is a statement about
+    // what these webviews offer the user, not a guarantee the engine will never
+    // deliver a drop — and an unprevented file drop navigates the document to a
+    // `file://` URL, which on a phone means the whole app disappears with no back
+    // button. Cancelling costs nothing on a platform where the event should not
+    // arrive in the first place. The INPUT handlers stay true no-ops: dragging
+    // text inside a contenteditable is a real touch gesture, and cancelling it
+    // would break moving text by long-press.
+    const cancelFileDrag = (event: ReactDragEvent<HTMLFormElement>) => {
+      if (dragHasAttachments(event.dataTransfer, ALLR_PATHS_MIME)) {
+        event.preventDefault()
+      }
+    }
+
     return {
       dragActive: false,
-      handleDragEnter: noop,
+      handleDragEnter: cancelFileDrag,
       handleDragLeave: noop,
-      handleDragOver: noop,
-      handleDrop: noop,
+      handleDragOver: cancelFileDrag,
+      handleDrop: cancelFileDrag,
       handleInputDragOver: noop,
       handleInputDrop: noop
     }
@@ -55,12 +69,34 @@ export function useComposerDrop({
     setDragActive(false)
   }
 
+  // `preventDefault()` comes BEFORE any question about what we can do with the
+  // drop, and that ordering is load-bearing.
+  //
+  // A `dragover` that is not prevented tells the webview we do not want the drag,
+  // so the webview performs ITS default — for a file, navigating the document to
+  // the `file://` URL, which reloads the whole SPA out from under the user and
+  // takes the unsent draft with it. It never showed up on the Tauri desktop shell
+  // because `dragDropEnabled` makes Tauri swallow HTML5 drag-and-drop at the
+  // window level and deliver paths through `onDragDropEvent` instead
+  // (`app/chat/use-file-drop.ts`). Everywhere Tauri is NOT in the way — a plain
+  // browser on `vite dev`, the mobile webviews — the default is live, and it used
+  // to be reachable simply because `onAttachDroppedItems` was optional and no
+  // caller passed it (MJXHRM-A2).
+  //
+  // Refusing a drop is a legitimate outcome; navigating away is never one. So the
+  // handler-absent case still cancels the browser's default and then does
+  // nothing, rather than declining to speak at all.
   const handleDragEnter = (event: ReactDragEvent<HTMLFormElement>) => {
-    if (!onAttachDroppedItems || !dragHasAttachments(event.dataTransfer, ALLR_PATHS_MIME)) {
+    if (!dragHasAttachments(event.dataTransfer, ALLR_PATHS_MIME)) {
       return
     }
 
     event.preventDefault()
+
+    if (!onAttachDroppedItems) {
+      return
+    }
+
     dragDepthRef.current += 1
 
     if (!dragActive) {
@@ -69,12 +105,17 @@ export function useComposerDrop({
   }
 
   const handleDragOver = (event: ReactDragEvent<HTMLFormElement>) => {
-    if (!onAttachDroppedItems || !dragHasAttachments(event.dataTransfer, ALLR_PATHS_MIME)) {
+    if (!dragHasAttachments(event.dataTransfer, ALLR_PATHS_MIME)) {
       return
     }
 
     event.preventDefault()
-    event.dataTransfer.dropEffect = 'copy'
+
+    // `dropEffect` is only meaningful once something will actually consume the
+    // drop; a cancelled-but-unhandled drag keeps the browser's own cursor.
+    if (onAttachDroppedItems) {
+      event.dataTransfer.dropEffect = 'copy'
+    }
   }
 
   const handleDragLeave = (event: ReactDragEvent<HTMLFormElement>) => {
@@ -91,12 +132,16 @@ export function useComposerDrop({
   }
 
   const handleDrop = (event: ReactDragEvent<HTMLFormElement>) => {
-    if (!onAttachDroppedItems) {
+    if (!dragHasAttachments(event.dataTransfer, ALLR_PATHS_MIME)) {
       return
     }
 
     event.preventDefault()
     resetDragState()
+
+    if (!onAttachDroppedItems) {
+      return
+    }
 
     const candidates = extractDroppedFiles(event.dataTransfer)
 

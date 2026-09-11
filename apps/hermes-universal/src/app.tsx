@@ -1,6 +1,7 @@
 import { ActivityScreenRoot } from '@/app/activity-screen'
 import { BackgroundCloseDialog } from '@/app/background-close-dialog'
 import { CloseConfirm } from '@/app/close-confirm'
+import { ExplorerPathDialog } from '@/app/explorer-path-dialog'
 import { HUD_SURFACE } from '@/app/hud/hud'
 import { HudWindowRoot } from '@/app/hud/hud-window'
 import { MobileController } from '@/app/mobile-controller'
@@ -43,6 +44,12 @@ import { isActivityWindow, isTileWindow, satelliteSurface, WAKE_INDICATOR_SURFAC
  * could park a pending close and nothing would ever draw the question — which
  * is why the mobile bubble strip dropped a chat mid-turn without asking.
  *
+ * `ExplorerPathDialog` is the sixth, and it is the `CloseConfirm` shape again:
+ * "move this chat to this folder, or only start new ones there?" is asked by a
+ * titlebar button, a tree row's context menu and a search hit's kebab — three
+ * transient surfaces, one of which Radix unmounts the instant it is selected.
+ * The asker cannot own the dialog, so the window does.
+ *
  * `BackgroundCloseDialog` is the fifth, and it is the same shape as
  * `CloseConfirm`: the WINDOW close guard is installed at boot for any window
  * that owns the app's persisted state, so the surface that answers it has to
@@ -60,6 +67,7 @@ export function App() {
       <FindBar />
       <CloseConfirm />
       <BackgroundCloseDialog />
+      <ExplorerPathDialog />
       <WakeIndicatorOverlay />
     </>
   )

@@ -1,4 +1,3 @@
-import { translateNow } from '@/i18n'
 import { readDesktopFileDataUrl } from '@/lib/desktop-fs'
 import { filePathFromMediaPath, isFileMediaPath, isInlineMediaSrc, mediaName } from '@/lib/media-format'
 import { canStreamMedia, mediaStreamUrl } from '@/lib/media-stream'
@@ -124,29 +123,8 @@ export async function gatewayMediaDataUrl(path: string): Promise<string> {
   return readDesktopFileDataUrl(filePathFromMediaPath(path))
 }
 
-// Codes `src-tauri/src/files.rs` returns, mapped to localized messages. Rust
-// returns codes rather than prose so the only English in a translated UI isn't
-// coming from the native layer.
-const DOWNLOAD_ERRORS: Record<string, string> = {
-  download_failed: 'failed',
-  file_forbidden: 'forbidden',
-  file_not_found: 'notFound',
-  file_too_large: 'tooLarge',
-  gateway_unreachable: 'unreachable',
-  no_gateway: 'noGateway',
-  unauthorized: 'unauthorized',
-  write_failed: 'writeFailed'
-}
-
-function downloadError(err: unknown): Error {
-  const code = typeof err === 'string' ? err : (err as Error)?.message
-  const key = DOWNLOAD_ERRORS[code ?? '']
-
-  return new Error(translateNow(`common.fileDownload.${key ?? 'failed'}`))
-}
-
 /**
- * Save a gateway file to a local path the user picks.
+ * Save a gateway file to disk.
  *
  * The bytes never enter the webview: Rust fetches `/api/files/download` over
  * the authenticated transport and writes the file itself. That is what makes
@@ -157,14 +135,28 @@ function downloadError(err: unknown): Error {
  *    cookie never rides on a cross-site subresource);
  *  * the previous route read the file as a `data:` URL and `fetch`ed it, which
  *    the app CSP (`connect-src 'self' ipc:`) blocks outright;
- *  * `/api/fs/read-data-url` also caps at 16 MB, against 100 MB here;
+ *  * `/api/fs/read-data-url` also caps at 16 MB, and this route now has no cap
+ *    at all;
  *  * and the `<a download>` it ended in is not honoured by the mobile webview.
  *
- * Resolves to `false` when the user dismisses the save dialog.
+ * **This is now a thin wrapper over `downloadPath` in `store/downloads.ts`**,
+ * which is where the contract lives: the transfer streams in the background,
+ * reports progress to the titlebar tray, and can be cancelled. The consequence
+ * for callers is that resolving no longer means "the file is on disk" — it
+ * means "the download is queued and the tray owns it from here", so a gateway
+ * failure surfaces in the tray rather than as a rejection here. New call sites
+ * should import `downloadPath` directly and keep the id it returns; this name
+ * stays for the transcript's `useOpenMediaFile`, whose whole interaction is one
+ * click with nothing to keep.
+ *
+ * Resolves to `false` when nothing was queued — there is no save dialog on
+ * this path any more, so in practice that means a destination that could not
+ * be resolved.
  *
  * Off Tauri (plain-web dev, vitest) there is no native side, so it falls back
  * to the blob route — which is fine there: a browser has no CSP of ours and
- * honours `<a download>`.
+ * honours `<a download>`. That branch still rejects on failure, because there
+ * is no tray in a browser tab to report into.
  */
 export async function downloadGatewayMediaFile(path: string): Promise<boolean> {
   if (!IS_TAURI) {
@@ -173,24 +165,9 @@ export async function downloadGatewayMediaFile(path: string): Promise<boolean> {
     return true
   }
 
-  const [{ save }, { invoke }] = await Promise.all([
-    import('@tauri-apps/plugin-dialog'),
-    import('@tauri-apps/api/core')
-  ])
+  const { downloadPath } = await import('@/store/downloads')
 
-  const dest = await save({ defaultPath: mediaName(path) })
-
-  if (!dest) {
-    return false
-  }
-
-  try {
-    await invoke('download_file', { dest, path: filePathFromMediaPath(path) })
-  } catch (err) {
-    throw downloadError(err)
-  }
-
-  return true
+  return (await downloadPath(path)) !== null
 }
 
 async function browserDownloadFallback(path: string): Promise<void> {

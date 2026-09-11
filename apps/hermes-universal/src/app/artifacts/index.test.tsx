@@ -1,5 +1,5 @@
-import { render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { SessionInfo, SessionMessage } from '@/types/hermes'
@@ -11,6 +11,26 @@ const listAllProfileSessions = vi.fn()
 
 const DATA_URL = 'data:image/jpeg;base64,Ynl0ZXM='
 const readDesktopFileDataUrl = vi.fn(async (_path: string) => DATA_URL)
+const downloadPath = vi.fn(async (_path: string) => 'download-1')
+const openExternalLink = vi.fn(async (_href: string) => undefined)
+
+// jsdom is not Tauri, and `IS_TAURI` is a load-time const — without this the
+// artifact click would take the plain-browser blob fallback and never reach the
+// downloads tray, which is the branch that actually ships.
+vi.mock('@/lib/platform', async importOriginal => ({
+  ...((await importOriginal()) as Record<string, unknown>),
+  IS_TAURI: true
+}))
+
+vi.mock('@/store/downloads', async importOriginal => ({
+  ...((await importOriginal()) as Record<string, unknown>),
+  downloadPath: (path: string) => downloadPath(path)
+}))
+
+vi.mock('@/lib/external-link', async importOriginal => ({
+  ...((await importOriginal()) as Record<string, unknown>),
+  openExternalLink: (href: string) => openExternalLink(href)
+}))
 
 vi.mock('@/hermes', async importOriginal => ({
   ...((await importOriginal()) as Record<string, unknown>),
@@ -142,5 +162,67 @@ describe('ArtifactsView transcript loading', () => {
     // The surviving session's link is indexed even though its neighbour threw.
     await waitFor(() => expect(screen.getByText(/example\.com\/survivor/)).toBeTruthy())
     expect(getSessionMessages).toHaveBeenCalledTimes(2)
+  })
+})
+
+/**
+ * The dead click target the user reported: "by clicking the image title it does
+ * nothing, it should download."
+ *
+ * `ArtifactImageCard` was never handed the `CellCtx` the table cells get, so its
+ * label and path were bare <div>s with no handler on them — the only live
+ * targets on the card were the zoom trigger and Chat.
+ */
+describe('ArtifactImageCard activation', () => {
+  const imageSession = () => {
+    listAllProfileSessions.mockResolvedValue({ sessions: [makeSession({ id: 'shots', title: 'Shots' })] })
+    getSessionMessages.mockResolvedValue({
+      messages: [
+        { content: '![step one](/Users/me/out/step.png)', role: 'assistant', timestamp: 2000 }
+      ] satisfies SessionMessage[]
+    })
+  }
+
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('queues the gateway file through the downloads tray when the title is activated', async () => {
+    imageSession()
+
+    render(
+      <MemoryRouter>
+        <ArtifactsView />
+      </MemoryRouter>
+    )
+
+    fireEvent.click(await screen.findByText('step.png'))
+
+    // The PATH, not the record's href: the href is /api/files/download with a
+    // token, and nothing outside the Rust transport can authenticate it.
+    await waitFor(() => expect(downloadPath).toHaveBeenCalledWith('/Users/me/out/step.png'))
+    expect(openExternalLink).not.toHaveBeenCalled()
+  })
+
+  it('leaves Chat alone — it navigates, it does not also download', async () => {
+    // Chat is a SIBLING of the new download target rather than a child of it,
+    // so it cannot bubble into one. Pinned because the obvious way to make a
+    // whole card clickable — a handler on the <article> — would have made every
+    // press of this button start a transfer as well.
+    imageSession()
+
+    render(
+      <MemoryRouter initialEntries={['/artifacts']}>
+        <Routes>
+          <Route element={<ArtifactsView />} path="/artifacts" />
+          <Route element={<div>chat route</div>} path="*" />
+        </Routes>
+      </MemoryRouter>
+    )
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Chat' }))
+
+    expect(await screen.findByText('chat route')).toBeTruthy()
+    expect(downloadPath).not.toHaveBeenCalled()
   })
 })

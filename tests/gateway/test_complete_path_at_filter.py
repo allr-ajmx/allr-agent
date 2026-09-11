@@ -263,3 +263,66 @@ def test_completion_ignores_real_terminal_cwd(tmp_path, monkeypatch):
     )
 
 
+
+
+# ---------------------------------------------------------------------------
+# Extraction regression: the fuzzy ranker moved to `tui_gateway/file_search.py`
+# so `GET /api/fs/search` can reuse it. `complete.path` lives in
+# `methods_complete.py`, whose handlers get their `__globals__` rebound to
+# `vars(server)` by `method_ctx.HandlerRegistry.install()` — so it resolves
+# `_fuzzy_basename_rank` / `_list_repo_files` / `_FUZZY_FALLBACK_EXCLUDES` as
+# *server.py* globals at CALL time. Dropping the re-import in server.py would
+# not fail any import-time check; it would fail here, at runtime, with a
+# NameError.
+# ---------------------------------------------------------------------------
+
+
+def test_server_reexports_the_extracted_fuzzy_names():
+    from tui_gateway import file_search
+
+    for name in (
+        "_FUZZY_CACHE_TTL_S",
+        "_FUZZY_CACHE_MAX_FILES",
+        "_FUZZY_FALLBACK_EXCLUDES",
+        "_fuzzy_basename_rank",
+        "_list_repo_files",
+        "_fuzzy_cache",
+        "_fuzzy_cache_lock",
+    ):
+        assert hasattr(server, name), (
+            f"server.{name} is missing — `complete.path` resolves it as a "
+            f"server.py global and will raise NameError at runtime"
+        )
+        # The SAME object, not a copy: two `_fuzzy_cache` dicts would diverge
+        # silently, and tests that clear `server._fuzzy_cache` would clear the
+        # wrong one.
+        assert getattr(server, name) is getattr(file_search, name), name
+
+
+def test_complete_path_fuzzy_still_works_after_the_extraction(tmp_path, monkeypatch):
+    """End-to-end through the rebound handler, which is what actually proves
+    the re-import is in place."""
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "appChrome.tsx").write_text("x")
+    (tmp_path / "Desktop").mkdir()
+    (tmp_path / "Desktop" / "notes.md").write_text("x")
+    monkeypatch.chdir(tmp_path)
+
+    texts = [t for t, _, _ in _items("@appChrome")]
+    assert any(t.endswith("src/appChrome.tsx") for t in texts), texts
+
+    # Ancestor ranking: a folder with no name-matching file inside it.
+    server._fuzzy_cache.clear()
+    folders = [t for t, _, _ in _items("@Desktop")]
+    assert any(t == "@folder:Desktop/" for t in folders), folders
+
+
+def test_gateway_and_dashboard_agree_on_ranking(tmp_path):
+    """`GET /api/fs/search`'s ranker must be the gateway's, not a second one."""
+    from tui_gateway import file_search
+
+    assert file_search.search_entries.__module__ == "tui_gateway.file_search"
+    for name, query in (("appChrome.tsx", "chrome"), ("widget.ts", "widget.ts")):
+        assert file_search._fuzzy_basename_rank(name, query) == (
+            server._fuzzy_basename_rank(name, query)
+        )

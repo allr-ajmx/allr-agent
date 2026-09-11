@@ -33,6 +33,29 @@ import './themes/appearance-sync'
 // happened to be in.
 import './app/right-pane/terminal/terminal-font-sync'
 
+import { initDownloadSync } from './store/downloads'
+
+// Downloads are app-global but the transfer runs in whichever WebView started
+// it, so every OTHER window has to be told or its tray is blank for a file that
+// is very much being written to this device. Armed here rather than at the
+// store's module scope: the tray lives in the titlebar, so a module-scope
+// subscription would be established by anything that merely imports that graph
+// — every window, and every test that renders a shell. A store that is imported
+// should hold state, not start listening.
+initDownloadSync()
+
+import { initWorkspaceProfileSync } from './store/workspace-events'
+
+// `/api/fs/default-cwd` answers INSIDE the active profile's scope — that
+// profile's active project folder, else its `terminal.cwd`, else the gateway
+// default — so `$workspaceCwd` / `$workspaceHome` are per-profile values that a
+// switch leaves describing a workspace the app no longer talks to. Armed here
+// for the same reason as the two above, and separately from them because the
+// staleness is not the file tree's: the statusbar cwd segment, the terminal's
+// initial directory and the review base read the same atoms, and a reload that
+// only ran while the right pane was mounted would skip all three.
+initWorkspaceProfileSync()
+
 import { installWindowBelowReader } from './store/window-below'
 
 // And the reader that gives `window.read.request` something to say. Installed at

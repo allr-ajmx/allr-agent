@@ -13,6 +13,7 @@ import { triggerHaptic } from '@/lib/haptics'
 import { IS_MOBILE } from '@/lib/platform'
 import { cn } from '@/lib/utils'
 import { sessionCompacting } from '@/store/compaction'
+import { isSessionDraftRekey } from '@/store/composer'
 import { browseBackward, browseForward, deriveUserHistory, isBrowsingHistory } from '@/store/composer-input-history'
 import { POPOUT_WIDTH_REM } from '@/store/composer-popout'
 import { parkQueuedPrompts, removeQueuedPrompt, unparkQueuedPrompts } from '@/store/composer-queue'
@@ -24,7 +25,7 @@ import { useTheme } from '@/themes'
 
 import { AttachmentList } from './attachments'
 import { BubbleRow } from './bubble-row'
-import { type QueueEditState, slashArgStage, swallowsTriggerTab } from './composer-utils'
+import { composerEnterIntent, type QueueEditState, slashArgStage, swallowsTriggerTab } from './composer-utils'
 import { ContextMenu } from './context-menu'
 import { COMPOSER_AREAS, runComposerMiddleware } from './contrib'
 import { ComposerControls } from './controls'
@@ -58,6 +59,7 @@ import {
   deleteChipBeforeCaret,
   deleteSelectionInEditor,
   insertComposerContentsAtCaret,
+  insertComposerLineBreak,
   normalizeComposerEditorDom,
   RICH_INPUT_SLOT
 } from './rich-editor'
@@ -259,7 +261,23 @@ export function ChatBar({
 
   // Prior history belongs to the draft that just left — undoing into another
   // conversation's text is worse than having none.
+  //
+  // A REKEY is not that. `session.create` moves a chat off its `draft:N` key the
+  // first time it needs a backend (dropping a file on an unsent chat is the
+  // shortest path to it), and a sleep/wake resume moves a live one — same
+  // conversation, same text still on screen, so the steps that produced it are
+  // still the user's to undo. Throwing them away on an id change was the same
+  // mistake the draft stash was making one layer down (MJXHRM-A1).
+  const previousUndoScopeRef = useRef(activeQueueSessionKey)
+
   useEffect(() => {
+    const previousScope = previousUndoScopeRef.current
+    previousUndoScopeRef.current = activeQueueSessionKey
+
+    if (isSessionDraftRekey(previousScope, activeQueueSessionKey)) {
+      return
+    }
+
     resetUndoHistory()
   }, [activeQueueSessionKey, resetUndoHistory])
 
@@ -630,6 +648,37 @@ export function ChatBar({
       return
     }
 
+    // The Enter family, decided in one place (see `composerEnterIntent`) so the
+    // ORDER — line break beats the completion menu beats queue beats send — is
+    // one testable rule instead of the emergent property of four branches spread
+    // across 200 lines. The branches below still own what to DO; this only says
+    // which one owns the keystroke.
+    const enterIntent = composerEnterIntent({
+      completionOpen: Boolean(trigger) && triggerItems.length > 0,
+      ctrlKey: event.ctrlKey,
+      key: event.key,
+      metaKey: event.metaKey,
+      shiftKey: event.shiftKey
+    })
+
+    // Shift+Enter, owned rather than inferred. Letting the webview run its own
+    // `insertLineBreak` is what made this keystroke a no-op on macOS: WebKit
+    // represents the result as a trailing `<div><br></div>`, which
+    // `normalizeComposerEditorDom` could not tell from the phantom block
+    // Chromium leaves after a chip, so the newline was deleted on the very next
+    // flush. `insertComposerLineBreak` writes a TAGGED break, identical on every
+    // engine and never mistaken for junk (MJXHRM-A3).
+    //
+    // Ahead of the popover for the same reason it is first in `composerEnterIntent`.
+    if (enterIntent === 'line-break') {
+      event.preventDefault()
+      triggerKeyConsumedRef.current = true
+      withUndoPoint(() => insertComposerLineBreak(event.currentTarget))
+      flushEditorToDraft(event.currentTarget)
+
+      return
+    }
+
     // The popover is open but its items are still in flight (debounce + RPC).
     // Tab must not fall through to the browser — it would move focus out of
     // the composer mid-completion, which reads as the popover "eating" the
@@ -670,8 +719,13 @@ export function ChatBar({
       // options step, and an arg option commits the full `/cmd arg` chip. Space
       // is slash-only (an `@` mention takes a literal space) and gated to a
       // non-empty query so a bare `/ ` still types a space.
+      //
+      // Shift+Enter is NOT an accept. It is already claimed above, so this guard
+      // is redundant today — and it stays anyway, because "the completion menu
+      // ate my line break" is a bug that comes back the moment someone moves a
+      // branch, and the cost of it never coming back is one boolean.
       const acceptOnSpace = event.key === ' ' && trigger.kind === '/' && Boolean(trigger.query.trim())
-      const accept = event.key === 'Enter' || event.key === 'Tab' || acceptOnSpace
+      const accept = (event.key === 'Enter' && !event.shiftKey) || event.key === 'Tab' || acceptOnSpace
 
       if (accept) {
         event.preventDefault()
@@ -803,14 +857,14 @@ export function ChatBar({
     // `queueDraft` re-reads the editor first: this branch consumes the keystroke
     // with preventDefault, so queueing the render-lagged `draftRef` would drop
     // whatever was typed since the last input event (upstream 406d7a67f0).
-    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.shiftKey) {
+    if (enterIntent === 'queue') {
       event.preventDefault()
       queueDraft()
 
       return
     }
 
-    if (event.key === 'Enter' && !event.shiftKey) {
+    if (enterIntent === 'send') {
       event.preventDefault()
 
       // Decide from the DOM, not React state. `hasComposerPayload` is derived

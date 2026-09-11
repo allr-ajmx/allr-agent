@@ -13,13 +13,15 @@ import {
   useState
 } from 'react'
 
-import { swallowsTriggerTab } from '@/app/chat/composer/composer-utils'
+import { composerEnterIntent, swallowsTriggerTab } from '@/app/chat/composer/composer-utils'
 import { ComposerDirectiveActions } from '@/app/chat/composer/directive-actions'
 import { focusComposerInput, markActiveComposer } from '@/app/chat/composer/focus'
 import { useComposerTrigger } from '@/app/chat/composer/hooks/use-composer-trigger'
 import { useEmojiCompletions } from '@/app/chat/composer/hooks/use-emoji-completions'
 import {
   composerPlainText,
+  insertComposerLineBreak,
+  isComposerBreak,
   placeCaretEnd,
   renderComposerContents,
   RICH_INPUT_SLOT
@@ -228,7 +230,11 @@ export const UserEditComposer: FC = () => {
   const handleInput = (event: FormEvent<HTMLDivElement>) => {
     const editor = event.currentTarget
 
-    if (editor.childNodes.length === 1 && editor.firstChild?.nodeName === 'BR') {
+    // A lone `<br>` is what the webview leaves behind when the last character is
+    // deleted — it makes the editor look non-empty and defeats the `:empty`
+    // placeholder. A lone TAGGED break is the opposite: the user pressed
+    // Shift+Enter on an empty message and asked for that line.
+    if (editor.childNodes.length === 1 && editor.firstChild?.nodeName === 'BR' && !isComposerBreak(editor.firstChild)) {
       editor.replaceChildren()
     }
 
@@ -339,6 +345,44 @@ export const UserEditComposer: FC = () => {
       return
     }
 
+    // The Enter family, decided by the same rule the docked composer uses so the
+    // two composers cannot drift on the one chord that is destructive here.
+    const enterIntent = composerEnterIntent({
+      completionOpen: Boolean(emojiTrigger) && triggerItems.length > 0,
+      ctrlKey: event.ctrlKey,
+      key: event.key,
+      metaKey: event.metaKey,
+      shiftKey: event.shiftKey
+    })
+
+    // Shift+Enter inserts a real, tagged line break — the same one the docked
+    // composer inserts, so a multi-line message edited here keeps its shape. Left
+    // to the webview it produced a different DOM per engine, and this composer
+    // serializes with the same `composerPlainText` the docked one does: WebKit's
+    // trailing `<div><br></div>` reads back as TWO newlines, so re-running the
+    // turn sent text the user never typed.
+    if (enterIntent === 'line-break') {
+      event.preventDefault()
+      triggerKeyConsumedRef.current = true
+      rememberInitialDraft()
+      insertComposerLineBreak(event.currentTarget)
+      syncDraftFromEditor(event.currentTarget)
+
+      return
+    }
+
+    // ⌘/Ctrl+Enter is `composer.queue` everywhere else in the app, and this
+    // composer has no queue — so it must do NOTHING. It used to send: the test
+    // was `Enter && !shiftKey` with no modifier guard, and sending here is not a
+    // send but a REWIND, re-running the conversation from this turn with no undo.
+    // A chord the user has trained on the docked composer must not be the one
+    // that discards their thread.
+    if (enterIntent === 'queue') {
+      event.preventDefault()
+
+      return
+    }
+
     // The menu is up but its items are still in flight — the emoji index loads
     // on the first `:` of the session, so this window is real. Tab must not fall
     // through: focus leaving THIS composer blurs it, and a blur with the draft
@@ -380,7 +424,9 @@ export const UserEditComposer: FC = () => {
       // Enter and Tab accept, exactly as the docked composer does. There is no
       // Space acceptance and no folder descent: those are `/` and `@` shapes,
       // and an emoji shortcode can legitimately be followed by a space.
-      if (event.key === 'Enter' || event.key === 'Tab') {
+      // Shift+Enter is already claimed above as a line break; the guard stays so
+      // a future reorder cannot hand it back to the menu.
+      if ((event.key === 'Enter' && !event.shiftKey) || event.key === 'Tab') {
         event.preventDefault()
         triggerKeyConsumedRef.current = true
 
@@ -414,7 +460,7 @@ export const UserEditComposer: FC = () => {
       return
     }
 
-    if (event.key === 'Enter' && !event.shiftKey) {
+    if (enterIntent === 'send') {
       event.preventDefault()
       submitEdit(event.currentTarget)
     }
