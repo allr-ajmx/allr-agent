@@ -37,10 +37,7 @@ function RepoCard({
 }) {
   return (
     <button
-      className={cn(
-        'flex h-full w-full flex-col p-3 text-start',
-        selectableCardClass({ active, prominent: true })
-      )}
+      className={cn('flex h-full w-full flex-col p-3 text-start', selectableCardClass({ active, prominent: true }))}
       onClick={onSelect}
       type="button"
     >
@@ -91,9 +88,7 @@ export function LocalInstallPanel({ onContinue }: { onContinue: () => void }) {
           <span className="text-[length:var(--conversation-text-font-size)] font-medium">{l.foundTitle}</span>
         </div>
         {state.install?.command ? <p className="local-install-path">{state.install.command}</p> : null}
-        {state.install?.version ? (
-          <p className="connect-body">{l.foundVersion(state.install.version)}</p>
-        ) : null}
+        {state.install?.version ? <p className="connect-body">{l.foundVersion(state.install.version)}</p> : null}
         <Button className="w-full" onClick={onContinue}>
           {l.continue}
         </Button>

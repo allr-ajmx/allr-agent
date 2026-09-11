@@ -390,7 +390,12 @@ describe('reconcileSessionTurn', () => {
   // did not, so a multi-profile gateway looked the id up in its launch
   // profile's state.db. The owner comes off the loaded row when it is known.
   it("scopes the resume to the session's owning profile", async () => {
-    const requestGateway = vi.fn(async () => ({ message_count: 0, messages: [], running: false, session_id: 'runtime-10' }))
+    const requestGateway = vi.fn(async () => ({
+      message_count: 0,
+      messages: [],
+      running: false,
+      session_id: 'runtime-10'
+    }))
 
     vi.doMock('@/store/gateway', () => ({
       $gatewayState: { get: () => 'open', subscribe: () => () => {} },

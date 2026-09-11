@@ -26,12 +26,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { $detachedTiles } from '@/components/pane-shell/tile/detach'
 import { group } from '@/components/pane-shell/tree/model'
-import {
-  $hiddenTreePanes,
-  $layoutTree,
-  $panesWithCloser,
-  $treePaneEpochs
-} from '@/components/pane-shell/tree/store'
+import { $hiddenTreePanes, $layoutTree, $panesWithCloser, $treePaneEpochs } from '@/components/pane-shell/tree/store'
 import { $tabSelection } from '@/components/pane-shell/tree/tab-selection'
 
 import { registerTiles } from '../../tile/registry'
@@ -98,7 +93,14 @@ describe('a zone ignores another zone', () => {
 
     // Positive control: ITS OWN pane detaching must still repaint (the zone
     // swaps the tile body for the "detached to another window" placeholder).
-    act(() => $detachedTiles.set(new Map([['beta', 'Beta window'], ['alpha', 'Alpha window']])))
+    act(() =>
+      $detachedTiles.set(
+        new Map([
+          ['beta', 'Beta window'],
+          ['alpha', 'Alpha window']
+        ])
+      )
+    )
 
     expect(commits).toHaveBeenCalled()
   })

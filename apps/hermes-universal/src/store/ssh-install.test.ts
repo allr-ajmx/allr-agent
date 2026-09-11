@@ -175,8 +175,7 @@ describe('starting a remote install', () => {
 
     await vi.waitFor(() => expect(invokeMock.mock.calls.some(([c]) => c === 'ssh_install')).toBe(true))
 
-    const installId = (invokeMock.mock.calls.find(([c]) => c === 'ssh_install')?.[1] as { attemptId: string })
-      .attemptId
+    const installId = (invokeMock.mock.calls.find(([c]) => c === 'ssh_install')?.[1] as { attemptId: string }).attemptId
 
     await cancelSshInstall()
 

@@ -30,7 +30,7 @@ import { $statusSnapshot } from '@/store/system-status'
 /** `<home>/AppData/Local` — the Windows default's parents, lowest segment first. */
 const WINDOWS_TAIL = ['local', 'appdata']
 /** Its leaf. `hermes` is the pre-rename default, still reported by old installs. */
-const WINDOWS_LEAVES = ['allr', 'hermes']  // rebrand:keep
+const WINDOWS_LEAVES = ['allr', 'hermes'] // rebrand:keep
 
 /**
  * The gateway user's home directory, derived from the ALLR_HOME it reports.

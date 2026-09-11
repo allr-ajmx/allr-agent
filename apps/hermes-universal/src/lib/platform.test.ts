@@ -1,13 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import {
-  detectMobileDevice,
-  IS_ANDROID,
-  IS_MOBILE,
-  IS_NATIVE_MOBILE,
-  LOCAL_MODE_SUPPORTED,
-  PLATFORM
-} from './platform'
+import { detectMobileDevice, IS_ANDROID, IS_MOBILE, IS_NATIVE_MOBILE, LOCAL_MODE_SUPPORTED, PLATFORM } from './platform'
 
 // In jsdom there is no Tauri runtime, so platform() throws and the helper falls
 // back to 'unknown'. jsdom's UA names no mobile device and maxTouchPoints is 0

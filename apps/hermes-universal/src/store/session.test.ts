@@ -318,7 +318,7 @@ describe('openSession — the model the pill paints', () => {
   const listRow = (id: string, model: null | string) =>
     ({ cwd: '/work', id, model, title: 'row' }) as unknown as SessionInfo
 
-  it('seeds the placeholder slice with the row\'s model', async () => {
+  it("seeds the placeholder slice with the row's model", async () => {
     $sessions.set([listRow('stored-m', 'anthropic/claude-opus-4')])
     vi.mocked(getSessionMessages).mockResolvedValue({ messages: [], session_id: 'stored-m' } as never)
 

@@ -674,8 +674,8 @@ function Sash({
           className={cn(
             'absolute bg-(--ui-sash-hover-border) opacity-0 transition-opacity duration-100 group-hover:opacity-100',
             horizontal
-              // eslint-disable-next-line better-tailwindcss/no-restricted-classes -- centring, not an edge — pairs with a physical -translate-x-1/2, and start-1/2 would resolve to right:50% while the transform still pulled left
-              ? 'inset-y-0 left-1/2 w-(--vscode-sash-hover-size,0.25rem) -translate-x-1/2'
+              ? // eslint-disable-next-line better-tailwindcss/no-restricted-classes -- centring, not an edge — pairs with a physical -translate-x-1/2, and start-1/2 would resolve to right:50% while the transform still pulled left
+                'inset-y-0 left-1/2 w-(--vscode-sash-hover-size,0.25rem) -translate-x-1/2'
               : 'inset-x-0 top-1/2 h-(--vscode-sash-hover-size,0.25rem) -translate-y-1/2'
           )}
         />

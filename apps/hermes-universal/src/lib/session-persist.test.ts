@@ -5,11 +5,7 @@ vi.mock('@/lib/platform', () => ({ IS_TAURI: true }))
 
 import { invoke } from '@tauri-apps/api/core'
 
-import {
-  forgetPersistedSessionCookies,
-  persistSessionCookies,
-  restoreSessionCookies
-} from './session-persist'
+import { forgetPersistedSessionCookies, persistSessionCookies, restoreSessionCookies } from './session-persist'
 
 const mockInvoke = vi.mocked(invoke)
 

@@ -10,13 +10,7 @@ import { Codecs, persistentAtom } from '@/lib/persisted'
 // backgrounded" is the whole rule. Per-kind toggles + throttle are kept.
 
 export type NativeNotificationKind =
-  | 'approval'
-  | 'backgroundDone'
-  | 'credits'
-  | 'input'
-  | 'plugin'
-  | 'turnDone'
-  | 'turnError'
+  'approval' | 'backgroundDone' | 'credits' | 'input' | 'plugin' | 'turnDone' | 'turnError'
 
 export const NATIVE_NOTIFICATION_KINDS: readonly NativeNotificationKind[] = [
   'approval',

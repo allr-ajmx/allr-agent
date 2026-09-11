@@ -120,7 +120,10 @@ function PreviewTab({ active, dirty, tab }: { active: boolean; dirty: boolean; t
                 so there the × always wins. The dirty state is not lost: the
                 Workspace's Editor tab carries its own dirty badge. */}
             {dirty ? (
-              <span aria-hidden className="size-1.5 rounded-full bg-(--ui-yellow) group-hover/tab:hidden coarse:hidden" />
+              <span
+                aria-hidden
+                className="size-1.5 rounded-full bg-(--ui-yellow) group-hover/tab:hidden coarse:hidden"
+              />
             ) : null}
             <Codicon
               className={cn(dirty && 'hidden group-hover/tab:inline coarse:inline')}

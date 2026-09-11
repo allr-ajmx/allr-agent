@@ -403,4 +403,3 @@ describe('dismissing the HUD', () => {
     expect(closeHud).not.toHaveBeenCalled()
   })
 })
-

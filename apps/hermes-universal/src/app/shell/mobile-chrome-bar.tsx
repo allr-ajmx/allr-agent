@@ -9,21 +9,18 @@ import { shellChromeSurface } from './cva/tokens'
  * MobileChromeBar CVA (MJXHRM-311).
  * One phone top bar — chat, Workspace, windowable surfaces share height/gutter/safe-area.
  */
-export const mobileChromeBarVariants = cva(
-  cn('shrink-0 border-b', shellChromeSurface),
-  {
-    variants: {
-      density: {
-        /** Default phone chrome — 48px control row below notch. */
-        mobile: '',
-        compact: ''
-      }
-    },
-    defaultVariants: {
-      density: 'mobile'
+export const mobileChromeBarVariants = cva(cn('shrink-0 border-b', shellChromeSurface), {
+  variants: {
+    density: {
+      /** Default phone chrome — 48px control row below notch. */
+      mobile: '',
+      compact: ''
     }
+  },
+  defaultVariants: {
+    density: 'mobile'
   }
-)
+})
 
 export const mobileChromeBarRowVariants = cva('flex items-center gap-1 px-2', {
   variants: {

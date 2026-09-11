@@ -58,7 +58,10 @@ describe('reuseUnchanged', () => {
 
   it('keeps the result structurally equal to the incoming snapshot', () => {
     const previous = [{ id: 'a', title: 'old' }]
-    const incoming = [{ id: 'a', title: 'new' }, { id: 'b', title: 'added' }]
+    const incoming = [
+      { id: 'a', title: 'new' },
+      { id: 'b', title: 'added' }
+    ]
 
     expect(reuseUnchanged(previous, incoming)).toEqual(incoming)
   })

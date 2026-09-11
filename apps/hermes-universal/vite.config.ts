@@ -210,13 +210,7 @@ export default defineConfig(({ command }) => ({
   define: {
     __TRACE_RUN_DEFAULT__: JSON.stringify(traceRunDefault())
   },
-  plugins: [
-    react(),
-    tailwindcss(),
-    emojibaseAssets(),
-    spanSourcePlugin,
-    ...(STORE_TRACING ? [storeNamePlugin] : [])
-  ],
+  plugins: [react(), tailwindcss(), emojibaseAssets(), spanSourcePlugin, ...(STORE_TRACING ? [storeNamePlugin] : [])],
   // Tailwind v4 is handled entirely by `@tailwindcss/vite`; pin an explicit
   // empty PostCSS config so Vite doesn't walk UP the filesystem and pick up a
   // stray postcss/tailwind config from the install location (see desktop

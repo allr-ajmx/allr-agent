@@ -491,7 +491,7 @@ describe('beginOAuthLogin — the mobile resume marker', () => {
   // reads a rejection as "we never navigated" and clears the marker. But the
   // WINNER had navigated, and the marker is global — so the loser deleted the
   // winner's. After the round trip the SPA rebooted with nothing to resume.
-  it('leaves the winner\'s resume marker alone when it loses the sign-in race', async () => {
+  it("leaves the winner's resume marker alone when it loses the sign-in race", async () => {
     const { auth, conn } = await loadOn(true)
 
     vi.mocked(auth.oauthLogin).mockResolvedValue({ busy: true })

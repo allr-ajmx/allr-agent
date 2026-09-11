@@ -1,10 +1,6 @@
 import { expect, it } from 'vitest'
 
-import {
-  LEGACY_SESSION_TOKEN_HEADER,
-  SESSION_TOKEN_HEADER,
-  sessionTokenHeaders
-} from '@/lib/session-token-header'
+import { LEGACY_SESSION_TOKEN_HEADER, SESSION_TOKEN_HEADER, sessionTokenHeaders } from '@/lib/session-token-header'
 
 // The gateway on the other end deploys on its own schedule. One built before the
 // Allr rename reads only `X-Hermes-Session-Token`; a current one reads

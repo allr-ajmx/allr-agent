@@ -4,8 +4,7 @@
  */
 
 /** Chrome fill + bottom/top hairline used by MobileChromeBar / MobileTabBar. */
-export const shellChromeSurface =
-  'border-(--ui-stroke-tertiary) bg-(--ui-bg-chrome) select-none'
+export const shellChromeSurface = 'border-(--ui-stroke-tertiary) bg-(--ui-bg-chrome) select-none'
 
 /** Active accent (tab underline, badge fill). */
 export const shellAccent = 'bg-(--ui-accent-primary)'
@@ -14,8 +13,7 @@ export const shellAccent = 'bg-(--ui-accent-primary)'
 export const shellChromeControlIdle =
   'bg-transparent text-muted-foreground/85 hover:bg-[var(--ui-control-hover-background)] hover:text-foreground'
 
-export const shellChromeControlActive =
-  'bg-[var(--ui-control-active-background)] text-foreground'
+export const shellChromeControlActive = 'bg-[var(--ui-control-active-background)] text-foreground'
 
 /** Tab / nav label colors. */
 export const shellTabIdle = 'text-muted-foreground'
