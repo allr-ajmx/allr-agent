@@ -7,6 +7,7 @@ import { IS_TAURI } from '@/lib/platform'
 import { broadcastToPeers, listenToPeers, onPeerBroadcast, type PeerBroadcast } from '@/lib/webview-broadcast'
 import { WEBVIEW_ID } from '@/lib/webview-id'
 import { atom } from '@/store/atom'
+import { addSessionKeyHooks } from '@/store/session-state-types'
 import { addressesThisWindow, type WindowAddress } from '@/store/windows'
 
 // ===========================================================================
@@ -337,6 +338,114 @@ export function takeSessionDraft(scope: string | null | undefined): SessionDraft
 }
 
 export const clearSessionDraft = (scope: string | null | undefined) => stashSessionDraft(scope, '', [])
+
+// --------------------------------------------------------------------------
+// Drafts across a session REKEY (MJXHRM-A1)
+//
+// A draft is keyed by the session key, and a session key MOVES: `session.create`
+// promotes `draft:N` to a real runtime id, and a resume after sleep/wake mints a
+// fresh runtime id for a conversation that already had one
+// (`store/session-state-types.ts` → `rekeySession`). Nothing here used to follow
+// that move, so the stash — text, attachments, localStorage mirror and the tab's
+// draft title — stayed filed under a key nothing would ever read again.
+//
+// The user-visible bug that came from it: type a message into a NEW chat, drop a
+// file on it, and the message plus every staged chip vanish. Dropping a file is
+// the shortest path to `ensureSession()` that is not a send, so it is the one
+// gesture that rekeys a chat whose draft is still only a draft
+// (`app/chat/attachments.ts` → `stageAttachment` → `ensureSession`). The sibling
+// path is `withSessionNotFoundResume`, which rekeys an ALREADY-LIVE session after
+// a sleep/wake — same move, same loss.
+//
+// A registration hook rather than a direct call because `session-state-types.ts`
+// must not import this module; `store/prompts.ts` carries its blocking prompts
+// across the same move in exactly this shape.
+// --------------------------------------------------------------------------
+
+/**
+ * The last few draft-scope renames, newest last.
+ *
+ * Kept because moving the STASH is only half the job: a mounted composer holds
+ * its text in the contenteditable DOM, not in the stash, and its per-thread swap
+ * effect cannot otherwise tell "my own session just got its real id" from "the
+ * user switched chats" — the two look identical from the atom. Consulted through
+ * `isSessionDraftRekey` on exactly the React flush that follows the rename, so a
+ * handful of entries is all the history that can ever be asked for.
+ */
+const recentDraftRekeys: { from: string; to: string }[] = []
+const MAX_TRACKED_DRAFT_REKEYS = 8
+
+/**
+ * Was `toKey` reached by rekeying `fromKey` — i.e. is this the SAME conversation
+ * under a new id, rather than a different conversation?
+ *
+ * The pure decision half of the composer's swap effect, so the rule is pinned by
+ * a test rather than by mounting a webview.
+ */
+export function isSessionDraftRekey(fromKey: string | null | undefined, toKey: string | null | undefined): boolean {
+  const from = draftKey(fromKey)
+  const to = draftKey(toKey)
+
+  return from !== to && recentDraftRekeys.some(entry => entry.from === from && entry.to === to)
+}
+
+/**
+ * Move one scope's stashed draft onto a new key.
+ *
+ * Recorded even when there is nothing to move: a draft the user typed less than
+ * `DRAFT_PERSIST_DEBOUNCE_MS` ago is still only in the editor's DOM, and an
+ * attachment staged by the very drop that triggered the rekey is only in the
+ * scope's `$attachments`. Both are exactly the case this exists for, and in both
+ * the map is empty at rename time — so the RECORD, not the move, is what saves
+ * them.
+ */
+export function renameSessionDraft(fromKey: string | null | undefined, toKey: string | null | undefined): boolean {
+  const from = draftKey(fromKey)
+  const to = draftKey(toKey)
+
+  if (from === to) {
+    return false
+  }
+
+  recentDraftRekeys.push({ from, to })
+
+  if (recentDraftRekeys.length > MAX_TRACKED_DRAFT_REKEYS) {
+    recentDraftRekeys.shift()
+  }
+
+  const moving = draftsBySession.get(from)
+
+  if (!moving) {
+    return false
+  }
+
+  // Delete-then-set on BOTH keys keeps the MRU order `MAX_PERSISTED_DRAFTS`
+  // evicts by: the draft is being touched right now, so it belongs at the end.
+  // The moving draft wins an occupied target, which is the same rule
+  // `rekeySession` applies to the slice itself (`{...moving, ...patch}`).
+  draftsBySession.delete(from)
+  draftsBySession.delete(to)
+  draftsBySession.set(to, moving)
+
+  publishDraftTitle(from, '')
+  publishDraftTitle(to, deriveDraftTitle(moving.text))
+  persistDraftTexts()
+
+  return true
+}
+
+addSessionKeyHooks({
+  // Deliberately nothing. Evicting a slice is not evidence the user is done with
+  // what they were typing — `dropSessionState` runs on teardown paths a draft is
+  // expected to outlive, and the stash is already bounded to
+  // `MAX_PERSISTED_DRAFTS` by MRU, so an orphan costs a map entry, not a leak.
+  // Discarding text on a lifecycle event is the failure mode this whole section
+  // exists to close.
+  drop() {},
+  rekey(fromKey, toKey) {
+    renameSessionDraft(fromKey, toKey)
+  }
+})
 
 // --------------------------------------------------------------------------
 // Cross-window drafts (MJXHRM-213; transport replaced in MJXHRM-424)

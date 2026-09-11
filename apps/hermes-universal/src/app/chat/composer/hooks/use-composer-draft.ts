@@ -4,7 +4,13 @@ import { type RefObject, useCallback, useEffect, useRef, useState } from 'react'
 import { SLASH_COMMAND_RE } from '@/lib/chat-runtime'
 import { onComposerDraftSyncRequest } from '@/lib/composer-draft-bus'
 import { IS_MOBILE } from '@/lib/platform'
-import { type ComposerAttachment, stashSessionDraft, takeSessionDraft } from '@/store/composer'
+import {
+  clearSessionDraft,
+  type ComposerAttachment,
+  isSessionDraftRekey,
+  stashSessionDraft,
+  takeSessionDraft
+} from '@/store/composer'
 import { isBrowsingHistory } from '@/store/composer-input-history'
 
 import {
@@ -387,7 +393,12 @@ export function useComposerDraft({
   // Per-thread draft swap — the composer's only session coupling. Lifecycle
   // never clears composer state; this effect alone stashes on leave, restores
   // on enter. Keyed writes are idempotent, so no skip-sentinel.
+  const previousDraftScopeRef = useRef(activeQueueSessionKey)
+
   useEffect(() => {
+    const previousScope = previousDraftScopeRef.current
+    previousDraftScopeRef.current = activeQueueSessionKey
+
     // A pending debounce timer from the outgoing session is now stale — its
     // scope was correct when scheduled, but the authoritative stash below
     // (and the cleanup on the way out) already covers that text. Letting it
@@ -396,9 +407,45 @@ export function useComposerDraft({
     pendingDraftPersistRef.current = null
     draftScopeRef.current = activeQueueSessionKey
 
-    const { attachments, text } = takeSessionDraft(activeQueueSessionKey)
-    loadIntoComposer(text, attachments)
+    // NOT a chat switch — the SAME chat under a new id. `session.create` promotes
+    // `draft:N` to a real runtime id (and a sleep/wake resume mints a fresh one
+    // for a session that already had one), and the key this effect watches IS the
+    // session key, so a rekey is indistinguishable from a switch at this level.
+    //
+    // Treating it as a switch is a data-loss bug, not a cosmetic one: the reload
+    // below repaints the editor from a key nothing has ever stashed under, so
+    // `loadIntoComposer('', [])` blanks the typed text AND the scope's staged
+    // attachments. Dropping a file on an unsent chat hits it every time —
+    // `stageAttachmentFromPath` calls `ensureSession()` before the chip is added,
+    // so the rekey lands mid-drop and takes the message with it.
+    //
+    // The editor already holds the right text and the scope already holds the
+    // right chips, so the whole job here is bookkeeping: re-file under the live
+    // key and drop the dead one. `stashSessionDraft` moved anything that had
+    // already been debounced to disk (store/composer.ts), but the cleanup that
+    // ran a moment ago re-filed the editor's CURRENT text under the outgoing key,
+    // and text typed inside the debounce window was never in the stash at all —
+    // this is what covers both.
+    const rekeyed = isSessionDraftRekey(previousScope, activeQueueSessionKey)
 
+    if (rekeyed) {
+      const editing = queueEditStateRef.current
+
+      if (editing?.sessionKey === previousScope) {
+        stashAt(activeQueueSessionKey, editing.draft, editing.attachments)
+      } else if (!isBrowsingHistory(sessionIdRef.current)) {
+        stashAt(activeQueueSessionKey, syncDraftFromEditor())
+      }
+
+      clearSessionDraft(previousScope)
+    } else {
+      const { attachments, text } = takeSessionDraft(activeQueueSessionKey)
+      loadIntoComposer(text, attachments)
+    }
+
+    // Returned on BOTH paths. A rekey does not end this composer's obligation to
+    // write its text down when the user later leaves for a different chat — an
+    // early `return` here would have quietly traded one lost draft for another.
     return () => {
       const latestText = syncDraftFromEditor()
       const editing = queueEditStateRef.current

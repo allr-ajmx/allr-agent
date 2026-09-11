@@ -97,12 +97,58 @@ export function slashChipElement(command: string, kind: SlashChipKind, label?: s
   return chip
 }
 
+/**
+ * Marks a `<br>` the COMPOSER put there, as opposed to one the webview's editing
+ * pipeline invented.
+ *
+ * The two are indistinguishable in the DOM and must be treated as opposites:
+ * a line break the user asked for is content, and a phantom block/`<br>` the
+ * engine leaves behind after editing around a `contenteditable=false` chip is
+ * junk that serializes as a spurious `\n` and visibly grows the composer.
+ * `normalizeComposerEditorDom` used to tell them apart by SHAPE — "a `<br>` after
+ * real text is real, a trailing block wrapper is phantom" — which is a statement
+ * about Chromium, not about the web: WebKit (WKWebView on macOS/iOS, WebKitGTK
+ * on Linux) reaches for a block wrapper where Chromium reaches for a bare `<br>`,
+ * so on those engines the phantom rule matched the user's own newline and
+ * deleted it on the very next flush (MJXHRM-A3: "Shift+Enter does nothing on
+ * macOS").
+ *
+ * Owning the gesture removes the guess entirely. Every break this module emits
+ * carries the marker, so "did we put this here?" is a question with an answer
+ * rather than a heuristic, and it reads the same on every engine.
+ */
+const COMPOSER_BREAK_DATA_ATTR = 'data-composer-break'
+
+/** True for a `<br>` the composer itself inserted (a real, user-intended line
+ *  break) — never for one the webview's editing pipeline left behind. */
+export function isComposerBreak(node: Node | null | undefined): boolean {
+  if (!node || node.nodeType !== Node.ELEMENT_NODE) {
+    return false
+  }
+
+  const el = node as HTMLElement
+
+  return el.tagName === 'BR' && el.dataset.composerBreak !== undefined
+}
+
+/** A tagged `<br>` — the only kind this module ever renders. */
+export function composerBreakElement(): HTMLBRElement {
+  const br = document.createElement('br')
+
+  br.dataset.composerBreak = ''
+
+  return br
+}
+
+/** The HTML form of `composerBreakElement`, for the string serializer. */
+const COMPOSER_BREAK_HTML = `<br ${COMPOSER_BREAK_DATA_ATTR}="">`
+
 function appendTextWithBreaks(target: DocumentFragment | HTMLElement, text: string) {
   const lines = text.split('\n')
 
   lines.forEach((line, index) => {
     if (index > 0) {
-      target.append(document.createElement('br'))
+      target.append(composerBreakElement())
     }
 
     if (line) {
@@ -370,6 +416,45 @@ export function insertComposerContentsAtCaret(editor: HTMLElement, text: string,
   }
 }
 
+/**
+ * Insert ONE user-intended line break at the caret (replacing any selection),
+ * leaving the caret after it. Returns whether it ran.
+ *
+ * This is what Shift+Enter does, instead of letting the webview's own
+ * `insertLineBreak` do it. The engines do not agree on the DOM they produce for
+ * that keystroke — Chromium leaves a bare `<br>`, WebKit a `<div><br></div>` —
+ * and the normalizer downstream has to decide which trailing nodes are the
+ * user's and which are the engine's leftovers. Emitting the break ourselves
+ * makes that decision trivial and identical everywhere: it is ours, it is
+ * tagged, it stays.
+ *
+ * Falls back to appending when the caret is not in this editor, so a
+ * programmatic call cannot silently do nothing.
+ */
+export function insertComposerLineBreak(editor: HTMLElement): boolean {
+  const hit = composerSelectionRange(editor)
+  const br = composerBreakElement()
+
+  if (hit) {
+    hit.range.deleteContents()
+    hit.range.insertNode(br)
+  } else {
+    editor.append(br)
+  }
+
+  const caret = document.createRange()
+
+  caret.setStartAfter(br)
+  caret.collapse(true)
+
+  const selection = hit?.selection ?? window.getSelection()
+
+  selection?.removeAllRanges()
+  selection?.addRange(caret)
+
+  return true
+}
+
 /** Insert plain text at the caret (replacing any selection), with no directive
  *  recognition — for text that must land literally. */
 export function insertPlainTextAtCaret(editor: HTMLElement, text: string) {
@@ -468,21 +553,29 @@ export function deleteSelectionInEditor(editor: HTMLElement) {
   return true
 }
 
-/** Serialize a draft string into chip-HTML for the contenteditable surface. */
+/** Serialize a draft string into chip-HTML for the contenteditable surface.
+ *
+ *  Breaks are TAGGED, exactly as `appendTextWithBreaks` tags the ones it builds
+ *  as nodes. The two serializers have to agree: a draft repainted through this
+ *  one and then normalized would otherwise have its newlines read as the
+ *  webview's leftovers and stripped — the restored draft would lose a line every
+ *  time it was put back. */
 export function composerHtml(text: string) {
   let cursor = 0
   let html = ''
 
   REF_RE.lastIndex = 0
 
+  const withBreaks = (slice: string) => escapeHtml(slice).replace(/\n/g, COMPOSER_BREAK_HTML)
+
   for (const match of text.matchAll(REF_RE)) {
     const index = match.index ?? 0
-    html += escapeHtml(text.slice(cursor, index)).replace(/\n/g, '<br>')
+    html += withBreaks(text.slice(cursor, index))
     html += refChipHtml(match[1] || 'file', match[2] || '')
     cursor = index + match[0].length
   }
 
-  return html + escapeHtml(text.slice(cursor)).replace(/\n/g, '<br>')
+  return html + withBreaks(text.slice(cursor))
 }
 
 /** Walk a DOM subtree back to the plain `@kind:value` text it represents. */
@@ -621,14 +714,21 @@ export function placeCaretAtOffset(editor: HTMLElement, offset: number) {
   placeCaretEnd(editor)
 }
 
-/** Nothing but a break / whitespace (recursively) — i.e. no real text or chip. */
+/** Nothing but a PHANTOM break / whitespace (recursively) — i.e. no real text,
+ *  no chip, and no break the composer itself put there.
+ *
+ *  A tagged break is content by definition: the user pressed Shift+Enter and we
+ *  wrote it down. Without that exception a WebKit-shaped `<div><br></div>` and a
+ *  Chromium-shaped bare `<br>` are the same node to this predicate, so the only
+ *  thing separating "the newline you just typed" from "junk the engine left"
+ *  would be which engine you happen to be running. */
 function isBlankNode(node: ChildNode | null): boolean {
   if (!node) {
     return false
   }
 
   if (node.nodeName === 'BR') {
-    return true
+    return !isComposerBreak(node)
   }
 
   if (node.nodeType === Node.TEXT_NODE) {
@@ -645,13 +745,20 @@ function isBlankNode(node: ChildNode | null): boolean {
 }
 
 /** Drop contenteditable junk that serializes as `\n` and falsely expands the
- *  composer. Editing around a contenteditable=false chip makes Chromium wrap the
- *  remainder in stray block <div>s / trailing <br>s — none of which our own
- *  rendering emits (we use text nodes + <br> + chips). Real <br> line breaks
- *  (Shift+Enter, which sit after actual text) are preserved. */
+ *  composer. Editing around a contenteditable=false chip makes the webview wrap
+ *  the remainder in stray block <div>s / trailing <br>s — none of which our own
+ *  rendering emits (we use text nodes + tagged <br> + chips).
+ *
+ *  Line breaks the COMPOSER inserted are preserved, and that is now a property of
+ *  the node rather than of its position: `insertComposerLineBreak` tags every
+ *  break it writes, so Shift+Enter survives here whether the engine would have
+ *  represented it as a bare `<br>` (Chromium), as a trailing `<div><br></div>`
+ *  (WebKit), or right after a chip — three shapes that all used to be read as
+ *  phantoms and deleted on the next flush. Untagged leftovers are still junk and
+ *  still go. */
 export function normalizeComposerEditorDom(editor: HTMLElement) {
   // A trailing block wrapper holding only a break/whitespace is the phantom
-  // "new line" Chromium adds after a chip on backspace — drop it.
+  // "new line" the webview adds after a chip on backspace — drop it.
   const tailBlock = editor.lastChild as HTMLElement | null
 
   if (
@@ -671,10 +778,14 @@ export function normalizeComposerEditorDom(editor: HTMLElement) {
     }
   }
 
-  // A trailing <br> right after a chip / only whitespace is a phantom line.
+  // A trailing <br> right after a chip / only whitespace is a phantom line —
+  // UNLESS we put it there. Shift+Enter straight after a picked `@file:` chip, or
+  // as the first keystroke into an empty composer, produces exactly that shape
+  // and is exactly what the user asked for; on every engine this branch used to
+  // eat it.
   const last = editor.lastChild
 
-  if (last?.nodeName === 'BR') {
+  if (last?.nodeName === 'BR' && !isComposerBreak(last)) {
     let prev: ChildNode | null = last.previousSibling
 
     while (prev?.nodeType === Node.TEXT_NODE && !(prev.textContent || '').trim()) {

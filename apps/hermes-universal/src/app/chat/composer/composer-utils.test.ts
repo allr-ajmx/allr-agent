@@ -11,7 +11,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { swallowsTriggerTab } from './composer-utils'
+import { composerEnterIntent, swallowsTriggerTab } from './composer-utils'
 
 const inFlight = { itemCount: 0, key: 'Tab', loading: true, open: true }
 
@@ -39,6 +39,79 @@ describe('swallowsTriggerTab', () => {
   it('claims Tab only — every other key still types or navigates', () => {
     for (const key of ['Enter', ' ', 'ArrowDown', 'Escape', 'a', 'Backspace']) {
       expect(swallowsTriggerTab({ ...inFlight, key })).toBe(false)
+    }
+  })
+})
+
+/**
+ * The Enter family. Four gestures share one key and the ORDER between them is
+ * the entire rule, so it lives in one function rather than emerging from four
+ * branches scattered through a 1400-line component.
+ *
+ * Two bugs were hiding in that order:
+ *
+ *  - Shift+Enter was never claimed at all. It fell through to the webview's own
+ *    `insertLineBreak`, whose DOM differs per engine, and `normalizeComposerEditorDom`
+ *    then deleted the newline on WebKit — "Shift+Enter does nothing on macOS".
+ *    Claiming it has to happen BEFORE the completion menu, whose accept test was
+ *    `Enter || Tab || space` with no shift guard.
+ *  - The message-EDIT composer sent on `Enter && !shiftKey` with no modifier
+ *    guard, so ⌘+Enter — the queue chord everywhere else — re-ran the turn and
+ *    rewound the conversation, with no undo.
+ */
+
+const plain = { completionOpen: false, ctrlKey: false, key: 'Enter', metaKey: false, shiftKey: false }
+
+describe('composerEnterIntent', () => {
+  it('sends on a plain Enter', () => {
+    expect(composerEnterIntent(plain)).toBe('send')
+  })
+
+  it('breaks the line on Shift+Enter', () => {
+    expect(composerEnterIntent({ ...plain, shiftKey: true })).toBe('line-break')
+  })
+
+  it('queues on Cmd+Enter and on Ctrl+Enter', () => {
+    expect(composerEnterIntent({ ...plain, metaKey: true })).toBe('queue')
+    expect(composerEnterIntent({ ...plain, ctrlKey: true })).toBe('queue')
+  })
+
+  it('never sends on Cmd+Enter — a composer with no queue must do NOTHING', () => {
+    // The edit composer's whole bug: `queue` is an intent it ignores, and
+    // ignoring is the correct outcome. Anything that resolved to `send` here
+    // would re-run the turn.
+    expect(composerEnterIntent({ ...plain, metaKey: true })).not.toBe('send')
+    expect(composerEnterIntent({ ...plain, ctrlKey: true })).not.toBe('send')
+  })
+
+  it('breaks the line even with the completion menu open', () => {
+    // The regression that made Shift+Enter unreliable in the middle of a
+    // sentence: typing `@fi` opens the menu, and the menu used to accept on any
+    // Enter.
+    expect(composerEnterIntent({ ...plain, completionOpen: true, shiftKey: true })).toBe('line-break')
+  })
+
+  it('gives a plain Enter to the open completion menu', () => {
+    expect(composerEnterIntent({ ...plain, completionOpen: true })).toBe('accept-completion')
+  })
+
+  it('gives Cmd+Enter to the open completion menu too', () => {
+    // Preserved from the shipped handler, where the popover branch ran ahead of
+    // the queue branch and had no modifier guard. Changing it would be a
+    // separate decision, not a side effect of this one.
+    expect(composerEnterIntent({ ...plain, completionOpen: true, metaKey: true })).toBe('accept-completion')
+  })
+
+  it('leaves Shift+Cmd+Enter alone', () => {
+    // Claimed by nothing today; it must not fall into `send` by accident.
+    expect(composerEnterIntent({ ...plain, metaKey: true, shiftKey: true })).toBe('pass-through')
+    expect(composerEnterIntent({ ...plain, ctrlKey: true, shiftKey: true })).toBe('pass-through')
+  })
+
+  it('ignores every key that is not Enter', () => {
+    for (const key of ['Tab', ' ', 'Escape', 'ArrowUp', 'a', 'Backspace']) {
+      expect(composerEnterIntent({ ...plain, key })).toBe('pass-through')
+      expect(composerEnterIntent({ ...plain, key, shiftKey: true })).toBe('pass-through')
     }
   })
 })
