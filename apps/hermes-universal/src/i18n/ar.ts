@@ -78,6 +78,14 @@ export const ar = defineLocale({
     deleteBody: 'سيتم نقله إلى سلة المهملات — يمكنك استعادته من هناك.',
     pathCopied: 'تم نسخ المسار'
   },
+  explorerPath: {
+    title: 'العمل في هذا المجلد؟',
+    body: 'يمكن نقل هذه المحادثة إلى هنا، أو تركها في مكانها وبدء المحادثات الجديدة هنا.',
+    moveChat: 'نقل هذه المحادثة',
+    newChatsOnly: 'المحادثات الجديدة فقط',
+    busy: 'هذه المحادثة في منتصف دور — انتظر انتهاءه قبل تغيير مجلدها.',
+    moveFailed: 'تعذر نقل هذه المحادثة إلى ذلك المجلد.'
+  },
   notifications: {
     region: 'الإشعارات',
     hide: 'إخفاء',
@@ -150,7 +158,6 @@ export const ar = defineLocale({
     unmuteHaptics: 'تفعيل الاهتزازات',
     openSettings: 'فتح الإعدادات',
     openStarmap: 'فتح خريطة الذاكرة',
-    enterHud: 'وضع HUD',
     exitHud: 'إنهاء وضع HUD'
   },
   hud: {

@@ -1437,7 +1437,6 @@
       "starmap.shareHint",
       "starmap.sharePlaceholder",
       "starmap.shareTitle",
-      "titlebar.enterHud",
       "titlebar.exitHud",
       "titlebar.openKeybinds"
     ],
@@ -1894,7 +1893,6 @@
       "starmap.shareHint",
       "starmap.sharePlaceholder",
       "starmap.shareTitle",
-      "titlebar.enterHud",
       "titlebar.exitHud",
       "titlebar.openKeybinds"
     ]

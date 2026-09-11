@@ -17,9 +17,10 @@ const win = vi.hoisted(() => ({
 
 vi.mock('@tauri-apps/api/window', () => ({ getCurrentWindow: () => win }))
 
-// The floating-surface capability query. Settable, because whether this
-// platform can put a window over other applications is what decides whether the
-// HUD button belongs in the chrome at all.
+// The floating-surface capability query. Still settable, because the assertion
+// below is that the HUD button is absent on EITHER answer — a capability-gated
+// button that came back would otherwise be caught only on the platform the test
+// happened to simulate.
 const caps = vi.hoisted(() => ({ floatingSurface: true }))
 
 vi.mock('@/lib/surface', () => ({
@@ -46,30 +47,32 @@ afterEach(() => {
 })
 
 describe('the HUD affordance', () => {
-  // `lib/surface.ts`: read `floatingSurface` to decide whether to offer the UI
-  // at all. Where there is none, this button opens an ordinary window that sits
-  // BEHIND whatever the user is working in — the opposite of what it promises.
-  it('offers the HUD where the platform can float a window', async () => {
-    renderTitlebar()
+  // Removed by request: the HUD keeps its keybind (`view.toggleHud`,
+  // mod+shift+H, claimed globally) and `app/hooks/use-keybinds.ts` still runs
+  // it — the chord is in fact the only route in, since there is no
+  // command-palette entry for it. Only the titlebar button is gone.
+  //
+  // Asserted on BOTH capability answers, because the button used to be gated on
+  // `floatingSurface`: a restored button would otherwise slip past on whichever
+  // platform this test simulated.
+  for (const floatingSurface of [true, false]) {
+    it(`renders no HUD button where floatingSurface is ${floatingSurface}`, async () => {
+      caps.floatingSurface = floatingSurface
 
-    expect(await screen.findByRole('button', { name: 'HUD mode' })).toBeInTheDocument()
-  })
+      renderTitlebar()
 
-  it('does not offer it where the platform cannot', async () => {
-    caps.floatingSurface = false
+      // Settle the capability probe first — asserting on the first frame would
+      // pass for the wrong reason, since the button always started hidden.
+      await screen.findByRole('button', { name: 'Open settings' })
+      await act(async () => {
+        await Promise.resolve()
+        await Promise.resolve()
+      })
 
-    renderTitlebar()
-
-    // Settle the capability probe, then check — asserting on the first frame
-    // would pass for the wrong reason, since the button starts hidden either way.
-    await screen.findByRole('button', { name: 'Open settings' })
-    await act(async () => {
-      await Promise.resolve()
-      await Promise.resolve()
+      expect(screen.queryByRole('button', { name: 'HUD mode' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /hud/i })).not.toBeInTheDocument()
     })
-
-    expect(screen.queryByRole('button', { name: 'HUD mode' })).not.toBeInTheDocument()
-  })
+  }
 })
 
 describe('Titlebar sidebar toggles', () => {

@@ -123,6 +123,14 @@ export const ja = defineLocale({
     deleteBody: 'ゴミ箱に移動します。そこから復元できます。',
     pathCopied: 'パスをコピーしました'
   },
+  explorerPath: {
+    title: 'このフォルダーで作業しますか？',
+    body: 'このチャットをここへ移動できます。移動せずに、新しいチャットだけをここで開始することもできます。',
+    moveChat: 'このチャットを移動',
+    newChatsOnly: '新しいチャットのみ',
+    busy: 'このチャットはターンの実行中です。完了してからフォルダーを変更してください。',
+    moveFailed: 'このチャットをそのフォルダーへ移動できませんでした。'
+  },
 
   notifications: {
     region: '通知',

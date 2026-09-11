@@ -112,6 +112,19 @@ export const en: Translations = {
     pathCopied: 'Path copied'
   },
 
+  // "You picked a folder — does this chat move there, or only the next one?"
+  // The explorer and the agent's cwd are one value now (store/explorer-path),
+  // so the question is which cwd a click means, and it is asked every time
+  // rather than guessed.
+  explorerPath: {
+    title: 'Work in this folder?',
+    body: 'This chat can move here, or you can leave it where it is and start new chats here instead.',
+    moveChat: 'Move this chat',
+    newChatsOnly: 'New chats only',
+    busy: 'This chat is mid-turn — wait for it to finish before changing its folder.',
+    moveFailed: 'Could not move this chat to that folder.'
+  },
+
   notifications: {
     region: 'Notifications',
     hide: 'Hide',
@@ -204,7 +217,6 @@ export const en: Translations = {
     openSettings: 'Open settings',
     openStarmap: 'Open memory graph',
     openKeybinds: 'Keyboard shortcuts',
-    enterHud: 'HUD mode',
     exitHud: 'Exit HUD mode',
     minimize: 'Minimize',
     maximize: 'Maximize',

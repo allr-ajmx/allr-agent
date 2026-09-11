@@ -109,6 +109,49 @@ export function respondWindowRead(requestId: string, text: string): Promise<Agen
   return requestGateway<AgentReadRespondResult>('window.read.respond', { request_id: requestId, text })
 }
 
+// --- session.cwd.set -------------------------------------------------------
+
+/** The gateway's `_session_info` snapshot, as `session.cwd.set` returns it —
+ *  and as it re-emits it on the `session.info` event, which is what actually
+ *  moves the client's slice. Only the fields a caller of this method can rely
+ *  on; the event carries the full record. */
+export interface SessionCwdSetResult {
+  branch?: null | string
+  /** The path the backend resolved (`~` expanded, absolute). */
+  cwd?: string
+  /** True when the session had no built agent yet, so the info was synthesized
+   *  from the path rather than read off a live agent. */
+  lazy?: boolean
+  project?: unknown
+}
+
+/**
+ * Re-anchor a LIVE session's working directory.
+ *
+ * The explorer → cwd half of the two-way binding. The other half needs no code
+ * at all: this handler emits `session.info` with the new cwd, the reducer folds
+ * it into the session slice, and `$focusedCwd` → `$effectiveCwd` re-roots the
+ * file tree on its own. So a caller must NOT also set a tree root by hand —
+ * that is how the explorer became a second source of truth in the first place.
+ *
+ * Rule 17: `session_id` here is the RUNTIME id
+ * (`ClientSessionState.runtimeSessionId`), the only id space that goes on the
+ * wire — the sibling `session.workspace.move` below takes the STORED key
+ * instead, and the two are not interchangeable. The gateway resolves this one
+ * through `_sess_nowait`, i.e. a straight `_sessions[session_id]` lookup, so a
+ * stored key arrives as a bare `4001 session not found`.
+ *
+ * Refuses with `4009 session busy` while the session is running rather than
+ * yanking the workspace out from under a tool mid-turn; `4016` is an empty
+ * `cwd` and `4017` a path the backend would not accept.
+ */
+export function setSessionCwd(params: { cwd: string; sessionId: string }): Promise<SessionCwdSetResult> {
+  return requestGateway<SessionCwdSetResult>('session.cwd.set', {
+    cwd: params.cwd,
+    session_id: params.sessionId
+  })
+}
+
 // --- session.workspace.move ------------------------------------------------
 
 export interface SessionWorkspaceMoveResult {

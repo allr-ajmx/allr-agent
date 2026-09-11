@@ -111,6 +111,14 @@ export const zh: Translations = {
     deleteBody: '将移至废纸篓，你可以从那里恢复。',
     pathCopied: '已复制路径'
   },
+  explorerPath: {
+    title: '在此文件夹中工作？',
+    body: '可以把这个对话移到这里，也可以保持不动、只让新对话从这里开始。',
+    moveChat: '移动此对话',
+    newChatsOnly: '仅新对话',
+    busy: '此对话正在进行中 — 请等它结束后再更改文件夹。',
+    moveFailed: '无法将此对话移动到该文件夹。'
+  },
 
   notifications: {
     region: '通知',
@@ -201,7 +209,6 @@ export const zh: Translations = {
     openSettings: '打开设置',
     openStarmap: '打开记忆图谱',
     openKeybinds: '键盘快捷键',
-    enterHud: 'HUD 模式',
     exitHud: '退出 HUD 模式',
     minimize: '最小化',
     maximize: '最大化',

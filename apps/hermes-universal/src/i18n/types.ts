@@ -165,6 +165,19 @@ export interface Translations {
     pathCopied: string
   }
 
+  /** The "move this chat here, or only new ones?" question a folder pick asks
+   *  (store/explorer-path). */
+  explorerPath: {
+    title: string
+    body: string
+    moveChat: string
+    newChatsOnly: string
+    /** Why a folder pick did nothing: the focused chat is mid-turn, and both
+     *  `session.cwd.set` and `session.workspace.move` refuse there. */
+    busy: string
+    moveFailed: string
+  }
+
   notifications: {
     region: string
     hide: string
@@ -256,7 +269,6 @@ export interface Translations {
     openSettings: string
     openStarmap: string
     openKeybinds: string
-    enterHud: string
     exitHud: string
     minimize: string
     maximize: string

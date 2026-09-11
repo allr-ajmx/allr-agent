@@ -122,6 +122,14 @@ export const zhHant = defineLocale({
     deleteBody: '將移至垃圾桶，你可以從那裡還原。',
     pathCopied: '已複製路徑'
   },
+  explorerPath: {
+    title: '在此資料夾中工作？',
+    body: '可以把這個對話移到這裡，也可以維持不動、只讓新對話從這裡開始。',
+    moveChat: '移動此對話',
+    newChatsOnly: '僅新對話',
+    busy: '此對話正在進行中 — 請等它結束後再變更資料夾。',
+    moveFailed: '無法將此對話移動到該資料夾。'
+  },
 
   notifications: {
     region: '通知',

@@ -1,5 +1,6 @@
 import { getDefaultCwd } from '@/hermes'
 import { atom, computed, type ReadableAtom } from '@/store/atom'
+import { $activeGatewayProfile } from '@/store/profile'
 import { $focusedCwd } from '@/store/session-states'
 
 // Ported from desktop's store/workspace-events.ts. Event-driven "the working
@@ -128,7 +129,26 @@ export function toolChangedPath(payload: { args?: unknown; arguments?: unknown }
 // refreshed on reconnect via `resetWorkspaceCwd`.
 export const $workspaceCwd = atom<string>('')
 export const $workspaceBranch = atom<string>('')
+/**
+ * The GATEWAY's home directory, from the same `/api/fs/default-cwd` call.
+ *
+ * The gateway's, not this device's: that is where sessions run, so it is the
+ * only "home" the file tree and `cwdForNewSession()` can mean. It is an
+ * ADDITIVE field — a frozen older backend omits it and this stays empty, which
+ * is what hides the Home button instead of pointing it at nothing.
+ */
+export const $workspaceHome = atom<string>('')
 let cwdInflight: Promise<string> | null = null
+/**
+ * Bumped by every `resetWorkspaceCwd`, and checked by the fetch before it
+ * writes. Without it a reload races its own predecessor: the request that was
+ * already in the air when the profile changed still resolves, and lands the
+ * PREVIOUS profile's cwd on top of the new one — and its `finally` would clear
+ * the successor's `cwdInflight` while that request is still open, so the next
+ * caller starts a third. Losing the answer to a question we no longer want is
+ * the correct outcome; scope is what makes it wrong, not lateness.
+ */
+let cwdGeneration = 0
 
 export function ensureWorkspaceCwd(): Promise<string> {
   const existing = $workspaceCwd.get()
@@ -141,16 +161,25 @@ export function ensureWorkspaceCwd(): Promise<string> {
     return cwdInflight
   }
 
+  const generation = cwdGeneration
+
   cwdInflight = getDefaultCwd()
-    .then(({ branch, cwd }) => {
+    .then(({ branch, cwd, home }) => {
+      if (generation !== cwdGeneration) {
+        return ''
+      }
+
       $workspaceCwd.set(cwd)
       $workspaceBranch.set(branch)
+      $workspaceHome.set(home ?? '')
 
       return cwd
     })
     .catch(() => '')
     .finally(() => {
-      cwdInflight = null
+      if (generation === cwdGeneration) {
+        cwdInflight = null
+      }
     })
 
   return cwdInflight
@@ -174,8 +203,100 @@ export const $effectiveCwd: ReadableAtom<string> = computed(
   (sessionCwd, workspaceRoot) => sessionCwd.trim() || workspaceRoot
 )
 
+/**
+ * Point the workspace root somewhere else, by hand.
+ *
+ * The fallback half of the explorer's folder pick (`store/explorer-path`): with
+ * no live session to move, `$effectiveCwd` IS `$workspaceCwd`, so this is the
+ * one place the tree's root can be chosen without inventing a second source of
+ * truth beside the session's cwd.
+ *
+ * The branch goes with it. `/api/fs/default-cwd` reports the two together
+ * because a branch only means anything for the directory it was read in, and a
+ * stale one is worse than none — nothing consumes `$workspaceBranch` today, and
+ * the next thing that does should not inherit a lie. A blank path is a no-op
+ * rather than a blanking: rooting the tree at `''` is what the empty-state
+ * hint is for, not something a click should be able to cause.
+ */
+export function setWorkspaceCwd(path: string): void {
+  const next = path.trim()
+
+  if (!next || next === $workspaceCwd.get()) {
+    return
+  }
+
+  $workspaceCwd.set(next)
+  $workspaceBranch.set('')
+}
+
 export function resetWorkspaceCwd(): void {
   $workspaceCwd.set('')
   $workspaceBranch.set('')
+  $workspaceHome.set('')
   cwdInflight = null
+  cwdGeneration += 1
+}
+
+/**
+ * Throw the cached root away and ask for it again.
+ *
+ * `ensureWorkspaceCwd` alone cannot do this: it is a memo, so it returns the
+ * value it already has. Forgetting first is the whole point — and an in-flight
+ * fetch is dropped with it, because the answer it is about to deliver belongs
+ * to the scope we just left.
+ */
+export function reloadWorkspaceCwd(): Promise<string> {
+  resetWorkspaceCwd()
+
+  return ensureWorkspaceCwd()
+}
+
+// ---------------------------------------------------------------------------
+// The profile sync
+//
+// `/api/fs/default-cwd` is profile-scoped: it resolves, INSIDE the active
+// profile's scope, that profile's active project's primary folder → its
+// `terminal.cwd` → the gateway default, and reports that profile's `home`
+// alongside. So `$workspaceCwd` / `$workspaceBranch` / `$workspaceHome` are
+// per-profile values, and a profile switch leaves all three describing a
+// workspace the app is no longer talking to — the file tree, the statusbar cwd
+// segment, the terminal's initial directory and the review base all keep
+// pointing at the previous profile's folder.
+//
+// It lives HERE, in the module that owns those three atoms, rather than in the
+// file tree that is the most visible consumer: the staleness is global, and the
+// tree is only one of four surfaces reading it. It is also why this is not a
+// `useOnProfileSwitch` in a component — a right pane that is collapsed, or a
+// mobile drawer that is closed, is unmounted, and a reload that only happens
+// while somebody is watching is not a reload. Two mounted copies would fire two
+// concurrent `getDefaultCwd` calls, too.
+//
+// Armed by an explicit call from `main.tsx`, never at module scope: this module
+// is imported by the statusbar, the contrib controller and the file tree, and a
+// module-scope listener attaches once per surface that merely mentions an atom.
+// ---------------------------------------------------------------------------
+
+let profileUnsubscribe: null | (() => void) = null
+
+export function initWorkspaceProfileSync(): void {
+  if (profileUnsubscribe) {
+    return
+  }
+
+  // `listen`, not `subscribe`: subscribe fires immediately with the current
+  // value, which would throw away a root that had just been fetched (and, at
+  // boot, fire a second `getDefaultCwd` on top of the first).
+  profileUnsubscribe = $activeGatewayProfile.listen(() => {
+    void reloadWorkspaceCwd()
+  })
+}
+
+export function stopWorkspaceProfileSync(): void {
+  profileUnsubscribe?.()
+  profileUnsubscribe = null
+}
+
+/** Test seam: is the sync armed? */
+export function __workspaceProfileSyncActive(): boolean {
+  return profileUnsubscribe !== null
 }
