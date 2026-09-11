@@ -2,7 +2,7 @@
 
 [project]
 name = "allr-agent"
-version = "0.20.0"
+version = "0.20.1"
 description = "Allr — one AI workspace that makes finished work. Built on Hermes Agent by Nous Research."
 readme = "README.md"
 # Upper bound is load-bearing, not cosmetic. uv resolves the project's
