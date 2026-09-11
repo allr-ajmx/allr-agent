@@ -17,6 +17,7 @@ import {
 } from '@/store/layout'
 import { openAppRoute } from '@/store/windows'
 
+import { DownloadsTray } from './downloads-tray'
 import { LayoutMenu } from './layout-menu'
 import { TitlebarButton } from './titlebar-button'
 import { WindowControls } from './window-controls'
@@ -92,6 +93,13 @@ export function Titlebar({ connected }: { connected: boolean }) {
       {connected && (
         <div className="pointer-events-auto flex items-center gap-0.5">
           <Slot area={TITLEBAR_AREAS.right} />
+          {/* Gateway files being written to this device. Always present, the way
+              a browser's download button is: the panel is the only route back to
+              a finished transfer, so a button that came and went would hide the
+              history it exists to show. Activity is carried by the badge, not by
+              the button's presence. It lists peers' downloads too (rule 21), so
+              a file queued from the HUD lands here. */}
+          <DownloadsTray />
           {/* Layout / tile-preview button — pick a workspace preset (Default /
               Focus / Terminal deck / Quad) or reset the layout. */}
           <LayoutMenu />

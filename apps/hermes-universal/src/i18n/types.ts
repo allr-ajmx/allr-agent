@@ -2775,6 +2775,38 @@ export interface Translations {
   /** The system tray's menu (desktop). Native copy, so it is PUSHED down from
    *  `store/tray.ts` — `src-tauri/src/tray.rs` builds the menu with English
    *  literals and cannot read this catalog. */
+  /** The titlebar downloads tray (MJXHRM downloads spine). A gateway file or
+   *  folder being written to this device, wherever in the app it was asked for. */
+  downloads: {
+    /** Tray button label + dropdown heading. */
+    title: string
+    /** Tooltip while transfers are in flight. */
+    inProgress: (count: number) => string
+    /** Row action: stop a transfer that has not finished. */
+    cancel: string
+    /** Row action: select the finished file in the OS file manager. */
+    reveal: string
+    /** Row action: hand the finished file to the OS. */
+    open: string
+    /** Row action: take a finished row out of the list. */
+    dismiss: string
+    /** Menu action: take every finished row out at once. */
+    clearFinished: string
+    /** Panel body when nothing has been downloaded this session. */
+    empty: string
+    /** Menu action on a directory: download it as a zip. */
+    downloadFolder: string
+    /** Byte counter under the bar, e.g. "12.4 MB of 240 MB". */
+    ofTotal: (received: string, total: string) => string
+    /** One string per `DownloadStatus`. */
+    status: {
+      queued: string
+      running: string
+      done: string
+      cancelled: string
+      failed: string
+    }
+  }
   tray: {
     show: string
     /** Summon the HUD from the tray — the only route to it on a machine where

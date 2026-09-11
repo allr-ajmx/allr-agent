@@ -45,7 +45,7 @@ use background::{get_background_mode, quit_app, set_background_mode, BackgroundS
 use cloud::{
     portal_agent_sign_in, portal_discover_agents, portal_login, portal_logout, portal_status,
 };
-use files::download_file;
+use files::{cancel_download, download_file, download_folder, DownloadState};
 use find_in_page::{find_in_page, stop_find_in_page};
 use keep_awake::{set_keep_awake, KeepAwakeState};
 use link_title::fetch_link_title;
@@ -229,6 +229,11 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .manage(TransportState::new())
         .manage(MediaState::default())
+        // The live downloads' cancel flags. Managed on BOTH targets so the
+        // builder chain is one shape (§6.1) — and unlike the empty mobile
+        // stubs beside it this one is real on the phone too: a download is a
+        // network fetch plus a local write, and both halves work there.
+        .manage(DownloadState::default())
         .manage(ArtifactState::default())
         .manage(LocalBackendState::default())
         .manage(local_install::InstallState::default())
@@ -390,6 +395,8 @@ pub fn run() {
             artifact_stage,
             media_set_target,
             download_file,
+            download_folder,
+            cancel_download,
             fetch_link_title,
             oauth_login,
             oauth_status,

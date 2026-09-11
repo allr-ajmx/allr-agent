@@ -2680,6 +2680,25 @@ export const ar = defineLocale({
   nav: {
     webhooks: 'الويب هوك'
   },
+  downloads: {
+    title: 'التنزيلات',
+    inProgress: (count: number) => `${count} تنزيل قيد التقدم`,
+    cancel: 'إلغاء التنزيل',
+    reveal: 'إظهار في المجلد',
+    open: 'فتح',
+    dismiss: 'إزالة من القائمة',
+    clearFinished: 'مسح المكتملة',
+    empty: 'لا توجد تنزيلات بعد',
+    downloadFolder: 'تنزيل المجلد كملف مضغوط',
+    ofTotal: (received: string, total: string) => `${received} من ${total}`,
+    status: {
+      queued: 'في الانتظار',
+      running: 'جارٍ التنزيل…',
+      done: 'تم الحفظ',
+      cancelled: 'أُلغي',
+      failed: 'فشل'
+    }
+  },
   tray: {
     show: 'إظهار Allr',
     hud: 'فتح شريط الاستدعاء',

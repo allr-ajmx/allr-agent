@@ -3310,6 +3310,25 @@ export const zh: Translations = {
     zoneCount: count => `${count} 个区域`
   },
 
+  downloads: {
+    title: '下载',
+    inProgress: (count: number) => `${count} 项下载进行中`,
+    cancel: '取消下载',
+    reveal: '在文件夹中显示',
+    open: '打开',
+    dismiss: '从列表移除',
+    clearFinished: '清除已完成',
+    empty: '暂无下载',
+    downloadFolder: '将文件夹下载为 zip',
+    ofTotal: (received: string, total: string) => `${received} / ${total}`,
+    status: {
+      queued: '排队中',
+      running: '正在下载…',
+      done: '已保存',
+      cancelled: '已取消',
+      failed: '失败'
+    }
+  },
   tray: {
     show: '显示 Allr',
     hud: '打开 HUD',

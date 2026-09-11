@@ -7,6 +7,7 @@ import { Codicon } from '@/components/ui/codicon'
 import { Slot } from '@/contrib/react/slot'
 import { useI18n } from '@/i18n'
 
+import { DownloadsTray } from './downloads-tray'
 import { MobileChromeBar } from './mobile-chrome-bar'
 import { useSidebar } from './sidebar'
 import { TitlebarButton } from './titlebar-button'
@@ -67,6 +68,10 @@ export function MobileTopBar() {
           {/* Right-sidebar toggle → the Workspace. Uses the drawer / right-panel
               glyph (not a gear — this opens a panel, not settings). */}
           <Slot area={TITLEBAR_AREAS.right} />
+          {/* The same tray as the desktop titlebar's, at touch density. A phone
+              is where a background download matters most: it is the surface
+              where the user cannot see a file manager to check on one. */}
+          <DownloadsTray density="mobile" />
           <TitlebarButton density="mobile" label={t.titlebar.showRightSidebar} onClick={toggleMobileRight}>
             <Codicon name="layout-sidebar-right" size="1.4rem" />
           </TitlebarButton>

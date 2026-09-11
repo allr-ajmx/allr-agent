@@ -2814,6 +2814,25 @@ export const zhHant = defineLocale({
     zoneCount: count => `${count} 個區域`
   },
 
+  downloads: {
+    title: '下載',
+    inProgress: (count: number) => `${count} 項下載進行中`,
+    cancel: '取消下載',
+    reveal: '在資料夾中顯示',
+    open: '開啟',
+    dismiss: '從清單移除',
+    clearFinished: '清除已完成',
+    empty: '尚無下載',
+    downloadFolder: '將資料夾下載為 zip',
+    ofTotal: (received: string, total: string) => `${received} / ${total}`,
+    status: {
+      queued: '排隊中',
+      running: '正在下載…',
+      done: '已儲存',
+      cancelled: '已取消',
+      failed: '失敗'
+    }
+  },
   tray: {
     show: '顯示 Allr',
     hud: '開啟 HUD',

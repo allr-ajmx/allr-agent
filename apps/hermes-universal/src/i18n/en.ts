@@ -3195,6 +3195,25 @@ export const en: Translations = {
     zoneCount: count => `${count} zones`
   },
 
+  downloads: {
+    title: 'Downloads',
+    inProgress: (count: number) => `${count} download${count === 1 ? '' : 's'} in progress`,
+    cancel: 'Cancel download',
+    reveal: 'Show in folder',
+    open: 'Open',
+    dismiss: 'Remove from list',
+    clearFinished: 'Clear finished',
+    empty: 'No downloads yet',
+    downloadFolder: 'Download folder as zip',
+    ofTotal: (received: string, total: string) => `${received} of ${total}`,
+    status: {
+      queued: 'Queued',
+      running: 'Downloading…',
+      done: 'Saved',
+      cancelled: 'Cancelled',
+      failed: 'Failed'
+    }
+  },
   tray: {
     show: 'Show Allr',
     hud: 'Open HUD',

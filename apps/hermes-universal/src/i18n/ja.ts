@@ -2927,6 +2927,25 @@ export const ja = defineLocale({
     zoneCount: count => `${count} 個のゾーン`
   },
 
+  downloads: {
+    title: 'ダウンロード',
+    inProgress: (count: number) => `${count} 件のダウンロードを実行中`,
+    cancel: 'ダウンロードをキャンセル',
+    reveal: 'フォルダーに表示',
+    open: '開く',
+    dismiss: 'リストから削除',
+    clearFinished: '完了分を消去',
+    empty: 'ダウンロードはまだありません',
+    downloadFolder: 'フォルダーを ZIP でダウンロード',
+    ofTotal: (received: string, total: string) => `${total} 中 ${received}`,
+    status: {
+      queued: '待機中',
+      running: 'ダウンロード中…',
+      done: '保存しました',
+      cancelled: 'キャンセルしました',
+      failed: '失敗しました'
+    }
+  },
   tray: {
     show: 'Allr を表示',
     hud: 'HUD を開く',
