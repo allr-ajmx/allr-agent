@@ -22,9 +22,13 @@ from typing import Awaitable, Callable
 from fastapi import Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 
-from hermes_cli.dashboard_auth import list_session_providers
+from hermes_cli.dashboard_auth import (
+    list_assertion_providers,
+    list_session_providers,
+)
 from hermes_cli.dashboard_auth.audit import AuditEvent, audit_log
 from hermes_cli.dashboard_auth.base import (
+    AccountNotAllowedError,
     DashboardAuthProvider,
     ProviderError,
     RefreshExpiredError,
@@ -336,6 +340,89 @@ def _verify_bearer(request: Request, *, access_token: str):
     return None
 
 
+def _verify_assertion(request: Request):
+    """Verify a trusted-proxy identity assertion, if the request carries one.
+
+    Returns ``None`` when no assertion provider is registered or the request
+    carries none of their headers; the caller continues with bearer/cookie.
+    Otherwise ``(session, None)`` on success, or ``(None, response)``: 403 for
+    a genuine assertion naming an account this dashboard does not admit, 401
+    for a forged/expired/foreign one, 503 when the provider cannot verify.
+
+    A failed assertion is never retried as a bearer or cookie session: the
+    request came through (or is impersonating) the proxy, and there the proxy
+    is the login.
+    """
+    for provider in list_assertion_providers():
+        header = getattr(provider, "assertion_header", "")
+        token = request.headers.get(header, "") if header else ""
+        if not token:
+            continue
+        try:
+            session = provider.verify_assertion(assertion=token)
+        except AccountNotAllowedError:
+            audit_log(
+                AuditEvent.LOGIN_FAILURE,
+                provider=provider.name,
+                reason="account_not_allowed",
+                ip=_client_ip(request),
+            )
+            return None, _account_not_allowed_response(request, provider)
+        except ProviderError as e:
+            _log.warning(
+                "dashboard-auth: provider %r could not verify an assertion: %s",
+                provider.name, e,
+            )
+            return None, JSONResponse(
+                {"detail": f"Auth provider {provider.name!r} unreachable"},
+                status_code=503,
+            )
+        if session is None:
+            audit_log(
+                AuditEvent.SESSION_VERIFY_FAILURE,
+                provider=provider.name,
+                reason="invalid_assertion",
+                ip=_client_ip(request),
+            )
+            return None, _unauth_response(request, reason="invalid_or_expired_session")
+        return session, None
+    return None
+
+
+def _account_not_allowed_response(
+    request: Request, provider: DashboardAuthProvider
+) -> Response:
+    """403 for a signed-in account that is not this dashboard's owner.
+
+    Browsers get the same branded page the OAuth callback shows for this case;
+    its button goes to the proxy's sign-out so the user can pick another
+    account. API callers get JSON.
+    """
+    if request.url.path.startswith("/api/"):
+        return JSONResponse(
+            {
+                "error": "account_not_allowed",
+                "detail": "this account is not allowed on this dashboard",
+            },
+            status_code=403,
+        )
+    from fastapi.responses import HTMLResponse
+
+    from hermes_cli.dashboard_auth.login_page import render_auth_error_html
+
+    return HTMLResponse(
+        render_auth_error_html(
+            title="Access denied",
+            message="You signed in successfully, but this account is not "
+            "allowed on this dashboard.",
+            retry_href=getattr(provider, "sign_out_url", "") or "/login",
+            hint="Signed into the wrong account? Try again signs you out so "
+            "you can choose another one.",
+        ),
+        status_code=403,
+    )
+
+
 async def gated_auth_middleware(
     request: Request,
     call_next: Callable[[Request], Awaitable[Response]],
@@ -357,6 +444,19 @@ async def gated_auth_middleware(
 
     path = request.url.path
     if _path_is_public(path):
+        return await call_next(request)
+
+    # Trusted-proxy path. When an identity-aware proxy (Allr.OS: Pomerium)
+    # fronts the dashboard, it has already signed the user in and forwards a
+    # signed assertion on every request. Checked first: a browser behind the
+    # proxy carries no dashboard cookie at all. The assertion provider pins
+    # signature, audience and expiry and applies its own owner check.
+    assertion = _verify_assertion(request)
+    if assertion is not None:
+        assertion_session, denial = assertion
+        if denial is not None:
+            return denial
+        request.state.session = assertion_session
         return await call_next(request)
 
     # RFC 8252 native-app bearer path (goal: no session cookies). The desktop

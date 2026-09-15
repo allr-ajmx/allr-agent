@@ -27,6 +27,7 @@ from pydantic import BaseModel
 
 from hermes_cli.dashboard_auth import (
     get_provider,
+    list_assertion_providers,
     list_providers,
     list_session_providers,
 )
@@ -39,13 +40,16 @@ from hermes_cli.dashboard_auth.base import (
 from hermes_cli.dashboard_auth.cookies import (
     clear_pkce_cookie,
     clear_session_cookies,
+    clear_signed_out_cookie,
     clear_sso_attempt_cookie,
     detect_https,
     pkce_payload_from,
     read_pkce_cookie,
     read_session_cookies,
+    read_signed_out_cookie,
     set_pkce_cookie,
     set_session_cookies,
+    set_signed_out_cookie,
 )
 from hermes_cli.dashboard_auth.login_page import (
     render_auth_error_html,
@@ -129,6 +133,21 @@ def _prefix(request: Request) -> str:
     return prefix_from_request(request)
 
 
+def _edge_assertion(request: Request):
+    """``(provider, assertion)`` when a trusted proxy signed this request in.
+
+    Only presence is checked here; callers that act on the identity must still
+    ``verify_assertion``. None when no assertion provider is registered or the
+    request carries none of their headers.
+    """
+    for provider in list_assertion_providers():
+        header = getattr(provider, "assertion_header", "")
+        value = request.headers.get(header, "") if header else ""
+        if value:
+            return provider, value
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Public: login page (server-rendered HTML, no SPA bundle)
 # ---------------------------------------------------------------------------
@@ -143,6 +162,27 @@ async def login_page(request: Request) -> Response:
     next_path = _validate_post_login_target(
         request.query_params.get("next", "")
     )
+    # Behind a trusted identity-aware proxy (Pomerium) the proxy is the login.
+    # Two things bring a request carrying its assertion to /login: the SPA
+    # landing here right after /auth/logout (finish the sign-out at the proxy,
+    # or its still-valid session walks the user straight back in), and a
+    # signed-in user following an old /login link (send them on). A forged,
+    # expired or not-allowed assertion falls through to the normal page.
+    edge = _edge_assertion(request)
+    if edge is not None:
+        edge_provider, assertion = edge
+        if read_signed_out_cookie(request) and edge_provider.sign_out_url:
+            resp = RedirectResponse(url=edge_provider.sign_out_url, status_code=302)
+            clear_signed_out_cookie(resp, prefix=_prefix(request))
+            return resp
+        try:
+            edge_session = edge_provider.verify_assertion(assertion=assertion)
+        except ProviderError:
+            edge_session = None
+        if edge_session is not None:
+            return RedirectResponse(
+                url=next_path or f"{_prefix(request)}/", status_code=302
+            )
     # ``dashboard.login: external`` hands login off to the IdP: a single
     # non-password provider means the chooser adds nothing but a click, so
     # go straight there (same condition as the middleware's auto-SSO). No
@@ -868,9 +908,23 @@ async def auth_logout(request: Request):
     )
 
     prefix = _prefix(request)
-    resp = RedirectResponse(url=f"{prefix}/login", status_code=302)
+    behind_proxy = _edge_assertion(request) is not None
+    if behind_proxy and request.headers.get("sec-fetch-mode", "navigate") != "navigate":
+        # Signed in at the proxy, and called by the SPA's fetch(). A redirect
+        # here would be followed INSIDE fetch: /login -> the proxy's sign-out ->
+        # its authenticate host, a cross-origin hop fetch refuses. The promise
+        # rejects, the SPA never navigates, and the user sits on a dashboard
+        # that is already signed out. Answer plainly instead; the SPA then
+        # navigates to /login itself, where the marker finishes the sign-out.
+        resp: Response = JSONResponse({"ok": True, "next": f"{prefix}/login"})
+    else:
+        resp = RedirectResponse(url=f"{prefix}/login", status_code=302)
     clear_session_cookies(resp, prefix=prefix)
     clear_pkce_cookie(resp, prefix=prefix)
+    if behind_proxy:
+        # This route cannot sign out of the proxy; the marker makes the next
+        # /login visit do it (see login_page).
+        set_signed_out_cookie(resp, use_https=detect_https(request), prefix=prefix)
     return resp
 
 

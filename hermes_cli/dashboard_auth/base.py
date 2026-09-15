@@ -76,6 +76,17 @@ class ProviderError(Exception):
     """
 
 
+class AccountNotAllowedError(ProviderError):
+    """A genuine identity that this dashboard does not admit.
+
+    Raised when authentication itself succeeded (the credential or assertion
+    is real) but the account fails the provider's owner/allowlist check. The
+    gate answers 403 "not allowed", never the 503 a plain ``ProviderError``
+    means. It subclasses ``ProviderError`` and keeps the "not allowed" wording
+    in its message, so callers that already match on either keep working.
+    """
+
+
 class InvalidCodeError(Exception):
     """The OAuth callback ``code`` / ``state`` failed validation.
 
@@ -184,6 +195,18 @@ class DashboardAuthProvider(ABC):
     # supports_token.
     supports_session: bool = True
 
+    # When True, this provider verifies a signed identity assertion that a
+    # trusted identity-aware proxy in front of the dashboard (e.g. Pomerium)
+    # forwards on every request in the ``assertion_header`` request header
+    # (``verify_assertion``). The gate consults these providers before the
+    # bearer and cookie paths, so a request signed in at the proxy needs no
+    # dashboard login, cookie or refresh. ``sign_out_url`` is where /login
+    # sends a user who just logged out, so the proxy's session ends too.
+    # Every other provider leaves this False and is completely unaffected.
+    supports_assertion: bool = False
+    assertion_header: str = ""
+    sign_out_url: str = ""
+
     @abstractmethod
     def start_login(self, *, redirect_uri: str) -> LoginStart: ...
 
@@ -267,6 +290,34 @@ class DashboardAuthProvider(ABC):
         raise NotImplementedError(
             f"{type(self).__name__} does not support token auth "
             "(set supports_token = True and override verify_token)"
+        )
+
+    def verify_assertion(self, *, assertion: str) -> "Optional[Session]":
+        """Verify a trusted-proxy identity assertion; return its Session.
+
+        Only consulted when ``supports_assertion`` is True, with the value the
+        request carried in this provider's ``assertion_header``.
+
+        Contract:
+          * Return a :class:`Session` when the assertion is genuine, current,
+            minted for this dashboard, and names an admitted account.
+          * Return ``None`` when it is forged, expired, or minted for another
+            audience. The gate answers 401.
+          * Raise :class:`AccountNotAllowedError` when it is genuine but names
+            an account this dashboard does not admit. The gate answers 403.
+          * Raise ``ProviderError`` only when the provider cannot verify at
+            all. The gate answers 503.
+
+        The Session is per-request: nothing is written to cookies and nothing
+        is refreshed, because the proxy owns the session.
+
+        The default raises ``NotImplementedError`` so a provider that sets
+        ``supports_assertion`` but forgets this method fails loudly rather
+        than admitting every caller.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support proxy assertions "
+            "(set supports_assertion = True and override verify_assertion)"
         )
 
 
