@@ -274,7 +274,8 @@ def test_gate_answers_branded_403_for_another_account_in_browser(gated, signing)
     r = gated.get("/sessions", headers={ASSERTION_HEADER: token}, follow_redirects=False)
     assert r.status_code == 403
     assert "text/html" in r.headers["content-type"]
-    assert "Access denied" in r.text
+    assert "This dashboard belongs to someone else" in r.text
+    assert "Use a different account" in r.text
     assert SIGN_OUT_PATH in r.text
 
 

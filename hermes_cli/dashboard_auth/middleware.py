@@ -412,12 +412,11 @@ def _account_not_allowed_response(
 
     return HTMLResponse(
         render_auth_error_html(
-            title="Access denied",
-            message="You signed in successfully, but this account is not "
-            "allowed on this dashboard.",
+            title="This dashboard belongs to someone else",
+            message="You’re signed in, but with a different account from the "
+            "one this Allr dashboard is set up for.",
             retry_href=getattr(provider, "sign_out_url", "") or "/login",
-            hint="Signed into the wrong account? Try again signs you out so "
-            "you can choose another one.",
+            action_label="Use a different account",
         ),
         status_code=403,
     )

@@ -1,270 +1,172 @@
-"""Server-rendered /login page.
+"""Server-rendered sign-in pages: ``/login`` and the auth error pages.
 
-No React, no JavaScript dependency. Listed providers come from the
-registry; clicking a provider sends a GET to
+No React and no JavaScript dependency (the password form aside). Listed
+providers come from the registry; clicking a provider sends a GET to
 ``/auth/login?provider=<name>``.
 
-Visual styling follows the Allr design language (cream surface, Young
-Serif wordmark, forest-green pill buttons): the same
-``Collapse`` / ``Rules Compressed`` typeface, amber-on-dark colour
-tokens (``#170d02`` / ``#ffac02`` / ``#fff``), uppercase + wide-tracking
-brand chrome, and the inset-bevel button shadow. Fonts are served
-out of the SPA's ``/fonts/`` directory which the dashboard-auth gate
-already allowlists pre-auth (see ``_GATE_PUBLIC_PREFIXES`` in
-``middleware.py``), so the page renders without needing the React
-bundle loaded.
+Visual styling follows the Allr brand (allr.github.io: paper surface, Young
+Serif headings, Nunito Sans, ghost and green buttons in a 420px card). On
+Allr.OS, Caddy serves the shared brand kit on the dashboard's own host and
+``ALLR_DASHBOARD_BRAND_CSS`` points at it (``/_allr/allr.css``): the page then
+links that stylesheet, its favicon and the Allr mark, so every sign-in page
+Allr shows comes from one source. Without it (upstream or standalone use) a
+compact inline copy of the same look is used, with system fonts.
 
-Test-stable class names: the existing test suite extracts the
-``class="provider-btn"`` anchor href to walk the OAuth flow. That
-class name MUST NOT change without updating
-``tests/hermes_cli/test_dashboard_auth_401_reauth.py``.
+Test-stable markup: ``class="provider-btn"``, ``<form class="provider-form"
+data-provider=...`` and ``class="retry-btn"`` are asserted by
+``tests/hermes_cli/test_dashboard_auth_*``. The brand kit styles those class
+names as aliases of its own, so they MUST NOT change without updating both.
 """
 from __future__ import annotations
 
 import html
+import os
 
 from hermes_cli.dashboard_auth import list_session_providers
 
-# Inline minimal CSS. The dashboard's full skin lives in the React
-# bundle, which we deliberately do NOT load here — the login page must
-# not depend on the SPA build being present or on the injected session
-# token.
-#
-# Single curly braces are placeholders for ``str.format``; CSS curlies
-# are doubled (``{{`` / ``}}``).
-_SHELL_CSS = """\
+# The inline fallback: the same card, buttons and fields as the brand kit, with
+# its tokens (brand-src src/app/globals.css) but system fonts and no mesh.
+_FALLBACK_CSS = """\
   :root {
-    --surface: #fff9ee;
-    --card: #FBF8F2;
-    --line: rgba(194, 200, 196, 0.35);
-    --line-soft: rgba(194, 200, 196, 0.5);
-    --ink: #1d1c15;
-    --ink-soft: #424845;
-    --forest: #223B33;
-    --forest-deep: #0c251e;
-    --sage: #2E9E63;
-    --amber: #E9A83E;
-    --cream: #F7F1E6;
-    --error: #ba1a1a;
-    --error-bg: #ffdad6;
+    --color-paper: #fdfcf9; --color-card: #ffffff; --color-ink: #223b33; --color-ink-soft: #5c7168;
+    --color-line: #e7e0d2; --color-honey: #e9a83e; --color-honey-line: #f0dcb4;
+    --color-green: #2e9e63; --color-green-deep: #1e7a49; --color-alert: #a6543c;
   }
   *, *::before, *::after { box-sizing: border-box; }
-  html, body {
-    margin: 0; padding: 0; min-height: 100%;
-    background: var(--surface);
-    color: var(--ink);
-    font-family: 'Nunito Sans', system-ui, -apple-system, "Segoe UI", sans-serif;
-    font-size: 16px; line-height: 1.6;
-    -webkit-font-smoothing: antialiased;
+  body {
+    margin: 0; min-height: 100svh; background: var(--color-paper); color: var(--color-ink);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif; line-height: 1.7;
   }
-  body { display: flex; flex-direction: column; min-height: 100vh; }
-  /* Safe area, four sides, split across the header and <main> below.
+  h1 { margin: 0; font-family: Georgia, serif; font-weight: 400; line-height: 1.18; }
+  p { margin: 0; }
+  :focus-visible { outline: 3px solid var(--color-honey); outline-offset: 3px; border-radius: 12px; }
+  [hidden] { display: none !important; }
+  /* Safe area, all four sides, on the one centred block.
 
      On Android the app's MainActivity calls `enableEdgeToEdge()`, and
      mobile sign-in navigates the CALLING webview here (see
      `src-tauri/src/oauth.rs`) rather than opening a system browser — so
      this page draws under the status bar and the gesture strip unless it
-     pads itself. `viewport-fit=cover` above is what makes
-     `env(safe-area-inset-*)` report non-zero at all.
-
-     Raw `env()` on purpose. The universal app reads
-     `var(--safe-area-inset-*)` (published by `lib/safe-area.ts`) because
-     the webviews resolve `env()` a few frames late — but this document is
-     served outside that SPA, so those vars do not exist here. Do not
-     "fix" this into the var form. */
-  .site-header {
-    display: flex; align-items: center;
-    height: 64px;
-    padding-top: env(safe-area-inset-top);
-    padding-left: max(20px, env(safe-area-inset-left));
-    padding-right: max(20px, env(safe-area-inset-right));
-    box-sizing: content-box;
+     pads itself. `viewport-fit=cover` is what makes `env(safe-area-inset-*)`
+     report non-zero at all. Raw `env()` on purpose: the SPA's
+     `var(--safe-area-inset-*)` do not exist outside its bundle. Longhands
+     only; a `padding` shorthand here would override them. The brand kit's
+     `.allr-main` (Allr.OS brand/src/components.css) follows the same rule. */
+  .allr-main {
+    display: grid; place-items: center; min-height: 100dvh;
+    padding-top: max(64px, env(safe-area-inset-top));
+    padding-right: max(24px, env(safe-area-inset-right));
+    padding-bottom: max(64px, env(safe-area-inset-bottom));
+    padding-left: max(24px, env(safe-area-inset-left));
   }
-  .wordmark {
-    font-family: 'Young Serif', Georgia, serif;
-    font-size: 32px; line-height: 1.3;
-    color: var(--forest); text-decoration: none;
+  .allr-card {
+    width: 100%; max-width: 420px; padding: 32px; background: var(--color-card);
+    border: 1px solid var(--color-line); border-radius: 20px;
+    box-shadow: 0 8px 24px rgba(34, 59, 51, 0.07);
   }
-  .wordmark:hover { opacity: 0.8; }
-  main {
-    flex: 1 0 auto;
-    display: flex; align-items: center; justify-content: center;
-    padding-top: 48px;
-    padding-bottom: max(48px, env(safe-area-inset-bottom));
-    padding-left: max(20px, env(safe-area-inset-left));
-    padding-right: max(20px, env(safe-area-inset-right));
-    position: relative; overflow: hidden;
+  .allr-wordmark {
+    display: inline-flex; align-items: center; gap: 8px; margin-bottom: 28px;
+    font-family: Georgia, serif; font-size: 1.5rem; color: var(--color-ink); text-decoration: none;
   }
-  .blobs { position: absolute; inset: 0; pointer-events: none; opacity: 0.2; display: none; }
-  @media (min-width: 768px) { .blobs { display: block; } }
-  .blob { position: absolute; width: 24rem; height: 24rem; border-radius: 9999px; filter: blur(64px); opacity: 0.5; }
-  .blob-sage { top: 25%; left: -10%; background: var(--sage); }
-  .blob-amber { bottom: 25%; right: -10%; background: var(--amber); }
-  .card {
-    width: 100%; max-width: 28rem; position: relative; z-index: 1;
-    background: var(--card);
-    border: 1px solid var(--line);
-    border-radius: 1rem;
-    padding: 40px;
+  .allr-wordmark img { width: 34px; height: 34px; }
+  .allr-title { margin-bottom: 28px; font-size: 1.7rem; }
+  .allr-title--tight { margin-bottom: 12px; }
+  .allr-text { margin-bottom: 12px; font-size: 0.98rem; color: var(--color-ink-soft); }
+  .allr-detail { margin-top: 12px; font-size: 0.86rem; color: var(--color-ink-soft); }
+  .allr-stack, .allr-actions { display: flex; flex-direction: column; gap: 12px; }
+  .allr-actions { margin-top: 24px; }
+  .provider-btn, .retry-btn {
+    display: flex; width: 100%; align-items: center; justify-content: center; gap: 12px;
+    padding: 12px 20px; border: 1px solid var(--color-line); border-radius: 10px;
+    background: var(--color-card); color: var(--color-ink); font: inherit; font-size: 1rem;
+    font-weight: 700; text-decoration: none; cursor: pointer;
   }
-  @media (max-width: 480px) { .card { background: transparent; border: 0; padding: 24px 0; } }
-  h1 {
-    margin: 0 0 16px; text-align: center;
-    font-family: 'Young Serif', Georgia, serif;
-    font-weight: 400; font-size: 32px; line-height: 1.2;
-    color: var(--forest);
+  .provider-btn:hover { border-color: #d8cfbb; background: var(--color-paper); }
+  .retry-btn, .provider-form .provider-btn { border-color: transparent; background: var(--color-green); color: #fff; }
+  .retry-btn:hover, .provider-form .provider-btn:hover { background: var(--color-green-deep); }
+  .provider-form { display: flex; flex-direction: column; gap: 16px; }
+  .allr-fieldset { display: flex; flex-direction: column; gap: 6px; }
+  .allr-label { font-size: 0.92rem; font-weight: 700; }
+  .allr-field {
+    width: 100%; padding: 0.72em 1em; border: 1.5px solid var(--color-line); border-radius: 10px;
+    background: var(--color-card); color: var(--color-ink); font: inherit; font-weight: 600;
   }
-  @media (min-width: 768px) { h1 { font-size: 42px; } }
-  .subtitle {
-    margin: 0 0 40px; text-align: center;
-    font-size: 20px; color: var(--ink-soft);
+  .allr-field:focus { outline: 3px solid var(--color-honey); outline-offset: 2px; border-color: var(--color-honey-line); }
+  .form-error { font-size: 0.9rem; font-weight: 600; color: var(--color-alert); }
+  .allr-legal {
+    margin-top: 28px; padding-top: 20px; border-top: 1px solid var(--color-line);
+    font-size: 0.86rem; line-height: 1.6; color: var(--color-ink-soft);
   }
-  .provider-list { display: grid; gap: 16px; }
-  .provider-btn {
-    display: flex; align-items: center; justify-content: center; gap: 12px;
-    width: 100%; padding: 16px 24px;
-    background: var(--forest); color: var(--cream);
-    border: 0; border-radius: 9999px;
-    font-family: inherit; font-size: 16px; font-weight: 700;
-    text-decoration: none; cursor: pointer;
-    box-shadow: 0 1px 2px rgba(29, 28, 21, 0.08);
-    transition: background 0.2s ease, transform 0.1s ease;
-  }
-  .provider-btn:hover { background: var(--forest-deep); }
-  .provider-btn:active { transform: scale(0.97); }
-  .provider-btn:focus-visible { outline: 2px solid var(--sage); outline-offset: 2px; }
-  .divider { display: flex; align-items: center; padding: 16px 0; }
-  .divider::before, .divider::after { content: ""; flex: 1; border-top: 1px solid var(--line-soft); }
-  .divider span {
-    flex-shrink: 0; margin: 0 16px;
-    font-size: 12px; font-weight: 700; letter-spacing: 0.1em;
-    color: var(--ink-soft);
-  }
-  .legal {
-    margin: 32px 0 0; text-align: center;
-    font-size: 14px; color: rgba(66, 72, 69, 0.7);
-  }
-  .legal a { color: inherit; text-decoration: underline; }
-  .legal a:hover { color: var(--forest); }
-  .site-footer {
-    flex-shrink: 0;
-    display: flex; flex-direction: column; align-items: center; gap: 16px;
-    padding: 32px 20px; margin-top: auto;
-    background: var(--surface); border-top: 1px solid var(--line);
-  }
-  .footer-links { display: flex; gap: 24px; }
-  .footer-links a { color: var(--ink-soft); text-decoration: none; }
-  .footer-links a:hover { color: var(--forest-deep); }
-  .copyright { margin: 0; font-size: 14px; color: rgba(66, 72, 69, 0.6); }
-  /* password provider form (multi-provider chooser only) */
-  .provider-form { display: grid; gap: 12px; }
-  .form-title { text-align: center; font-weight: 700; color: var(--ink-soft); }
-  .field { display: block; }
-  .field-label {
-    display: block; margin-bottom: 4px;
-    font-size: 12px; font-weight: 700; letter-spacing: 0.1em;
-    text-transform: uppercase; color: var(--ink-soft);
-  }
-  .field-input {
-    width: 100%; padding: 12px 16px;
-    background: #ffffff; color: var(--ink);
-    border: 1px solid var(--line-soft); border-radius: 0.75rem;
-    font-family: inherit; font-size: 16px;
-  }
-  .field-input:focus { border-color: var(--sage); outline: none; }
-  .form-error {
-    padding: 10px 14px; border-radius: 0.5rem;
-    background: var(--error-bg); color: var(--error);
-    font-size: 14px;
-  }
-  .retry-btn {
-    display: flex; align-items: center; justify-content: center;
-    width: 100%; padding: 16px 24px;
-    background: var(--forest); color: var(--cream);
-    border: 0; border-radius: 9999px;
-    font-size: 16px; font-weight: 700;
-    text-decoration: none; cursor: pointer;
-    transition: background 0.2s ease, transform 0.1s ease;
-  }
-  .retry-btn:hover { background: var(--forest-deep); }
-  .retry-btn:active { transform: scale(0.97); }
-  .hint {
-    margin: 16px 0 0; text-align: center;
-    font-size: 14px; color: rgba(66, 72, 69, 0.7);
-  }
+  .allr-legal a { font-weight: 700; color: var(--color-ink); }
 """
-
-_FONTS_HTML = """\
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;700&family=Young+Serif&display=swap" rel="stylesheet">"""
 
 _PAGE_TEMPLATE = """\
 <!doctype html>
-<html class="light" lang="en">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
 <title>{title}</title>
-{fonts}
-<style>
-{css}
-</style>
+{assets}
 </head>
-<body>
-<header class="site-header">
-  <a class="wordmark" href="/">Allr</a>
-</header>
-<main>
-  <div class="blobs">
-    <div class="blob blob-sage"></div>
-    <div class="blob blob-amber"></div>
-  </div>
-  <div class="card">
+<body class="allr-welcome">
+<main class="allr-main">
+  <div class="allr-card">
+    <a class="allr-wordmark" href="/">{mark}allr</a>
 {card}
   </div>
 </main>
-<footer class="site-footer">
-  <a class="wordmark" href="https://allr.work">Allr</a>
-  <div class="footer-links">
-    <a href="https://allr.work">Help</a>
-    <a href="https://allr.work/privacy">Privacy</a>
-    <a href="https://allr.work/terms">Terms</a>
-  </div>
-  <p class="copyright">&copy; 2026 Allr. All rights reserved.</p>
-</footer>
 {script}
 </body>
 </html>
 """
 
 
+def _brand_assets() -> tuple[str, str]:
+    """``(<head> assets, mark markup)``: the shared brand kit if configured, else the fallback.
+
+    Read per render rather than at import, so the dashboard picks up the
+    setting from its environment the way every other ``ALLR_DASHBOARD_*``
+    option does.
+    """
+    css_url = os.environ.get("ALLR_DASHBOARD_BRAND_CSS", "").strip()
+    if not css_url:
+        return f"<style>\n{_FALLBACK_CSS}</style>", ""
+    base = html.escape(css_url.rsplit("/", 1)[0], quote=True)
+    assets = (
+        f'<link rel="stylesheet" href="{html.escape(css_url, quote=True)}">\n'
+        f'<link rel="icon" href="{base}/favicon.ico">'
+    )
+    return assets, f'<img src="{base}/mark.svg" alt="" width="34" height="34">'
+
+
 def _render_page(*, title: str, card: str, script: str = "") -> str:
-    """Assemble the shared Allr shell (header, card, footer) around a card body."""
+    """Assemble the Allr sign-in shell (wordmark + card) around a card body."""
+    assets, mark = _brand_assets()
     return _PAGE_TEMPLATE.format(
-        title=title, fonts=_FONTS_HTML, css=_SHELL_CSS, card=card,
-        script=script,
+        title=title, assets=assets, mark=mark, card=card, script=script,
     )
 
 
 _LEGAL_HTML = (
-    '<p class="legal">By continuing, you agree to Allr\'s '
-    '<a href="https://allr.work/terms">Terms of Service</a> and '
-    '<a href="https://allr.work/privacy">Privacy Policy</a>.</p>'
+    '<p class="allr-legal">By continuing you agree to our '
+    '<a href="https://allr.work/terms/">Terms</a> and confirm you have read our '
+    '<a href="https://allr.work/privacy/">Privacy Policy</a>.</p>'
 )
 
-_EMPTY_HTML = _render_page(
-    title="Sign-in unavailable — Allr",
-    card=(
-        "    <h1>Sign-in unavailable</h1>\n"
-        '    <p class="subtitle">This dashboard is bound to a non-loopback '
-        "host but no authentication providers are installed.</p>\n"
-        '    <p class="legal">Install an auth provider, or restart with '
-        "--insecure to bypass the auth gate (not recommended on untrusted "
-        "networks).</p>"
-    ),
+_EMPTY_CARD = (
+    '    <h1 class="allr-title allr-title--tight">Sign-in isn’t switched on</h1>\n'
+    '    <p class="allr-text">This dashboard is reachable from other machines, '
+    "but no sign-in provider is installed.</p>\n"
+    '    <p class="allr-detail">Install an auth provider, or restart with '
+    "--insecure to bypass the auth gate (not recommended on untrusted "
+    "networks).</p>"
 )
 
+# Kept as a rendered document for callers and tests that import it; it uses
+# whatever brand setting the process had at import time.
+_EMPTY_HTML = _render_page(title="Sign-in isn’t switched on · Allr", card=_EMPTY_CARD)
 
 
 def render_auth_error_html(
@@ -273,6 +175,7 @@ def render_auth_error_html(
     message: str,
     retry_href: str = "/login",
     hint: str = "",
+    action_label: str = "Try again",
 ) -> str:
     """Branded full-page error for browser-facing auth failures.
 
@@ -280,18 +183,20 @@ def render_auth_error_html(
     default ``{"detail": ...}`` JSON, which browsers display raw. All
     inputs are HTML-escaped; ``retry_href`` is additionally attribute-
     escaped (callers pass fixed local paths, never IDP-supplied values).
+    ``action_label`` names what the button actually does when that is not a
+    retry (e.g. signing out to pick another account).
     """
     hint_html = (
-        f'    <p class="hint">{html.escape(hint)}</p>\n' if hint else ""
+        f'    <p class="allr-detail">{html.escape(hint)}</p>\n' if hint else ""
     )
     card = (
-        f"    <h1>{html.escape(title)}</h1>\n"
-        f'    <p class="subtitle">{html.escape(message)}</p>\n'
-        f'    <a class="retry-btn" '
-        f'href="{html.escape(retry_href, quote=True)}">Try again</a>\n'
+        f'    <h1 class="allr-title allr-title--tight">{html.escape(title)}</h1>\n'
+        f'    <p class="allr-text">{html.escape(message)}</p>\n'
         f"{hint_html}"
+        f'    <div class="allr-actions"><a class="retry-btn" '
+        f'href="{html.escape(retry_href, quote=True)}">{html.escape(action_label)}</a></div>'
     )
-    return _render_page(title=f"{title} — Allr", card=card)
+    return _render_page(title=f"{title} · Allr", card=card)
 
 
 # Inline script that wires every password provider form to POST JSON to
@@ -330,13 +235,13 @@ _PASSWORD_FORM_SCRIPT = """\
           });
         }
         var msg = resp.status === 429
-          ? 'Too many attempts. Please wait and try again.'
-          : (resp.status === 401 ? 'Invalid username or password.'
-                                 : 'Sign-in failed. Please try again.');
+          ? 'That’s a lot of attempts. Wait a moment, then try again?'
+          : (resp.status === 401 ? 'That username and password don’t match. Try again?'
+                                 : 'That didn’t go through. Try again in a moment?');
         if (err) { err.textContent = msg; err.hidden = false; }
         if (btn) { btn.disabled = false; }
       }).catch(function () {
-        if (err) { err.textContent = 'Network error. Please try again.'; err.hidden = false; }
+        if (err) { err.textContent = 'We couldn’t reach the dashboard. Try again in a moment?'; err.hidden = false; }
         if (btn) { btn.disabled = false; }
       });
     });
@@ -360,7 +265,7 @@ def render_login_html(*, next_path: str = "") -> str:
     """
     providers = list_session_providers()
     if not providers:
-        return _EMPTY_HTML
+        return _render_page(title="Sign-in isn’t switched on · Allr", card=_EMPTY_CARD)
 
     if next_path:
         # URL-encode then HTML-escape. The URL-encode step matches the
@@ -375,8 +280,6 @@ def render_login_html(*, next_path: str = "") -> str:
     buttons = []
     needs_password_script = False
     for p in providers:
-        if buttons:
-            buttons.append('      <div class="divider"><span>OR</span></div>')
         if getattr(p, "supports_password", False):
             needs_password_script = True
             buttons.append(_render_password_form(p, next_path))
@@ -388,14 +291,13 @@ def render_login_html(*, next_path: str = "") -> str:
             )
     script = _PASSWORD_FORM_SCRIPT if needs_password_script else ""
     card = (
-        "    <h1>Welcome back.</h1>\n"
-        '    <p class="subtitle">Log in to your workspace.</p>\n'
-        '    <div class="provider-list">\n'
+        '    <h1 class="allr-title">Sign in</h1>\n'
+        '    <div class="allr-stack">\n'
         + "\n".join(buttons)
         + "\n    </div>\n"
         + f"    {_LEGAL_HTML}"
     )
-    return _render_page(title="Allr — Login", card=card, script=script)
+    return _render_page(title="Sign in · Allr", card=card, script=script)
 
 
 def _render_password_form(provider, next_path: str) -> str:
@@ -415,20 +317,20 @@ def _render_password_form(provider, next_path: str) -> str:
     return (
         f'      <form class="provider-form" data-provider="{pname}" '
         f'autocomplete="on">\n'
-        f'        <div class="form-title">Sign in with {plabel}</div>\n'
+        f'        <p class="allr-text">Sign in with {plabel}</p>\n'
         f'        <input type="hidden" name="next" value="{safe_next}">\n'
-        f'        <label class="field">\n'
-        f'          <span class="field-label">Username</span>\n'
-        f'          <input class="field-input" type="text" name="username" '
+        f'        <div class="allr-fieldset">\n'
+        f'          <label class="allr-label" for="{pname}-username">Username</label>\n'
+        f'          <input class="allr-field" id="{pname}-username" type="text" name="username" '
         f'autocomplete="username" autocapitalize="none" '
         f'autocorrect="off" spellcheck="false" required>\n'
-        f'        </label>\n'
-        f'        <label class="field">\n'
-        f'          <span class="field-label">Password</span>\n'
-        f'          <input class="field-input" type="password" name="password" '
+        f'        </div>\n'
+        f'        <div class="allr-fieldset">\n'
+        f'          <label class="allr-label" for="{pname}-password">Password</label>\n'
+        f'          <input class="allr-field" id="{pname}-password" type="password" name="password" '
         f'autocomplete="current-password" required>\n'
-        f'        </label>\n'
-        f'        <div class="form-error" role="alert" hidden></div>\n'
+        f'        </div>\n'
+        f'        <p class="form-error" role="alert" hidden></p>\n'
         f'        <button class="provider-btn" type="submit">Sign in</button>\n'
         f'      </form>'
     )
