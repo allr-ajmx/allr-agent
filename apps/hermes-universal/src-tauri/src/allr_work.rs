@@ -11,13 +11,15 @@
 //!   1. **Discover.** Open `https://app.<DOMAIN>/?redirect_uri=http://127.0.0.1:<p1>/workspace
 //!      &state=<s1>`. Pomerium signs the user in (Dex → Google or password) and hands them to
 //!      the portal, which answers with a 302 back to our loopback listener carrying
-//!      `workspace=https://<user>.<DOMAIN>&state=<s1>` — or `error=no_workspace` /
-//!      `error=sign_in_failed` with the same state. Nothing secret crosses this hop: the
-//!      portal learns a loopback port, the app learns a host name.
+//!      `workspace=https://<user>.<DOMAIN>&state=<s1>` (plus, when the portal can tell,
+//!      `connector=<dex connector id>`) — or `error=no_workspace` / `error=sign_in_failed`
+//!      with the same state. Nothing secret crosses this hop: the portal learns a loopback
+//!      port, the app learns a host name and which login (Google, password) was used.
 //!   2. **Sign in.** The existing RFC 8252 native flow against that workspace
 //!      (`oauth::native`, fresh PKCE and a fresh state), in the same surface, so the Dex
-//!      session from hop 1 carries over. The bearer lands in the keyring under
-//!      `nativeAuth:<workspace>` exactly as for any other gateway.
+//!      session from hop 1 carries over. The connector from hop 1 rides along as
+//!      `connector_id`, so Dex does not ask again which login to use. The bearer lands in
+//!      the keyring under `nativeAuth:<workspace>` exactly as for any other gateway.
 //!
 //! The workspace host the portal returns is the one value in this flow that decides where
 //! a bearer will later be sent, so it is validated here against a parent domain derived
@@ -412,8 +414,20 @@ pub mod decide {
             == 0
     }
 
+    /// What a successful hop 1 hands back.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct Handoff {
+        /// The workspace, already held to [`validate_workspace`].
+        pub workspace: Url,
+        /// The Dex connector the user signed in with (`google`, `local`), when the portal
+        /// named exactly one well-formed id. Only a hint for hop 2 — `None` just means Dex
+        /// shows its picker again — so it is never a reason to fail the hand-back.
+        pub connector: Option<String>,
+    }
+
     /// Read the request target our hop-1 listener received
-    /// (`/workspace?workspace=<url>&state=<s>` or `/workspace?error=<e>&state=<s>`).
+    /// (`/workspace?workspace=<url>&connector=<id>&state=<s>`, `connector` optional, or
+    /// `/workspace?error=<e>&state=<s>`).
     ///
     /// `None` means "not a hand-back" — any other path (`/favicon.ico`, a speculative
     /// probe) — and the listener keeps waiting. `Some` is a verdict.
@@ -428,17 +442,24 @@ pub mod decide {
     ///      `portal-refused`.
     ///   3. **Exactly one `workspace`**, else `portal-refused`.
     ///   4. [`validate_workspace`].
+    ///   5. **Only then the `connector`**: exactly one value that is
+    ///      [`native::is_connector_id`] becomes [`Handoff::connector`]; missing, empty,
+    ///      malformed or repeated is `None`. Never an error — a bad hint costs the user one
+    ///      extra click in Dex's picker, not the sign-in.
     ///
     /// Duplicates fail closed rather than taking the first or last value: the portal
     /// builds this query with `urlencode` over a dict and can never repeat a key, so a
     /// repeat is not the portal, and "which one did you mean" has no safe answer. A
     /// repeated `state` is a state problem (we cannot say the request is ours); a repeated
-    /// `error`/`workspace` under a good state is a malformed hand-back (`portal-refused`).
+    /// `error`/`workspace` under a good state is a malformed hand-back (`portal-refused`);
+    /// a repeated `connector` is dropped (no hint).
+    ///
+    /// [`native::is_connector_id`]: crate::oauth::native::is_connector_id
     pub fn parse_handoff_target(
         target: &str,
         expected_state: &str,
         cfg: &PortalConfig,
-    ) -> Option<Result<Url, AllrWorkError>> {
+    ) -> Option<Result<Handoff, AllrWorkError>> {
         let (path, query) = target.split_once('?').unwrap_or((target, ""));
 
         if path != HANDOFF_PATH {
@@ -453,12 +474,14 @@ pub mod decide {
         let mut states = Vec::new();
         let mut workspaces = Vec::new();
         let mut errors = Vec::new();
+        let mut connectors = Vec::new();
 
         for (key, value) in carrier.query_pairs() {
             match key.as_ref() {
                 "state" => states.push(value.into_owned()),
                 "workspace" => workspaces.push(value.into_owned()),
                 "error" => errors.push(value.into_owned()),
+                "connector" => connectors.push(value.into_owned()),
                 _ => {}
             }
         }
@@ -496,7 +519,22 @@ pub mod decide {
             )));
         };
 
-        Some(validate_workspace(workspace, cfg))
+        Some(validate_workspace(workspace, cfg).map(|workspace| Handoff {
+            workspace,
+            connector: handoff_connector(&connectors),
+        }))
+    }
+
+    /// The one well-formed connector id among a hand-back's `connector` values, if there is
+    /// exactly one. The shape rule is the gateway's, shared with the authorize URL that
+    /// carries it on ([`crate::oauth::native::is_connector_id`]).
+    fn handoff_connector(values: &[String]) -> Option<String> {
+        match values {
+            [connector] if crate::oauth::native::is_connector_id(connector) => {
+                Some(connector.clone())
+            }
+            _ => None,
+        }
     }
 
     /// The label `host` has as a workspace under `parent`, if it is one: exactly one
@@ -975,11 +1013,13 @@ pub mod decide {
             let hit = target(&format!(
                 "workspace=https%3A%2F%2Fxm.allr.work&state={STATE}"
             ));
-            let workspace = parse_handoff_target(&hit, STATE, &prod())
+            let handoff = parse_handoff_target(&hit, STATE, &prod())
                 .expect("a hand-back")
                 .expect("a valid workspace");
 
-            assert_eq!(workspace_base(&workspace), "https://xm.allr.work");
+            assert_eq!(workspace_base(&handoff.workspace), "https://xm.allr.work");
+            // An older portal names no connector: still a hand-back, with no hint.
+            assert_eq!(handoff.connector, None);
 
             // Decoded, then held to the host rule — not trusted because the state matched.
             let evil = target(&format!(
@@ -1087,6 +1127,141 @@ pub mod decide {
                 assert_eq!(
                     kind_of(parse_handoff_target(&target(&query), STATE, &cfg).unwrap()),
                     AllrWorkErrorKind::PortalRefused,
+                    "{query}"
+                );
+            }
+        }
+
+        /// A good hand-back under our state, with `connector` query text appended.
+        fn connector_target(connector_query: &str) -> String {
+            target(&format!(
+                "workspace=https%3A%2F%2Fxm.allr.work{connector_query}&state={STATE}"
+            ))
+        }
+
+        #[test]
+        fn handoff_carries_a_well_formed_connector() {
+            let cfg = prod();
+
+            for (query, expected) in [
+                ("&connector=google", "google"),
+                ("&connector=local", "local"),
+                ("&connector=my_ldap-2", "my_ldap-2"),
+                ("&connector=0", "0"),
+            ] {
+                let handoff = parse_handoff_target(&connector_target(query), STATE, &cfg)
+                    .expect("a hand-back")
+                    .expect("a valid workspace");
+
+                assert_eq!(handoff.workspace, url("https://xm.allr.work"), "{query}");
+                assert_eq!(handoff.connector.as_deref(), Some(expected), "{query}");
+            }
+
+            // Where the portal puts it in the query does not matter.
+            let first = target(&format!(
+                "connector=google&workspace=https%3A%2F%2Fxm.allr.work&state={STATE}"
+            ));
+            assert_eq!(
+                parse_handoff_target(&first, STATE, &cfg)
+                    .unwrap()
+                    .unwrap()
+                    .connector
+                    .as_deref(),
+                Some("google")
+            );
+        }
+
+        #[test]
+        fn a_missing_or_bad_connector_is_no_hint_never_a_failure() {
+            let cfg = prod();
+            let longest = "a".repeat(64);
+            let too_long = "a".repeat(65);
+
+            // The 64-character id is the longest the gateway accepts.
+            assert_eq!(
+                parse_handoff_target(
+                    &connector_target(&format!("&connector={longest}")),
+                    STATE,
+                    &cfg
+                )
+                .unwrap()
+                .unwrap()
+                .connector,
+                Some(longest)
+            );
+
+            for query in [
+                String::new(),
+                "&connector=".to_string(),
+                "&connector=Google".to_string(),
+                "&connector=-x".to_string(),
+                "&connector=_x".to_string(),
+                "&connector=a%20b".to_string(),
+                "&connector=a+b".to_string(),
+                "&connector=goo.gle".to_string(),
+                "&connector=google%0A".to_string(),
+                "&connector=g%C3%B6ogle".to_string(),
+                format!("&connector={too_long}"),
+                // Repeated — even identically — is not the portal, and no hint.
+                "&connector=google&connector=google".to_string(),
+                "&connector=google&connector=local".to_string(),
+                "&connector=&connector=google".to_string(),
+            ] {
+                let handoff = parse_handoff_target(&connector_target(&query), STATE, &cfg)
+                    .expect("a hand-back")
+                    .unwrap_or_else(|e| panic!("{query}: the hand-back must still succeed: {e:?}"));
+
+                assert_eq!(handoff.workspace, url("https://xm.allr.work"), "{query}");
+                assert_eq!(handoff.connector, None, "{query}");
+            }
+        }
+
+        #[test]
+        fn a_connector_never_outranks_the_state_or_the_workspace() {
+            let cfg = prod();
+
+            // No state of ours: state-mismatch, whatever connector rides along — valid,
+            // invalid or repeated.
+            for connector in [
+                "&connector=google",
+                "&connector=Google",
+                "&connector=google&connector=local",
+            ] {
+                for query in [
+                    format!("workspace=https%3A%2F%2Fxm.allr.work{connector}&state=forged-state-value-000000"),
+                    format!("workspace=https%3A%2F%2Fxm.allr.work{connector}"),
+                    format!("error=no_workspace{connector}&state=forged-state-value-000000"),
+                    connector.trim_start_matches('&').to_string(),
+                ] {
+                    assert_eq!(
+                        kind_of(parse_handoff_target(&target(&query), STATE, &cfg).unwrap()),
+                        AllrWorkErrorKind::StateMismatch,
+                        "{query}"
+                    );
+                }
+            }
+
+            // Under a good state a connector rescues nothing: the workspace rule, the
+            // portal's errors and the one-workspace rule all still decide.
+            for (query, kind) in [
+                (
+                    format!(
+                        "workspace=https%3A%2F%2Fauth.allr.work&connector=google&state={STATE}"
+                    ),
+                    AllrWorkErrorKind::InvalidWorkspace,
+                ),
+                (
+                    format!("error=no_workspace&connector=google&state={STATE}"),
+                    AllrWorkErrorKind::NoWorkspace,
+                ),
+                (
+                    format!("connector=google&state={STATE}"),
+                    AllrWorkErrorKind::PortalRefused,
+                ),
+            ] {
+                assert_eq!(
+                    kind_of(parse_handoff_target(&target(&query), STATE, &cfg).unwrap()),
+                    kind,
                     "{query}"
                 );
             }
@@ -1815,7 +1990,10 @@ async fn sign_in_on_surface(
     transport: &TransportState,
     cfg: &PortalConfig,
 ) -> Result<String, SignInFailure> {
-    let workspace = discover_workspace(surface, cfg)
+    let decide::Handoff {
+        workspace,
+        connector,
+    } = discover_workspace(surface, cfg)
         .await
         .map_err(|error| SignInFailure {
             error,
@@ -1831,16 +2009,22 @@ async fn sign_in_on_surface(
     };
 
     log::info!("[allr-work] the portal named {base}; checking it supports app sign-in");
+    // The connector id alone (`google`, `local`) — a login method, not a secret.
+    log::debug!(
+        "[allr-work] hop 1 connector hint: {}",
+        connector.as_deref().unwrap_or("(none)")
+    );
 
     if let Some(error) = preflight_error(preflight(transport, &base).await, &host) {
         return Err(failed(error));
     }
 
     // Hop 2. No provider: an Allr workspace has exactly one session provider, and the
-    // native route picks it when none is named. Tokens land under `base` — the keyring
-    // scope every later request to this workspace looks up. There is deliberately no
-    // cookie-cascade fallback here: it cannot complete behind Pomerium.
-    oauth::native_login_on_surface(surface, transport, &base, "")
+    // native route picks it when none is named. The connector hop 1 used goes along so Dex
+    // skips its picker (a gateway that predates the hint ignores it). Tokens land under
+    // `base` — the keyring scope every later request to this workspace looks up. There is
+    // deliberately no cookie-cascade fallback here: it cannot complete behind Pomerium.
+    oauth::native_login_on_surface(surface, transport, &base, "", connector.as_deref())
         .await
         .map_err(|e| {
             if hop2_detail_is_loggable(e.failure) {
@@ -1857,11 +2041,12 @@ async fn sign_in_on_surface(
     Ok(base)
 }
 
-/// Hop 1: open the portal with a hand-off, and wait for it to hand the workspace back.
+/// Hop 1: open the portal with a hand-off, and wait for it to hand the workspace (and the
+/// connector it signed in with, when the portal says) back.
 async fn discover_workspace(
     surface: &mut SignInSurface<'_>,
     cfg: &PortalConfig,
-) -> Result<Url, AllrWorkError> {
+) -> Result<decide::Handoff, AllrWorkError> {
     let could_not_start = |detail: String| {
         log::warn!("[allr-work] could not start hop 1: {detail}");
 
@@ -1981,8 +2166,8 @@ fn hop1_open_error(failure: SurfaceLoginFailure) -> AllrWorkError {
 
 /// How hop 1's wait ended, as the flow's result.
 fn hop1_result(
-    verdict: Result<Result<Result<Url, AllrWorkError>, LoopbackFailure>, SurfaceStop>,
-) -> Result<Url, AllrWorkError> {
+    verdict: Result<Result<Result<decide::Handoff, AllrWorkError>, LoopbackFailure>, SurfaceStop>,
+) -> Result<decide::Handoff, AllrWorkError> {
     match verdict {
         // The hand-back itself — a workspace, or the portal's / the parser's named error.
         Ok(Ok(handback)) => handback,
@@ -2317,8 +2502,36 @@ mod tests {
         );
     }
 
-    fn workspace_url() -> Url {
-        Url::parse("https://xm.allr.work").unwrap()
+    fn workspace_url() -> decide::Handoff {
+        decide::Handoff {
+            workspace: Url::parse("https://xm.allr.work").unwrap(),
+            connector: Some("google".to_string()),
+        }
+    }
+
+    #[test]
+    fn hop_2_carries_the_connector_hop_1_handed_back() {
+        // `sign_in_on_surface` is I/O end to end, so this pins its one call into the shared
+        // login by source: the hand-back's connector is what hop 2's authorize URL carries
+        // (`oauth::native::tests` show what that URL then says). Its twin in `oauth.rs`
+        // pins the plain gateway sign-in to `None`.
+        let source = include_str!("allr_work.rs");
+        let body = &source[source
+            .find("async fn sign_in_on_surface(")
+            .expect("sign_in_on_surface exists")..];
+        let body = &body[..body.find("\n}\n").expect("sign_in_on_surface ends")];
+        let calls: Vec<&str> = body.split("native_login_on_surface(").skip(1).collect();
+
+        assert_eq!(
+            calls.len(),
+            1,
+            "one shared-login call in sign_in_on_surface"
+        );
+        let args: String = calls[0][..calls[0].find(".await").expect("the call is awaited")]
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .collect();
+        assert_eq!(args, "surface,transport,&base,\"\",connector.as_deref())");
     }
 
     #[test]

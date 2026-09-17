@@ -433,15 +433,38 @@ pub mod native {
         out
     }
 
+    /// Is `raw` a Dex connector id the gateway's `/auth/native/authorize` will accept as
+    /// `connector_id`? `^[a-z0-9][a-z0-9_-]{0,63}$`, whole-string — the gateway's own
+    /// rule (`routes.py`), which answers anything else with a 400. Checked here too so a
+    /// value that would break the sign-in is dropped instead of sent. Without `regex`
+    /// (optional in this crate), like `allr_work::decide`'s username rule.
+    pub fn is_connector_id(raw: &str) -> bool {
+        let bytes = raw.as_bytes();
+
+        matches!(bytes.first(), Some(b'a'..=b'z' | b'0'..=b'9'))
+            && bytes.len() <= 64
+            && bytes[1..]
+                .iter()
+                .all(|b| matches!(b, b'a'..=b'z' | b'0'..=b'9' | b'_' | b'-'))
+    }
+
     /// Build the `/auth/native/authorize` URL opened in the system browser.
     /// `provider` may be empty — the gateway auto-selects when exactly one session
     /// provider is registered, so we do not have to hardcode a name.
+    ///
+    /// `connector_id` is a hint for the gateway to pass to Dex, which then skips its
+    /// "which login?" picker. Only the Allr Work sign-in has one (the connector hop 1
+    /// used); every other caller passes `None`, and gets exactly the URL it always has.
+    /// A value that is not [`is_connector_id`] is left off rather than sent: the gateway
+    /// would refuse it, and without it the user just sees the picker. An older gateway
+    /// ignores the parameter.
     pub fn build_authorize_url(
         base: &str,
         challenge: &str,
         redirect_uri: &str,
         state: &str,
         provider: &str,
+        connector_id: Option<&str>,
     ) -> String {
         let mut url = format!(
             "{}/auth/native/authorize?code_challenge={}&code_challenge_method=S256&redirect_uri={}&state={}",
@@ -453,6 +476,13 @@ pub mod native {
 
         if !provider.is_empty() {
             url.push_str(&format!("&provider={}", encode_query_value(provider)));
+        }
+
+        if let Some(connector_id) = connector_id.filter(|id| is_connector_id(id)) {
+            url.push_str(&format!(
+                "&connector_id={}",
+                encode_query_value(connector_id)
+            ));
         }
 
         url
@@ -854,7 +884,8 @@ pub mod native {
                 "c",
                 "http://127.0.0.1:1/callback",
                 "s",
-                &native
+                &native,
+                None
             )
             .contains("provider="));
         }
@@ -1114,6 +1145,7 @@ pub mod native {
                 "http://127.0.0.1:5123/callback",
                 "st ate",
                 "nous",
+                None,
             );
 
             assert!(url.starts_with("https://gw.example.com/auth/native/authorize?"));
@@ -1126,10 +1158,106 @@ pub mod native {
 
         #[test]
         fn an_empty_provider_is_omitted_so_the_gateway_can_auto_select() {
-            let url =
-                build_authorize_url("https://gw", "c", "http://127.0.0.1:1/callback", "s", "");
+            let url = build_authorize_url(
+                "https://gw",
+                "c",
+                "http://127.0.0.1:1/callback",
+                "s",
+                "",
+                None,
+            );
 
             assert!(!url.contains("provider="));
+        }
+
+        /// The authorize URL exactly as it was built before connector hints existed.
+        const PRE_HINT_AUTHORIZE_URL: &str = "https://gw.example.com/auth/native/authorize?code_challenge=chal%2Blenge%2F%3D&code_challenge_method=S256&redirect_uri=http%3A%2F%2F127.0.0.1%3A5123%2Fcallback&state=st%20ate&provider=nous";
+
+        fn authorize_with(provider: &str, connector_id: Option<&str>) -> String {
+            build_authorize_url(
+                "https://gw.example.com/",
+                "chal+lenge/=",
+                "http://127.0.0.1:5123/callback",
+                "st ate",
+                provider,
+                connector_id,
+            )
+        }
+
+        #[test]
+        fn no_connector_leaves_the_authorize_url_byte_identical() {
+            // The plain gateway sign-in (the Remote card) passes `None`: its URL must not
+            // move by a byte.
+            assert_eq!(authorize_with("nous", None), PRE_HINT_AUTHORIZE_URL);
+            assert_eq!(
+                authorize_with("", None),
+                PRE_HINT_AUTHORIZE_URL.trim_end_matches("&provider=nous")
+            );
+        }
+
+        #[test]
+        fn a_connector_is_appended_once_after_everything_else() {
+            let url = authorize_with("", Some("google"));
+
+            assert_eq!(
+                url,
+                format!(
+                    "{}&connector_id=google",
+                    PRE_HINT_AUTHORIZE_URL.trim_end_matches("&provider=nous")
+                )
+            );
+            assert_eq!(url.matches("connector_id=").count(), 1);
+
+            // With a provider too, both are sent.
+            assert_eq!(
+                authorize_with("nous", Some("my_ldap-2")),
+                format!("{PRE_HINT_AUTHORIZE_URL}&connector_id=my_ldap-2")
+            );
+        }
+
+        #[test]
+        fn an_empty_or_malformed_connector_is_left_off() {
+            let too_long = "a".repeat(65);
+
+            for bad in [
+                "",
+                "Google",
+                "-x",
+                "_x",
+                "a b",
+                "goo.gle",
+                "google&provider=evil",
+                "google\n",
+                "g\u{f6}ogle",
+                too_long.as_str(),
+            ] {
+                assert_eq!(
+                    authorize_with("nous", Some(bad)),
+                    PRE_HINT_AUTHORIZE_URL,
+                    "{bad:?}"
+                );
+            }
+        }
+
+        #[test]
+        fn connector_ids_follow_the_gateway_rule() {
+            for good in ["google", "local", "0", "a-b_c", "x9", &"a".repeat(64)] {
+                assert!(is_connector_id(good), "{good:?}");
+            }
+            for bad in [
+                "",
+                "Google",
+                "-x",
+                "_x",
+                "a b",
+                "goo.gle",
+                "a/b",
+                "a\n",
+                "\u{e9}",
+                &"a".repeat(65),
+            ] {
+                assert!(!is_connector_id(bad), "{bad:?}");
+            }
         }
 
         #[test]
@@ -2332,11 +2460,15 @@ const SIGN_IN_WINDOW_CLOSED: &str = "Sign-in window was closed before completing
 /// because a multi-hop caller has more to do first — but it does close the desktop window
 /// as soon as the wait is over, before the token POST, exactly as the single-hop flow
 /// always has.
+///
+/// `connector_id` goes to [`native::build_authorize_url`] as it is: `Some` only from the
+/// Allr Work flow, `None` from every plain gateway sign-in.
 pub(crate) async fn native_login_on_surface(
     surface: &mut SignInSurface<'_>,
     state: &TransportState,
     base: &str,
     provider: &str,
+    connector_id: Option<&str>,
 ) -> Result<native::NativeTokenSet, SurfaceLoginError> {
     use SurfaceLoginFailure as Failure;
 
@@ -2360,8 +2492,14 @@ pub(crate) async fn native_login_on_surface(
         .port();
     let redirect_uri = native::loopback_redirect_uri(port);
 
-    let authorize =
-        native::build_authorize_url(base, &pkce.challenge, &redirect_uri, &csrf_state, provider);
+    let authorize = native::build_authorize_url(
+        base,
+        &pkce.challenge,
+        &redirect_uri,
+        &csrf_state,
+        provider,
+        connector_id,
+    );
     let authorize_url =
         Url::parse(&authorize).map_err(|e| setup(format!("invalid authorize URL: {e}")))?;
 
@@ -2493,7 +2631,9 @@ async fn run_native_login(
     provider: &str,
 ) -> Result<native::NativeTokenSet, NativeLoginError> {
     let mut surface = SignInSurface::new(app, webview, surface_lease);
-    let outcome = native_login_on_surface(&mut surface, state, base, provider).await;
+    // No connector hint: only the Allr Work flow has one. The authorize URL this opens is
+    // exactly the one it opened before hints existed.
+    let outcome = native_login_on_surface(&mut surface, state, base, provider, None).await;
 
     // Restore the app — unless the navigation was refused (or never issued), in which
     // case we never left and the SPA is still live (the same call the cookie cascade and
@@ -3666,9 +3806,11 @@ mod tests {
         })
     }
 
-    fn handoff_parser(
-    ) -> impl Fn(&str) -> Option<Result<Url, crate::allr_work::decide::AllrWorkError>>
-           + Send
+    fn handoff_parser() -> impl Fn(
+        &str,
+    ) -> Option<
+        Result<crate::allr_work::decide::Handoff, crate::allr_work::decide::AllrWorkError>,
+    > + Send
            + Sync
            + 'static {
         let cfg = crate::allr_work::decide::portal_config("https://app.allr.work").unwrap();
@@ -3683,7 +3825,9 @@ mod tests {
         let probe = request_and_read(port, "/favicon.ico".to_string());
         let hit = request_and_read(
             port,
-            format!("/workspace?workspace=https%3A%2F%2Fxm.allr.work&state={HANDOFF_STATE}"),
+            format!(
+                "/workspace?workspace=https%3A%2F%2Fxm.allr.work&connector=google&state={HANDOFF_STATE}"
+            ),
         );
 
         let workspace = tokio::time::timeout(
@@ -3701,16 +3845,39 @@ mod tests {
         .expect("no listener failure")
         .expect("a valid hand-back");
 
-        assert_eq!(workspace.as_str(), "https://xm.allr.work/");
+        assert_eq!(workspace.workspace.as_str(), "https://xm.allr.work/");
+        assert_eq!(workspace.connector.as_deref(), Some("google"));
 
         // The hit is answered with the hop-1 page, and it echoes nothing it was sent.
         let page = hit.await.unwrap();
         assert!(page.contains("Opening your workspace"), "{page}");
-        for echoed in [HANDOFF_STATE, "xm.allr.work", "workspace="] {
+        for echoed in [HANDOFF_STATE, "xm.allr.work", "workspace=", "google"] {
             assert!(!page.contains(echoed), "{echoed} in {page}");
         }
         // The probe got the failure page, exactly as a callback probe always has.
         assert!(probe.await.unwrap().contains("Sign-in failed"));
+    }
+
+    #[test]
+    fn the_plain_gateway_sign_in_sends_no_connector_hint() {
+        // `run_native_login` (the Remote card's `oauth_login`) is I/O end to end, so this
+        // pins its one call into the shared login by source: the connector argument is
+        // `None`, which `no_connector_leaves_the_authorize_url_byte_identical` shows is the
+        // pre-hint URL. A hint here would skip Dex's picker on a gateway that never asked.
+        let source = include_str!("oauth.rs");
+        let body_start = source
+            .find("async fn run_native_login(")
+            .expect("run_native_login exists");
+        let body = &source[body_start..];
+        let body = &body[..body.find("\n}\n").expect("run_native_login ends")];
+        let calls: Vec<&str> = body.split("native_login_on_surface(").skip(1).collect();
+
+        assert_eq!(calls.len(), 1, "one shared-login call in run_native_login");
+        let args: String = calls[0][..calls[0].find(".await").expect("the call is awaited")]
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .collect();
+        assert_eq!(args, "&mutsurface,state,base,provider,None)");
     }
 
     #[test]
@@ -3765,7 +3932,7 @@ mod tests {
         );
 
         let workspace = wait.await.unwrap().unwrap().expect("the real hand-back");
-        assert_eq!(workspace.as_str(), "https://xm.allr.work/");
+        assert_eq!(workspace.workspace.as_str(), "https://xm.allr.work/");
 
         let (listener, port) = bound_listener().await;
         let wait = tokio::spawn(await_loopback(
