@@ -27,17 +27,40 @@
 //!
 //! # What lives here
 //!
-//! Only [`decide`] so far: every decision in the flow as a pure function — portal config,
-//! the hand-off URL, the loopback hand-back parser, the workspace host rule, the "portal
-//! does not know the hand-off yet" detector, the preflight verdict, the cookie filter for
-//! sign-out, and the take-once outcome mailbox. The commands, the loopback listeners and
-//! the sign-in surface (the I/O half) are wired in U3.
+//! [`decide`] holds every decision in the flow as a pure function — portal config, the
+//! hand-off URL, the loopback hand-back parser, the workspace host rule, the "portal does
+//! not know the hand-off yet" detector, the preflight verdict, the cookie filter for
+//! sign-out, and the take-once outcome mailbox.
+//!
+//! Out here is the I/O half: the four commands, the preflight request, and the mapping
+//! from whatever went wrong to an [`decide::AllrWorkErrorKind`]. The loopback listener and
+//! the sign-in surface are `oauth.rs`'s ([`crate::oauth::await_loopback`],
+//! [`crate::oauth::SignInSurface`]), shared with the plain gateway sign-in rather than
+//! copied, and hop 2 IS that sign-in ([`crate::oauth::native_login_on_surface`]).
+//!
+//! # Secrets
+//!
+//! Neither hop's state, the PKCE verifier, the code, the loopback request targets nor the
+//! token set is ever logged, put in an error message, or returned. Every message this
+//! module builds is fixed text, optionally quoting the workspace HOST (validated, and the
+//! user's own) — never a URL with a query. Log lines carry the `[allr-work]` prefix.
+
+use std::time::{Duration, Instant};
+
+use tauri::{AppHandle, State, Url, WebviewWindow};
+
+use crate::oauth::{
+    self, native, LoopbackFailure, SignInSurface, SurfaceLoginFailure, SurfaceStop,
+};
+use crate::transport::TransportState;
+use decide::{
+    AllrWorkClearReport, AllrWorkConfig, AllrWorkError, AllrWorkErrorKind, AllrWorkOutcome,
+    AllrWorkSignIn, PortalConfig,
+};
 
 /// The pure half of the Allr Work sign-in. No sockets, no webviews, no clocks, no
 /// environment: every input arrives as an argument, so every branch is reachable from
 /// the tests below.
-// Wired into the commands in U3 (ALLR-51); until then nothing outside the tests calls in.
-#[allow(dead_code)]
 pub mod decide {
     use std::time::{Duration, Instant};
 
@@ -1347,5 +1370,841 @@ pub mod decide {
                 serde_json::json!({ "kind": "timed-out", "message": "Sign-in took too long." })
             );
         }
+    }
+}
+
+// ── Managed state ────────────────────────────────────────────────────────────
+
+/// The outcome mailbox (see [`decide::Mailbox`]), managed on every target so the builder
+/// chain in `lib.rs` has one shape. Only a mobile sign-in writes to it; on desktop the
+/// command's own reply carries the result and `allr_work_take_outcome` always answers
+/// `None`.
+///
+/// A `std` mutex on purpose: every access is a put or a take with nothing awaited while
+/// the lock is held.
+#[derive(Default)]
+pub struct AllrWorkState(std::sync::Mutex<decide::Mailbox>);
+
+impl AllrWorkState {
+    fn with_mailbox<R>(&self, f: impl FnOnce(&mut decide::Mailbox) -> R) -> R {
+        // A poisoned slot is recovered, not propagated: it holds at most one outcome and
+        // no invariant a panic elsewhere could have broken.
+        let mut mailbox = match self.0.lock() {
+            Ok(mailbox) => mailbox,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+
+        f(&mut mailbox)
+    }
+
+    #[cfg_attr(
+        not(mobile),
+        allow(dead_code, reason = "only a mobile sign-in parks its outcome")
+    )]
+    fn put(&self, outcome: AllrWorkOutcome) {
+        self.with_mailbox(|mailbox| mailbox.put(outcome, Instant::now()));
+    }
+
+    fn take(&self) -> Option<AllrWorkOutcome> {
+        self.with_mailbox(|mailbox| mailbox.take(Instant::now()))
+    }
+}
+
+// ── Configuration ────────────────────────────────────────────────────────────
+
+/// The portal this process signs in through: `ALLR_WORK_PORTAL_URL` from the environment
+/// (desktop only — nothing sets a phone app's environment), then the same variable at
+/// build time, then the production portal. See [`decide::resolve_portal`].
+fn configured_portal() -> Result<PortalConfig, AllrWorkError> {
+    #[cfg(desktop)]
+    let runtime = std::env::var("ALLR_WORK_PORTAL_URL").ok();
+    #[cfg(mobile)]
+    let runtime: Option<String> = None;
+
+    decide::portal_config(decide::resolve_portal(
+        runtime.as_deref(),
+        option_env!("ALLR_WORK_PORTAL_URL"),
+    ))
+}
+
+// ── Commands ─────────────────────────────────────────────────────────────────
+
+/// Which portal this build signs in through, and the parent domain a saved workspace
+/// URL must sit under.
+#[tauri::command]
+pub async fn allr_work_config() -> Result<AllrWorkConfig, AllrWorkError> {
+    configured_portal().map(|cfg| AllrWorkConfig::from(&cfg))
+}
+
+/// Collect the outcome a mobile sign-in parked before it navigated the app back. Take-once.
+#[tauri::command]
+pub fn allr_work_take_outcome(allr: State<'_, AllrWorkState>) -> Option<AllrWorkOutcome> {
+    allr.take()
+}
+
+/// Sign in to Allr Work: find the workspace through the portal (hop 1), check it can
+/// broker an app sign-in (preflight), and run the RFC 8252 sign-in against it (hop 2) —
+/// both hops on one sign-in surface, so the portal's Dex session carries into hop 2.
+///
+/// Desktop answers with the workspace. Mobile loses the JS context that asked the moment
+/// hop 1 navigates, so it ALSO parks the result in the mailbox — before navigating back,
+/// so the reloaded SPA always finds it — unless the app was never left (a refusal before
+/// or at the first navigation), in which case the caller is still alive to read the
+/// `Err` and the mailbox is left alone.
+///
+/// `busy: true` means another sign-in already owns this webview (or, on desktop, the
+/// shared sign-in window) and this call did nothing.
+#[tauri::command]
+pub async fn allr_work_sign_in(
+    app: AppHandle,
+    webview: WebviewWindow,
+    state: State<'_, TransportState>,
+    allr: State<'_, AllrWorkState>,
+) -> Result<AllrWorkSignIn, AllrWorkError> {
+    let cfg = configured_portal()?;
+    let busy = || AllrWorkSignIn {
+        busy: true,
+        workspace: None,
+    };
+
+    // Held for the whole command, like `oauth_login`'s. On desktop the sign-in window is
+    // ONE global label, so no two flows may drive it at once — `oauth_login` included.
+    let Some(_caller_lease) = oauth::claim_sign_in(webview.label()) else {
+        return Ok(busy());
+    };
+    let Some(surface_lease) = oauth::claim_surface() else {
+        return Ok(busy());
+    };
+
+    log::info!(
+        "[allr-work] signing in through {}",
+        AllrWorkConfig::from(&cfg).portal_url
+    );
+
+    let mut surface = SignInSurface::new(&app, &webview, &surface_lease);
+    let result = sign_in_on_surface(&mut surface, state.inner(), &cfg).await;
+
+    match &result {
+        Ok(workspace) => log::info!("[allr-work] signed in to {workspace}"),
+        Err(failure) => log::warn!(
+            "[allr-work] sign-in did not complete ({:?}): {}",
+            failure.error.kind,
+            failure.error.message
+        ),
+    }
+
+    #[cfg(mobile)]
+    {
+        if let Some(outcome) = mobile_outcome(&result, surface.left_app()) {
+            allr.put(outcome);
+        }
+    }
+    #[cfg(desktop)]
+    let _ = &allr;
+
+    // Desktop: close the window. Mobile: navigate back to the app, AFTER the mailbox
+    // write above — the reload this starts reads it.
+    surface.finish();
+
+    command_reply(result)
+}
+
+/// Forget the Allr Work browser session: delete the cookies the sign-in pages left under
+/// the portal's parent domain (Pomerium, Dex, the portal), so the next sign-in can pick a
+/// different account. Google's cookies are deliberately left alone.
+///
+/// `supported: false` on a platform that cannot delete webview cookies (Android, until
+/// U3b) — a caller must not present that as "nothing to clear".
+#[tauri::command]
+pub async fn allr_work_clear_session(
+    app: AppHandle,
+    webview: WebviewWindow,
+) -> Result<AllrWorkClearReport, AllrWorkError> {
+    let _ = &app;
+    let cfg = configured_portal()?;
+    let parent = cfg.parent.clone();
+
+    let report = crate::webview_cookies::delete_matching(&webview, move |domain| {
+        decide::cookie_is_allr_work(domain, &parent)
+    })
+    .await
+    .map_err(|detail| {
+        log::warn!("[allr-work] could not clear the Allr Work cookies: {detail}");
+
+        AllrWorkError::new(
+            AllrWorkErrorKind::CookieStoreFailed,
+            "The Allr Work sign-in cookies could not be cleared.",
+        )
+    })?;
+
+    log::info!(
+        "[allr-work] cleared {} Allr Work cookie(s) under {} (supported: {})",
+        report.deleted,
+        cfg.parent,
+        report.supported
+    );
+
+    Ok(AllrWorkClearReport {
+        cleared: report.deleted,
+        supported: report.supported,
+    })
+}
+
+// ── The sign-in ──────────────────────────────────────────────────────────────
+
+/// How long the preflight may take, body included. The reqwest clients have no timeout of
+/// their own, and a workspace that accepts the connection and never answers must not
+/// strand the user between the hops.
+const PREFLIGHT_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// A sign-in that did not complete, and the workspace hop 1 found when it got that far.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SignInFailure {
+    error: AllrWorkError,
+    workspace: Option<String>,
+}
+
+/// Both hops and the preflight between them, on one surface. `Ok` is the workspace base
+/// (`https://<user>.<domain>`), under which the token set is now stored.
+async fn sign_in_on_surface(
+    surface: &mut SignInSurface<'_>,
+    transport: &TransportState,
+    cfg: &PortalConfig,
+) -> Result<String, SignInFailure> {
+    let workspace = discover_workspace(surface, cfg)
+        .await
+        .map_err(|error| SignInFailure {
+            error,
+            workspace: None,
+        })?;
+
+    let base = decide::workspace_base(&workspace);
+    // `validate_workspace` only accepts a DNS name, so there is always a host.
+    let host = workspace.host_str().unwrap_or_default().to_string();
+    let failed = |error| SignInFailure {
+        error,
+        workspace: Some(base.clone()),
+    };
+
+    log::info!("[allr-work] the portal named {base}; checking it supports app sign-in");
+
+    if let Some(error) = preflight_error(preflight(transport, &base).await, &host) {
+        return Err(failed(error));
+    }
+
+    // Hop 2. No provider: an Allr workspace has exactly one session provider, and the
+    // native route picks it when none is named. Tokens land under `base` — the keyring
+    // scope every later request to this workspace looks up. There is deliberately no
+    // cookie-cascade fallback here: it cannot complete behind Pomerium.
+    oauth::native_login_on_surface(surface, transport, &base, "")
+        .await
+        .map_err(|e| {
+            if hop2_detail_is_loggable(e.failure) {
+                log::warn!(
+                    "[allr-work] hop 2 failed ({:?}): {}",
+                    e.failure,
+                    crate::transport::redact_message(e.message)
+                );
+            }
+
+            failed(settle_hop2_failure(transport, &base, e.failure, &host))
+        })?;
+
+    Ok(base)
+}
+
+/// Hop 1: open the portal with a hand-off, and wait for it to hand the workspace back.
+async fn discover_workspace(
+    surface: &mut SignInSurface<'_>,
+    cfg: &PortalConfig,
+) -> Result<Url, AllrWorkError> {
+    let could_not_start = |detail: String| {
+        log::warn!("[allr-work] could not start hop 1: {detail}");
+
+        AllrWorkError::new(AllrWorkErrorKind::Unreachable, COULD_NOT_START)
+    };
+
+    let state = native::generate_state().map_err(could_not_start)?;
+
+    // Bound BEFORE the portal is opened: its redirect has to name a port that is already
+    // listening, or a signed-in user's instant 302 could beat us to it.
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .map_err(|e| could_not_start(format!("could not open a loopback listener: {e}")))?;
+    let port = listener
+        .local_addr()
+        .map_err(|e| could_not_start(format!("could not read the loopback port: {e}")))?
+        .port();
+
+    let redirect_uri = decide::handoff_redirect_uri(port);
+    let target = Url::parse(&decide::handoff_url(cfg, &redirect_uri, &state)).map_err(|_| {
+        AllrWorkError::new(
+            AllrWorkErrorKind::InvalidPortalConfig,
+            "The Allr Work portal address is not valid.",
+        )
+    })?;
+
+    surface
+        .show(&target)
+        .await
+        .map_err(|e| hop1_open_error(e.failure))?;
+
+    let parse_cfg = cfg.clone();
+    let wait = oauth::await_loopback(
+        listener,
+        move |request_target: &str| {
+            decide::parse_handoff_target(request_target, &state, &parse_cfg)
+        },
+        native::CallbackPage::WorkspaceFound,
+        surface.hop_timeout_secs(),
+        true,
+    );
+
+    let watch_cfg = cfg.clone();
+    let portal_skipped_the_handoff = move |now: &Url| {
+        decide::hop1_surface_verdict(now, &watch_cfg)
+            == decide::SurfaceVerdict::PortalWithoutHandoff
+    };
+
+    hop1_result(surface.race(wait, Some(&portal_skipped_the_handoff)).await)
+}
+
+/// `GET <workspace>/auth/native/authorize` with no parameters, no bearer and redirects
+/// OFF, classified by [`decide::classify_preflight`].
+async fn preflight(transport: &TransportState, base: &str) -> decide::Preflight {
+    let url = format!("{base}/auth/native/authorize");
+
+    let response = transport
+        .no_redirect_client()
+        .get(&url)
+        .timeout(PREFLIGHT_TIMEOUT)
+        .send()
+        .await;
+
+    let resp = match response {
+        Ok(resp) => resp,
+        Err(e) => {
+            log::warn!(
+                "[allr-work] preflight could not reach {base}: {}",
+                crate::transport::redact_error(e.to_string(), &url)
+            );
+
+            return decide::classify_preflight(None, false);
+        }
+    };
+
+    let status = resp.status().as_u16();
+    let json_body = resp
+        .bytes()
+        .await
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+        .is_some_and(|body| body.is_object());
+    let verdict = decide::classify_preflight(Some(status), json_body);
+
+    log::info!("[allr-work] preflight {base}: HTTP {status}, json={json_body} -> {verdict:?}");
+
+    verdict
+}
+
+// ── Failure mapping (pure) ───────────────────────────────────────────────────
+
+const COULD_NOT_START: &str = "This device could not start the sign-in. Try again.";
+
+fn cancelled() -> AllrWorkError {
+    AllrWorkError::new(AllrWorkErrorKind::Cancelled, "The sign-in was cancelled.")
+}
+
+fn already_on_sign_in_page() -> AllrWorkError {
+    AllrWorkError::new(
+        AllrWorkErrorKind::AlreadyOnSignInPage,
+        "A sign-in page is already open. Finish it, or go back, before signing in again.",
+    )
+}
+
+/// Hop 1 could not even put the portal on the surface.
+fn hop1_open_error(failure: SurfaceLoginFailure) -> AllrWorkError {
+    match failure {
+        SurfaceLoginFailure::AlreadyOnSignInPage => already_on_sign_in_page(),
+        SurfaceLoginFailure::Cancelled => cancelled(),
+        // `show` fails only with the three above; anything else is still "could not open".
+        _ => AllrWorkError::new(
+            AllrWorkErrorKind::NavigationRefused,
+            "The Allr Work sign-in page could not be opened on this device.",
+        ),
+    }
+}
+
+/// How hop 1's wait ended, as the flow's result.
+fn hop1_result(
+    verdict: Result<Result<Result<Url, AllrWorkError>, LoopbackFailure>, SurfaceStop>,
+) -> Result<Url, AllrWorkError> {
+    match verdict {
+        // The hand-back itself — a workspace, or the portal's / the parser's named error.
+        Ok(Ok(handback)) => handback,
+        Ok(Err(LoopbackFailure::TimedOut)) => Err(AllrWorkError::new(
+            AllrWorkErrorKind::TimedOut,
+            "Signing in to Allr Work took too long.",
+        )),
+        Ok(Err(LoopbackFailure::Listener(detail))) => {
+            log::warn!("[allr-work] the hop 1 listener failed: {detail}");
+
+            Err(AllrWorkError::new(
+                AllrWorkErrorKind::Unreachable,
+                COULD_NOT_START,
+            ))
+        }
+        Err(SurfaceStop::Cancelled) => Err(cancelled()),
+        Err(SurfaceStop::Refused) => Err(AllrWorkError::new(
+            AllrWorkErrorKind::NavigationRefused,
+            "The Allr Work sign-in page could not be opened on this device.",
+        )),
+        Err(SurfaceStop::Watched) => Err(AllrWorkError::new(
+            AllrWorkErrorKind::PortalOutdated,
+            "Allr Work opened your workspace instead of returning to the app: app sign-in \
+             is not available from the portal yet.",
+        )),
+    }
+}
+
+/// The preflight's verdict as a failure, or `None` to go on to hop 2.
+fn preflight_error(verdict: decide::Preflight, host: &str) -> Option<AllrWorkError> {
+    match verdict {
+        decide::Preflight::Native => None,
+        decide::Preflight::Unsupported | decide::Preflight::EdgeNotDirect => {
+            Some(AllrWorkError::new(
+                AllrWorkErrorKind::WorkspaceUnsupported,
+                format!("{host} does not support signing in from the app yet."),
+            ))
+        }
+        decide::Preflight::Unreachable => Some(AllrWorkError::new(
+            AllrWorkErrorKind::Unreachable,
+            format!("Could not reach {host}."),
+        )),
+    }
+}
+
+/// A hop-2 failure as an error kind. The message is built here from the kind and the
+/// workspace host alone: [`oauth::SurfaceLoginError::message`] can quote the authorize
+/// URL, state included.
+fn hop2_error(failure: SurfaceLoginFailure, host: &str) -> AllrWorkError {
+    use AllrWorkErrorKind as Kind;
+    use SurfaceLoginFailure as F;
+
+    match failure {
+        F::Setup | F::Listener => AllrWorkError::new(Kind::Unreachable, COULD_NOT_START),
+        F::AlreadyOnSignInPage => already_on_sign_in_page(),
+        F::SurfaceUnavailable | F::NavigationRefused => AllrWorkError::new(
+            Kind::NavigationRefused,
+            format!("The sign-in page for {host} could not be opened on this device."),
+        ),
+        F::Cancelled => cancelled(),
+        F::TimedOut => AllrWorkError::new(
+            Kind::TimedOut,
+            format!("Signing in to {host} took too long."),
+        ),
+        F::StateMismatch => AllrWorkError::new(
+            Kind::StateMismatch,
+            format!("The sign-in response from {host} did not match this request."),
+        ),
+        F::CallbackRefused | F::TokenRejected => {
+            AllrWorkError::new(Kind::SignInFailed, format!("{host} refused the sign-in."))
+        }
+        F::TokenUnreachable => AllrWorkError::new(
+            Kind::Unreachable,
+            format!("Could not reach {host} to finish signing in."),
+        ),
+        F::NotSaved => AllrWorkError::new(
+            Kind::CredentialNotSaved,
+            format!(
+                "Signed in to {host}, but this device could not store the credential securely."
+            ),
+        ),
+    }
+}
+
+/// [`hop2_error`], plus the one side effect a hop-2 failure needs: when the credential
+/// could not be written to the keyring, drop the copy `store_native_tokens` already put
+/// in the transport's bearer cache.
+///
+/// That cache is written BEFORE the keyring, so without this the process kept attaching
+/// a bearer for a sign-in this command reports as failed — the app would work until the
+/// next launch and then silently not, the exact "works until restart" failure
+/// `credential-not-saved` exists to name up front. Scoped to Allr Work on purpose:
+/// `oauth_login`'s desktop arm falls back to the cookie cascade after this failure, and
+/// what the cache does there is outside this change.
+fn settle_hop2_failure(
+    transport: &TransportState,
+    base: &str,
+    failure: SurfaceLoginFailure,
+    host: &str,
+) -> AllrWorkError {
+    if failure == SurfaceLoginFailure::NotSaved {
+        transport.forget_bearer_base(base);
+    }
+
+    hop2_error(failure, host)
+}
+
+/// May `oauth::SurfaceLoginError::message` for this failure go in a log line? Only for the
+/// failures whose message is built from things that are not the authorize URL: a refused
+/// navigation quotes it (state included), and a surface error can quote a platform error
+/// that might.
+fn hop2_detail_is_loggable(failure: SurfaceLoginFailure) -> bool {
+    use SurfaceLoginFailure as F;
+
+    matches!(
+        failure,
+        F::Setup
+            | F::Listener
+            | F::CallbackRefused
+            | F::TokenRejected
+            | F::TokenUnreachable
+            | F::NotSaved
+    )
+}
+
+/// What a mobile sign-in parks for the reloaded SPA, or `None` when the app was never left
+/// — then the caller's JS context is alive, reads the command's `Err` itself, and a parked
+/// copy would be read AGAIN by some later resume.
+#[cfg_attr(
+    not(mobile),
+    allow(dead_code, reason = "only a mobile sign-in parks its outcome")
+)]
+fn mobile_outcome(
+    result: &Result<String, SignInFailure>,
+    left_app: bool,
+) -> Option<AllrWorkOutcome> {
+    if !left_app {
+        return None;
+    }
+
+    Some(match result {
+        Ok(workspace) => AllrWorkOutcome::SignedIn {
+            workspace: workspace.clone(),
+        },
+        Err(failure) => AllrWorkOutcome::Failed {
+            error: failure.error.clone(),
+            workspace: failure.workspace.clone(),
+        },
+    })
+}
+
+/// The command's own reply.
+fn command_reply(result: Result<String, SignInFailure>) -> Result<AllrWorkSignIn, AllrWorkError> {
+    result
+        .map(|workspace| AllrWorkSignIn {
+            busy: false,
+            workspace: Some(workspace),
+        })
+        .map_err(|failure| failure.error)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const HOST: &str = "xm.allr.work";
+
+    fn every_surface_failure() -> [SurfaceLoginFailure; 12] {
+        use SurfaceLoginFailure as F;
+
+        // Exhaustive on purpose: a new failure does not compile until it is listed here,
+        // and so cannot reach `hop2_error` untested.
+        fn listed(failure: SurfaceLoginFailure) {
+            match failure {
+                F::Setup
+                | F::AlreadyOnSignInPage
+                | F::SurfaceUnavailable
+                | F::Cancelled
+                | F::NavigationRefused
+                | F::TimedOut
+                | F::Listener
+                | F::StateMismatch
+                | F::CallbackRefused
+                | F::TokenRejected
+                | F::TokenUnreachable
+                | F::NotSaved => {}
+            }
+        }
+
+        let all = [
+            F::Setup,
+            F::AlreadyOnSignInPage,
+            F::SurfaceUnavailable,
+            F::Cancelled,
+            F::NavigationRefused,
+            F::TimedOut,
+            F::Listener,
+            F::StateMismatch,
+            F::CallbackRefused,
+            F::TokenRejected,
+            F::TokenUnreachable,
+            F::NotSaved,
+        ];
+
+        all.into_iter().for_each(listed);
+
+        all
+    }
+
+    #[test]
+    fn hop2_failures_map_to_their_error_kinds() {
+        use AllrWorkErrorKind as Kind;
+        use SurfaceLoginFailure as F;
+
+        let expected = [
+            (F::Setup, Kind::Unreachable),
+            (F::AlreadyOnSignInPage, Kind::AlreadyOnSignInPage),
+            (F::SurfaceUnavailable, Kind::NavigationRefused),
+            (F::Cancelled, Kind::Cancelled),
+            (F::NavigationRefused, Kind::NavigationRefused),
+            (F::TimedOut, Kind::TimedOut),
+            (F::Listener, Kind::Unreachable),
+            (F::StateMismatch, Kind::StateMismatch),
+            (F::CallbackRefused, Kind::SignInFailed),
+            // The workspace ANSWERED the code exchange and did not hand over tokens: a
+            // refusal, not a network problem.
+            (F::TokenRejected, Kind::SignInFailed),
+            (F::TokenUnreachable, Kind::Unreachable),
+            // A keyring failure is its own kind, never "sign-in failed": the user did sign
+            // in, and retrying will not fix the credential store.
+            (F::NotSaved, Kind::CredentialNotSaved),
+        ];
+
+        assert_eq!(expected.len(), every_surface_failure().len());
+
+        for (failure, kind) in expected {
+            assert_eq!(hop2_error(failure, HOST).kind, kind, "{failure:?}");
+        }
+    }
+
+    #[test]
+    fn hop2_messages_quote_the_host_and_nothing_else() {
+        for failure in every_surface_failure() {
+            let message = hop2_error(failure, HOST).message;
+
+            for leak in ["state", "code", "127.0.0.1", "?", "authorize", "http"] {
+                assert!(!message.contains(leak), "{failure:?}: {message}");
+            }
+        }
+
+        assert!(hop2_error(SurfaceLoginFailure::TokenRejected, HOST)
+            .message
+            .contains(HOST));
+    }
+
+    fn cached_tokens() -> oauth::native::NativeTokenSet {
+        oauth::native::NativeTokenSet {
+            access_token: "at".into(),
+            refresh_token: "rt".into(),
+            expires_at: i64::MAX,
+            provider: "self-hosted".into(),
+            user_id: "u".into(),
+        }
+    }
+
+    #[test]
+    fn a_credential_that_was_not_saved_is_not_left_in_the_bearer_cache() {
+        let base = "https://xm.allr.work";
+        let transport = TransportState::new();
+
+        transport.cache_bearer_tokens(base, cached_tokens());
+
+        let error = settle_hop2_failure(&transport, base, SurfaceLoginFailure::NotSaved, HOST);
+
+        assert_eq!(error.kind, AllrWorkErrorKind::CredentialNotSaved);
+        assert_eq!(transport.cached_bearer_tokens(base), None);
+    }
+
+    #[test]
+    fn no_other_hop2_failure_touches_the_bearer_cache() {
+        let base = "https://xm.allr.work";
+
+        for failure in every_surface_failure()
+            .into_iter()
+            .filter(|failure| *failure != SurfaceLoginFailure::NotSaved)
+        {
+            let transport = TransportState::new();
+            transport.cache_bearer_tokens(base, cached_tokens());
+
+            assert_eq!(
+                settle_hop2_failure(&transport, base, failure, HOST),
+                hop2_error(failure, HOST)
+            );
+            assert!(
+                transport.cached_bearer_tokens(base).is_some(),
+                "{failure:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_refused_navigation_is_never_logged_with_its_detail() {
+        // Its `SurfaceLoginError::message` quotes the authorize URL, state included.
+        assert!(!hop2_detail_is_loggable(
+            SurfaceLoginFailure::NavigationRefused
+        ));
+        assert!(!hop2_detail_is_loggable(
+            SurfaceLoginFailure::SurfaceUnavailable
+        ));
+        assert!(hop2_detail_is_loggable(
+            SurfaceLoginFailure::TokenUnreachable
+        ));
+    }
+
+    #[test]
+    fn preflight_verdicts_map_to_error_kinds() {
+        use decide::Preflight;
+
+        assert_eq!(preflight_error(Preflight::Native, HOST), None);
+        assert_eq!(
+            preflight_error(Preflight::Unsupported, HOST).map(|e| e.kind),
+            Some(AllrWorkErrorKind::WorkspaceUnsupported)
+        );
+        // An edge that sends `/auth/native/*` to sign-in cannot finish hop 2 either.
+        assert_eq!(
+            preflight_error(Preflight::EdgeNotDirect, HOST).map(|e| e.kind),
+            Some(AllrWorkErrorKind::WorkspaceUnsupported)
+        );
+        assert_eq!(
+            preflight_error(Preflight::Unreachable, HOST).map(|e| e.kind),
+            Some(AllrWorkErrorKind::Unreachable)
+        );
+    }
+
+    fn workspace_url() -> Url {
+        Url::parse("https://xm.allr.work").unwrap()
+    }
+
+    #[test]
+    fn hop1_passes_the_hand_back_verdict_through() {
+        assert_eq!(
+            hop1_result(Ok(Ok(Ok(workspace_url())))),
+            Ok(workspace_url())
+        );
+
+        // The parser's own named errors survive untouched.
+        let no_workspace = AllrWorkError::new(AllrWorkErrorKind::NoWorkspace, "none");
+        assert_eq!(
+            hop1_result(Ok(Ok(Err(no_workspace.clone())))),
+            Err(no_workspace)
+        );
+    }
+
+    #[test]
+    fn hop1_stops_map_to_error_kinds() {
+        let kind = |verdict| hop1_result(verdict).unwrap_err().kind;
+
+        assert_eq!(
+            kind(Err(SurfaceStop::Cancelled)),
+            AllrWorkErrorKind::Cancelled
+        );
+        assert_eq!(
+            kind(Err(SurfaceStop::Refused)),
+            AllrWorkErrorKind::NavigationRefused
+        );
+        // The surface reached a workspace host during hop 1: the portal predates the
+        // hand-off. Not a timeout, not a cancel.
+        assert_eq!(
+            kind(Err(SurfaceStop::Watched)),
+            AllrWorkErrorKind::PortalOutdated
+        );
+        assert_eq!(
+            kind(Ok(Err(LoopbackFailure::TimedOut))),
+            AllrWorkErrorKind::TimedOut
+        );
+        assert_eq!(
+            kind(Ok(Err(LoopbackFailure::Listener("boom".into())))),
+            AllrWorkErrorKind::Unreachable
+        );
+    }
+
+    #[test]
+    fn hop1_open_failures_map_to_error_kinds() {
+        assert_eq!(
+            hop1_open_error(SurfaceLoginFailure::AlreadyOnSignInPage).kind,
+            AllrWorkErrorKind::AlreadyOnSignInPage
+        );
+        // A desktop window the user closed before hop 2 navigated it.
+        assert_eq!(
+            hop1_open_error(SurfaceLoginFailure::Cancelled).kind,
+            AllrWorkErrorKind::Cancelled
+        );
+        assert_eq!(
+            hop1_open_error(SurfaceLoginFailure::SurfaceUnavailable).kind,
+            AllrWorkErrorKind::NavigationRefused
+        );
+    }
+
+    fn hop2_failure() -> SignInFailure {
+        SignInFailure {
+            error: hop2_error(SurfaceLoginFailure::TokenRejected, HOST),
+            workspace: Some("https://xm.allr.work".to_string()),
+        }
+    }
+
+    #[test]
+    fn a_mobile_sign_in_that_never_left_the_app_parks_nothing() {
+        // A refused FIRST navigation: the caller's JS is alive and reads the `Err`. A parked
+        // copy would be read again by the next resume.
+        let refused: Result<String, SignInFailure> = Err(SignInFailure {
+            error: hop1_result(Err(SurfaceStop::Refused)).unwrap_err(),
+            workspace: None,
+        });
+
+        assert_eq!(mobile_outcome(&refused, false), None);
+        assert_eq!(
+            mobile_outcome(&Ok("https://xm.allr.work".into()), false),
+            None
+        );
+    }
+
+    #[test]
+    fn a_mobile_sign_in_that_left_the_app_parks_its_outcome() {
+        assert_eq!(
+            mobile_outcome(&Ok("https://xm.allr.work".into()), true),
+            Some(AllrWorkOutcome::SignedIn {
+                workspace: "https://xm.allr.work".into()
+            })
+        );
+
+        // A hop-2 failure keeps the workspace hop 1 found, so the card can name it.
+        assert_eq!(
+            mobile_outcome(&Err(hop2_failure()), true),
+            Some(AllrWorkOutcome::Failed {
+                error: hop2_failure().error,
+                workspace: Some("https://xm.allr.work".into()),
+            })
+        );
+    }
+
+    #[test]
+    fn the_command_reply_carries_the_workspace_or_the_error() {
+        assert_eq!(
+            command_reply(Ok("https://xm.allr.work".into())),
+            Ok(AllrWorkSignIn {
+                busy: false,
+                workspace: Some("https://xm.allr.work".into()),
+            })
+        );
+        assert_eq!(
+            command_reply(Err(hop2_failure())),
+            Err(hop2_failure().error)
+        );
+    }
+
+    #[test]
+    fn the_managed_mailbox_is_take_once() {
+        let state = AllrWorkState::default();
+
+        assert_eq!(state.take(), None);
+
+        state.put(AllrWorkOutcome::SignedIn {
+            workspace: "https://xm.allr.work".into(),
+        });
+
+        assert!(state.take().is_some());
+        assert_eq!(state.take(), None);
     }
 }

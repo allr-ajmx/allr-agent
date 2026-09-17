@@ -126,6 +126,138 @@ pub async fn cookies_for_base(
     }
 }
 
+/// What [`delete_matching`] did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DeleteReport {
+    /// Cookies whose deletion was handed to the platform store.
+    pub deleted: usize,
+    /// False when this platform cannot delete a webview cookie at all — which a caller
+    /// must not present as "there was nothing to delete".
+    pub supported: bool,
+}
+
+/// Delete every cookie in `webview`'s store whose `Domain` satisfies `matches`.
+///
+/// The store is the one the calling webview uses, which in this app is the platform's
+/// DEFAULT store on every target (no window sets a `data_directory` except the Nous
+/// portal's, and mobile has only the one) — so this also reaches cookies the
+/// `hermes-oauth` sign-in window set. That is why it filters instead of clearing:
+/// `clear_all_browsing_data` would take the app's own `localStorage` with it.
+///
+/// `deleted` counts cookies whose deletion was QUEUED. Neither wry (desktop) nor WebKit
+/// (iOS) reports a per-cookie result back to this call, so a count is the most a caller
+/// can be told.
+pub async fn delete_matching<F>(webview: &WebviewWindow, matches: F) -> Result<DeleteReport, String>
+where
+    F: Fn(&str) -> bool + Send + 'static,
+{
+    #[cfg(target_os = "ios")]
+    {
+        ios::delete_matching(webview, matches)
+            .await
+            .map(|deleted| DeleteReport {
+                deleted,
+                supported: true,
+            })
+    }
+
+    // U3b (ALLR-51): wry's Android `delete_cookie` is a no-op and `clearAllBrowsingData`
+    // never touches `CookieManager`, so this needs a small Kotlin plugin. Until then the
+    // answer is an honest "cannot", not a silent zero.
+    #[cfg(target_os = "android")]
+    {
+        let _ = (webview, matches);
+
+        Ok(DeleteReport {
+            deleted: 0,
+            supported: false,
+        })
+    }
+
+    // Linux (WebKitGTK), Windows (WebView2), macOS (WKWebView) through wry. Both calls are
+    // dispatched to the main thread by the runtime, and both are fine from an async
+    // command: `cookies()` deadlocks on Windows only from a SYNC command, and macOS's
+    // blocking read is the one `cookies_for_base` already tolerates.
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    {
+        let cookies = webview
+            .cookies()
+            .map_err(|e| format!("could not read the webview cookie store: {e}"))?;
+        let mut deleted = 0;
+        let mut failed = 0;
+
+        for cookie in cookies {
+            if !cookie.domain().is_some_and(&matches) {
+                continue;
+            }
+
+            // Fire-and-forget in the runtime: `Ok` means the delete was queued, and a
+            // store-side failure is only logged by wry. See `deletion_candidates` for why
+            // one stored cookie takes two deletes.
+            let queued = deletion_candidates(&cookie)
+                .into_iter()
+                .map(|candidate| webview.delete_cookie(candidate))
+                .collect::<Vec<_>>();
+
+            match queued.into_iter().find_map(Result::err) {
+                None => deleted += 1,
+                Some(e) => {
+                    failed += 1;
+                    log::warn!("[cookies] could not queue a cookie deletion: {e}");
+                }
+            }
+        }
+
+        if failed > 0 {
+            return Err(format!(
+                "{failed} matching cookie(s) could not be deleted ({deleted} were)"
+            ));
+        }
+
+        Ok(DeleteReport {
+            deleted,
+            supported: true,
+        })
+    }
+}
+
+/// The cookies to hand wry's `delete_cookie` so that `cookie` — as `cookies()` returned
+/// it — is really deleted, whether the store holds it host-only or as a domain cookie.
+///
+/// The trap: wry reads the native cookie's domain VERBATIM (`.allr.work` for a
+/// `Domain=allr.work` cookie), but every conversion back — `cookie_into_soup_cookie`
+/// (webkitgtk), `cookie_into_wkwebview` (macOS), `cookie_into_win32` (WebView2), all
+/// wry 0.55.1 — builds the native cookie from `Cookie::domain()`, and the `cookie` crate
+/// strips ONE leading dot there. So a domain cookie is sent back as host-only
+/// `allr.work`, the store matches name + domain + path exactly, finds no such cookie,
+/// and the delete is a silent no-op. Pomerium's `_pomerium` session cookie is exactly
+/// such a domain cookie.
+///
+/// `Cookie::domain()` hides whether the dot was there, so both spellings are deleted:
+/// the domain as read, and the same domain stored as `..<domain>` — which `domain()`
+/// strips back to `.<domain>`, a real domain cookie on all three backends (soup, Foundation
+/// and WebView2 all treat a leading dot as "this domain and its subdomains"). Deleting a
+/// cookie that does not exist is a no-op everywhere, and both spellings pass the same
+/// `cookie_is_allr_work` filter, so the extra delete can only remove what the filter
+/// already chose. UNVERIFIED on a live store (runtime check V9).
+#[cfg_attr(
+    any(target_os = "ios", target_os = "android"),
+    allow(
+        dead_code,
+        reason = "iOS deletes the NSHTTPCookie itself; Android cannot delete"
+    )
+)]
+fn deletion_candidates(cookie: &Cookie<'static>) -> Vec<Cookie<'static>> {
+    let Some(domain) = cookie.domain().map(str::to_string) else {
+        return vec![cookie.clone()];
+    };
+
+    let mut domain_cookie = cookie.clone();
+    domain_cookie.set_domain(format!("..{domain}"));
+
+    vec![cookie.clone(), domain_cookie]
+}
+
 /// Reading `WKHTTPCookieStore` without parking the main thread.
 ///
 /// wry's `WebView::cookies()` registers the same completion handler we do, then waits for
@@ -252,11 +384,122 @@ mod ios {
             }
         }
     }
+
+    /// Delete every cookie whose domain satisfies `matches`, without blocking anything.
+    ///
+    /// Same mechanism as [`all_cookies`], and for the same reason: wry's
+    /// `delete_cookie` waits on its completion handler by pumping a nested runloop, which
+    /// aborts the process on iOS. Here the main-thread closure only REGISTERS a
+    /// `getAllCookies` handler and returns; WebKit later calls that handler on the main
+    /// thread, where it queues one `deleteCookie:completionHandler:` per match with no
+    /// completion handler at all, and sends back how many it queued.
+    ///
+    /// Unlike the read, a failure here is an `Err`: a sign-out that could not reach the
+    /// store must not report "nothing to clear".
+    pub(super) async fn delete_matching<F>(
+        webview: &WebviewWindow,
+        matches: F,
+    ) -> Result<usize, String>
+    where
+        F: Fn(&str) -> bool + Send + 'static,
+    {
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Result<usize, String>>();
+        let failed = tx.clone();
+
+        let dispatched = webview.app_handle().run_on_main_thread(move || {
+            let Some(mtm) = MainThreadMarker::new() else {
+                let _ = failed.send(Err("not on the main thread".to_string()));
+
+                return;
+            };
+
+            let store = unsafe { WKWebsiteDataStore::defaultDataStore(mtm).httpCookieStore() };
+            // The handler needs the store again to delete from it; it runs on the main
+            // thread, like this closure, so the main-thread-only handle may ride along.
+            let deleting = store.clone();
+
+            let handler =
+                block2::RcBlock::new(move |cookies: std::ptr::NonNull<NSArray<NSHTTPCookie>>| {
+                    let cookies = unsafe { cookies.as_ref() };
+                    let mut deleted = 0;
+
+                    for cookie in cookies.iter() {
+                        if matches(&cookie.domain().to_string()) {
+                            unsafe { deleting.deleteCookie_completionHandler(&cookie, None) };
+                            deleted += 1;
+                        }
+                    }
+
+                    let _ = tx.send(Ok(deleted));
+                });
+
+            unsafe { store.getAllCookies(&handler) };
+        });
+
+        if let Err(e) = dispatched {
+            return Err(format!(
+                "could not reach the main thread to clear the cookie store: {e}"
+            ));
+        }
+
+        match tokio::time::timeout(READ_TIMEOUT, rx.recv()).await {
+            Ok(Some(result)) => result,
+            Ok(None) => Err("the webview cookie store went away".to_string()),
+            Err(_) => Err("the webview cookie store did not answer in time".to_string()),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_domain_cookie_is_deleted_under_both_spellings() {
+        // What wry's reads hand back for `Set-Cookie: _pomerium=…; Domain=.allr.work`.
+        let read = Cookie::build(("_pomerium", "v"))
+            .domain(".allr.work")
+            .path("/")
+            .build();
+
+        // The trap: the dot is already gone from what wry will convert back.
+        assert_eq!(read.domain(), Some("allr.work"));
+
+        let domains: Vec<Option<String>> = deletion_candidates(&read)
+            .iter()
+            .map(|candidate| candidate.domain().map(str::to_string))
+            .collect();
+
+        assert_eq!(
+            domains,
+            vec![
+                Some("allr.work".to_string()),
+                Some(".allr.work".to_string())
+            ]
+        );
+
+        // Everything else about the cookie is what the store matches on, and is kept.
+        for candidate in deletion_candidates(&read) {
+            assert_eq!(candidate.name(), "_pomerium");
+            assert_eq!(candidate.path(), Some("/"));
+        }
+    }
+
+    #[test]
+    fn a_host_only_cookie_gets_a_harmless_domain_twin_and_no_domain_is_left_alone() {
+        let host_only = Cookie::build(("sid", "v")).domain("app.allr.work").build();
+
+        assert_eq!(
+            deletion_candidates(&host_only)
+                .iter()
+                .map(|candidate| candidate.domain())
+                .collect::<Vec<_>>(),
+            vec![Some("app.allr.work"), Some(".app.allr.work")]
+        );
+
+        let no_domain = Cookie::new("sid", "v");
+        assert_eq!(deletion_candidates(&no_domain).len(), 1);
+    }
 
     #[test]
     fn a_host_only_cookie_matches_its_own_host() {

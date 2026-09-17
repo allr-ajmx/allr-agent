@@ -39,6 +39,10 @@ mod voice;
 mod webview_cookies;
 mod window;
 
+use allr_work::{
+    allr_work_clear_session, allr_work_config, allr_work_sign_in, allr_work_take_outcome,
+    AllrWorkState,
+};
 use app_state::{get_app_flag, set_app_flag};
 use appearance::set_window_translucency;
 use artifact::{artifact_release, artifact_stage, ArtifactState, ARTIFACT_SCHEME};
@@ -229,6 +233,10 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .manage(TransportState::new())
+        // The Allr Work sign-in's take-once outcome slot (allr_work.rs). Only a mobile
+        // sign-in writes it — the SPA that asked is reloaded before it could read a
+        // reply — but it is managed on every target so the chain keeps one shape.
+        .manage(AllrWorkState::default())
         .manage(MediaState::default())
         // The live downloads' cancel flags. Managed on BOTH targets so the
         // builder chain is one shape (§6.1) — and unlike the empty mobile
@@ -402,6 +410,10 @@ pub fn run() {
             oauth_login,
             oauth_status,
             oauth_logout,
+            allr_work_config,
+            allr_work_sign_in,
+            allr_work_take_outcome,
+            allr_work_clear_session,
             cookies_clear,
             cookies_export,
             cookies_import,
