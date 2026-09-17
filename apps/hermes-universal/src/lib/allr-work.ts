@@ -188,12 +188,16 @@ export function isAllrWorkSignInInFlight(): boolean {
  * AND iOS the command navigates the CALLING webview away, which destroys this JS context:
  * the promise never settles here, and the next boot collects the result with
  * {@link allrWorkTakeOutcome}. A rejection on mobile therefore means the app was never left.
+ *
+ * `switchAccount`: this sign-in follows a Switch account. On desktop the sign-in window then
+ * asks Google for its account chooser (once — the workspace hop after it stays silent); on
+ * mobile Rust ignores it. Every other sign-in leaves it off.
  */
-export async function allrWorkSignIn(): Promise<AllrWorkSignIn> {
+export async function allrWorkSignIn(options: { switchAccount?: boolean } = {}): Promise<AllrWorkSignIn> {
   signInsInFlight++
 
   try {
-    return await invokeAllrWork<AllrWorkSignIn>('allr_work_sign_in')
+    return await invokeAllrWork<AllrWorkSignIn>('allr_work_sign_in', { switchAccount: options.switchAccount === true })
   } finally {
     signInsInFlight--
   }
@@ -226,15 +230,25 @@ export async function allrWorkTakeOutcome(): Promise<AllrWorkOutcome | null> {
  * cookies and only reaches the workspace's own when it is named. Rust validates it and
  * refuses an invalid one (`invalid-workspace`) without clearing anything.
  *
+ * `switchAccount`: the clear is the first step of a Switch account. On Android and iOS Rust
+ * then also deletes Google's sign-in cookies, so Google cannot silently sign the same account
+ * back in (a phone has no way to ask for Google's account chooser). Desktop ignores it and
+ * keeps the Google session. A plain sign-out leaves it off.
+ *
  * Refuses — without calling Rust — while a sign-in is in flight in this webview, because
  * the command takes no lease (see {@link isAllrWorkSignInInFlight}).
  */
-export async function allrWorkClearSession(options: { workspace?: null | string } = {}): Promise<AllrWorkClearReport> {
+export async function allrWorkClearSession(
+  options: { switchAccount?: boolean; workspace?: null | string } = {}
+): Promise<AllrWorkClearReport> {
   if (isAllrWorkSignInInFlight()) {
     throw new GatewaySignInBusyError('An Allr Work sign-in is in progress')
   }
 
-  return invokeAllrWork<AllrWorkClearReport>('allr_work_clear_session', { workspace: options.workspace ?? null })
+  return invokeAllrWork<AllrWorkClearReport>('allr_work_clear_session', {
+    workspace: options.workspace ?? null,
+    switchAccount: options.switchAccount === true
+  })
 }
 
 // --- The workspace host rule, mirrored --------------------------------------------

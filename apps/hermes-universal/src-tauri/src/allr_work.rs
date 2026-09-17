@@ -691,11 +691,61 @@ pub mod decide {
     /// `ends_with("allr.work")` would also delete `evilallr.work`'s cookies — harmless to
     /// us, but not ours to touch.
     pub fn cookie_is_allr_work(cookie_domain: &str, parent: &str) -> bool {
+        cookie_domain_is_under(cookie_domain, parent)
+    }
+
+    /// Is `cookie_domain` `parent` itself or a host under it? Case-insensitive, a leading
+    /// `.` tolerated, boundary-safe, and an empty `parent` matches nothing.
+    fn cookie_domain_is_under(cookie_domain: &str, parent: &str) -> bool {
         let domain = cookie_domain.to_ascii_lowercase();
         let domain = domain.strip_prefix('.').unwrap_or(&domain);
         let parent = parent.to_ascii_lowercase();
 
         !parent.is_empty() && (domain == parent || domain.ends_with(&format!(".{parent}")))
+    }
+
+    /// The domain Google's sign-in session cookies live under (`SID`, `__Secure-*PSID`, …
+    /// on `.google.com`; `LSID`, `__Host-GAPS` on `accounts.google.com`).
+    pub const GOOGLE_COOKIE_DOMAIN: &str = "google.com";
+
+    /// The host Google's OAuth authorize endpoint (and its sign-in pages) is served from.
+    pub const GOOGLE_ACCOUNTS_HOST: &str = "accounts.google.com";
+
+    /// Is a cookie with this `Domain` one of Google's sign-in cookies — `google.com` or any
+    /// host under it? Same boundary rule as [`cookie_is_allr_work`], so `evilgoogle.com`,
+    /// `google.com.evil` and `googleusercontent.com` are never touched.
+    ///
+    /// Country domains (`google.co.uk`) are deliberately not matched: the OAuth account
+    /// chooser reads the `accounts.google.com` session, which lives under `google.com`.
+    #[cfg_attr(
+        target_os = "android",
+        allow(dead_code, reason = "Android scrubs by host, not by filter")
+    )]
+    pub fn cookie_is_google_sign_in(cookie_domain: &str) -> bool {
+        cookie_domain_is_under(cookie_domain, GOOGLE_COOKIE_DOMAIN)
+    }
+
+    /// Does clearing the Allr Work session also sign the webview out of Google?
+    ///
+    /// Only for a switch of account, and only on a phone. Desktop gets Google's account
+    /// chooser instead ([`ChooserArm`] on the sign-in window), so its Google session — and
+    /// every account the user has added to it — is kept. A phone has no navigation hook on
+    /// the calling webview, so the only way to stop Google silently re-using the same
+    /// account there is to forget it. A plain sign-out never touches Google.
+    pub fn clears_google_sign_in(switch_account: bool, mobile: bool) -> bool {
+        switch_account && mobile
+    }
+
+    /// The cookie filter for a session clear on a store that can list its cookies
+    /// (desktop, iOS): every Allr Work cookie under `parent`, plus Google's sign-in cookies
+    /// when `google` (see [`clears_google_sign_in`]).
+    #[cfg_attr(
+        target_os = "android",
+        allow(dead_code, reason = "Android scrubs by host, not by filter")
+    )]
+    pub fn clear_session_cookie_matches(cookie_domain: &str, parent: &str, google: bool) -> bool {
+        cookie_is_allr_work(cookie_domain, parent)
+            || (google && cookie_is_google_sign_in(cookie_domain))
     }
 
     /// One host whose Allr Work cookies a store without a cookie listing (Android's
@@ -727,11 +777,20 @@ pub mod decide {
     /// workspace from somewhere else is dropped rather than scrubbed, whatever the caller
     /// validated. The single-label rule is [`validate_workspace`]'s job, not this one's.
     /// Duplicates (a workspace that names a platform host) are dropped, first one kept.
+    ///
+    /// The one host outside the parent is Google's, and only when `google` is set (a switch
+    /// of account on a phone — see [`clears_google_sign_in`]): `https://accounts.google.com/`,
+    /// last, expired host-only, under `Domain=accounts.google.com` and under
+    /// `Domain=google.com`, which covers Google's sign-in session cookies there.
     #[cfg_attr(
         not(target_os = "android"),
         allow(dead_code, reason = "only Android's CookieManager is scrubbed by host")
     )]
-    pub fn cookie_hosts(cfg: &PortalConfig, workspace: Option<&Url>) -> Vec<CookieHost> {
+    pub fn cookie_hosts(
+        cfg: &PortalConfig,
+        workspace: Option<&Url>,
+        google: bool,
+    ) -> Vec<CookieHost> {
         let parent = cfg.parent.to_ascii_lowercase();
         let candidates = std::iter::once(parent.clone())
             .chain(
@@ -749,7 +808,7 @@ pub mod decide {
             }
         }
 
-        hosts
+        let mut hosts: Vec<CookieHost> = hosts
             .into_iter()
             .map(|host| {
                 let mut domains = vec![host.clone()];
@@ -763,7 +822,187 @@ pub mod decide {
                     domains,
                 }
             })
-            .collect()
+            .collect();
+
+        if google {
+            hosts.push(CookieHost {
+                url: format!("https://{GOOGLE_ACCOUNTS_HOST}/"),
+                domains: vec![
+                    GOOGLE_ACCOUNTS_HOST.to_string(),
+                    GOOGLE_COOKIE_DOMAIN.to_string(),
+                ],
+            });
+        }
+
+        hosts
+    }
+
+    // ── Switch account (desktop): Google's account chooser ──────────────────
+
+    /// Google's OAuth authorize endpoint paths: `v2` (what OIDC discovery advertises) and
+    /// the original one (what `golang.org/x/oauth2/google` hard-codes).
+    #[cfg_attr(
+        mobile,
+        allow(
+            dead_code,
+            reason = "only the desktop sign-in window can rewrite a navigation"
+        )
+    )]
+    const GOOGLE_AUTHORIZE_PATHS: [&str; 2] = ["/o/oauth2/v2/auth", "/o/oauth2/auth"];
+
+    /// The `prompt` value that makes Google show its account chooser.
+    #[cfg_attr(
+        mobile,
+        allow(
+            dead_code,
+            reason = "only the desktop sign-in window can rewrite a navigation"
+        )
+    )]
+    const SELECT_ACCOUNT: &str = "select_account";
+
+    /// Is `url` a request to Google's OAuth authorize endpoint?
+    ///
+    /// Exactly `https://accounts.google.com` — no lookalike host, no other port, no
+    /// userinfo — on one of [`GOOGLE_AUTHORIZE_PATHS`]. An explicit `:443` is the default
+    /// port, which URL parsing drops, so it is the same URL and counts.
+    #[cfg_attr(
+        mobile,
+        allow(
+            dead_code,
+            reason = "only the desktop sign-in window can rewrite a navigation"
+        )
+    )]
+    fn is_google_authorize(url: &Url) -> bool {
+        url.scheme() == "https"
+            && url.domain() == Some(GOOGLE_ACCOUNTS_HOST)
+            && url.port().is_none()
+            && url.username().is_empty()
+            && url.password().is_none()
+            && GOOGLE_AUTHORIZE_PATHS.contains(&url.path())
+    }
+
+    /// The same Google authorize request, asking for the account chooser.
+    ///
+    /// `prompt` becomes `select_account` in place — replacing an empty value (what Dex
+    /// sends), `consent`, or anything else — and is appended when missing; a repeated
+    /// `prompt` is dropped. Every other parameter is kept, in order (re-encoded as
+    /// `application/x-www-form-urlencoded`, which Google decodes the same way).
+    ///
+    /// `None` when `url` is not Google's authorize endpoint ([`is_google_authorize`]), or
+    /// when a `prompt` already asks for `select_account` — the loop guard: the rewritten URL
+    /// is itself a Google authorize request, and must pass through untouched.
+    #[cfg_attr(
+        mobile,
+        allow(
+            dead_code,
+            reason = "only the desktop sign-in window can rewrite a navigation"
+        )
+    )]
+    pub fn google_account_chooser(url: &Url) -> Option<Url> {
+        if !is_google_authorize(url) {
+            return None;
+        }
+
+        let pairs: Vec<(String, String)> = url.query_pairs().into_owned().collect();
+
+        let already_chooser = pairs
+            .iter()
+            .filter(|(key, _)| key == "prompt")
+            .any(|(_, value)| value.split(' ').any(|token| token == SELECT_ACCOUNT));
+
+        if already_chooser {
+            return None;
+        }
+
+        let mut prompted = false;
+        let mut rewritten: Vec<(String, String)> = Vec::with_capacity(pairs.len() + 1);
+
+        for (key, value) in pairs {
+            if key != "prompt" {
+                rewritten.push((key, value));
+            } else if !prompted {
+                rewritten.push((key, SELECT_ACCOUNT.to_string()));
+                prompted = true;
+            }
+        }
+
+        if !prompted {
+            rewritten.push(("prompt".to_string(), SELECT_ACCOUNT.to_string()));
+        }
+
+        let mut chooser = url.clone();
+        chooser.query_pairs_mut().clear().extend_pairs(rewritten);
+
+        Some(chooser)
+    }
+
+    /// What the sign-in window does with one navigation.
+    #[cfg_attr(
+        mobile,
+        allow(
+            dead_code,
+            reason = "only the desktop sign-in window can rewrite a navigation"
+        )
+    )]
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum NavDecision {
+        /// Let it load.
+        Allow,
+        /// Cancel it and load this instead.
+        RewriteTo(Url),
+    }
+
+    /// The one-shot "ask Google for its account chooser" armed on a switch of account.
+    ///
+    /// A switch signs in twice in one window: hop 1 (the portal) and hop 2 (the workspace).
+    /// Both can pass through Google. Only hop 1's should show the chooser — that is where
+    /// the user picks the account — and hop 2 must stay silent, reusing the account just
+    /// picked. So the arm fires on the FIRST Google authorize request it sees and never
+    /// again; the first one already asking for the chooser disarms it too, without a
+    /// rewrite. Anything that is not a Google authorize request passes through and leaves
+    /// it armed.
+    ///
+    /// It disarms when it DECIDES, not when the chooser page loads. If the replacement
+    /// navigate then fails, the window stays on the Dex picker, and a second click on Google
+    /// signs in silently, exactly like a normal sign-in. Accepted, not retried: that navigate
+    /// only fails when the window is already gone.
+    ///
+    /// Atomic because the window's navigation handler is `Fn + Send`.
+    #[cfg_attr(
+        mobile,
+        allow(
+            dead_code,
+            reason = "only the desktop sign-in window can rewrite a navigation"
+        )
+    )]
+    #[derive(Debug)]
+    pub struct ChooserArm {
+        armed: std::sync::atomic::AtomicBool,
+    }
+
+    #[cfg_attr(
+        mobile,
+        allow(
+            dead_code,
+            reason = "only the desktop sign-in window can rewrite a navigation"
+        )
+    )]
+    impl ChooserArm {
+        pub fn armed() -> Self {
+            Self {
+                armed: std::sync::atomic::AtomicBool::new(true),
+            }
+        }
+
+        pub fn decide(&self, url: &Url) -> NavDecision {
+            use std::sync::atomic::Ordering;
+
+            if !is_google_authorize(url) || !self.armed.swap(false, Ordering::SeqCst) {
+                return NavDecision::Allow;
+            }
+
+            google_account_chooser(url).map_or(NavDecision::Allow, NavDecision::RewriteTo)
+        }
     }
 
     #[cfg(test)]
@@ -1469,7 +1708,7 @@ pub mod decide {
 
         #[test]
         fn cookie_hosts_without_a_workspace_are_the_parent_and_platform_hosts() {
-            assert_eq!(cookie_hosts(&prod(), None), platform_hosts());
+            assert_eq!(cookie_hosts(&prod(), None, false), platform_hosts());
         }
 
         #[test]
@@ -1481,13 +1720,13 @@ pub mod decide {
                 &["xm.allr.work", "allr.work"],
             ));
 
-            assert_eq!(cookie_hosts(&prod(), Some(&workspace)), expected);
+            assert_eq!(cookie_hosts(&prod(), Some(&workspace), false), expected);
         }
 
         #[test]
         fn cookie_hosts_follow_a_dev_parent() {
             let workspace = url("https://xm.dev.allr.work");
-            let hosts = cookie_hosts(&dev(), Some(&workspace));
+            let hosts = cookie_hosts(&dev(), Some(&workspace), false);
 
             assert_eq!(hosts[0], host("https://dev.allr.work/", &["dev.allr.work"]));
             assert_eq!(
@@ -1513,14 +1752,14 @@ pub mod decide {
                 "https://allr.work",
             ] {
                 assert_eq!(
-                    cookie_hosts(&prod(), Some(&url(raw))),
+                    cookie_hosts(&prod(), Some(&url(raw)), false),
                     platform_hosts(),
                     "{raw}"
                 );
             }
 
             for workspace in [None, Some(url("https://xm.allr.work"))] {
-                let hosts = cookie_hosts(&prod(), workspace.as_ref());
+                let hosts = cookie_hosts(&prod(), workspace.as_ref(), false);
 
                 for (i, entry) in hosts.iter().enumerate() {
                     let parsed = url(&entry.url);
@@ -1545,6 +1784,281 @@ pub mod decide {
                     );
                 }
             }
+        }
+
+        // ── Switch account: Google's sign-in cookies (mobile) ────────────────
+
+        #[test]
+        fn google_sign_in_cookie_filter_matches_google_com_and_subdomains_only() {
+            for domain in [
+                "google.com",
+                ".google.com",
+                "accounts.google.com",
+                ".accounts.google.com",
+                ".ACCOUNTS.Google.COM",
+                "mail.google.com",
+            ] {
+                assert!(cookie_is_google_sign_in(domain), "{domain}");
+            }
+
+            for domain in [
+                "evilgoogle.com",
+                ".evilgoogle.com",
+                "google.com.evil",
+                "accounts.google.com.evil",
+                "googleusercontent.com",
+                "google.co.uk",
+                "google.comx",
+                "com",
+                "allr.work",
+                "",
+                ".",
+            ] {
+                assert!(!cookie_is_google_sign_in(domain), "{domain}");
+            }
+        }
+
+        #[test]
+        fn only_a_switch_of_account_on_a_phone_clears_google() {
+            assert!(clears_google_sign_in(true, true));
+            // Desktop gets the account chooser instead.
+            assert!(!clears_google_sign_in(true, false));
+            // A plain sign-out never touches Google, anywhere.
+            assert!(!clears_google_sign_in(false, true));
+            assert!(!clears_google_sign_in(false, false));
+        }
+
+        #[test]
+        fn the_clear_filter_adds_google_only_when_asked() {
+            for google in [false, true] {
+                assert!(clear_session_cookie_matches(
+                    ".allr.work",
+                    "allr.work",
+                    google
+                ));
+                assert!(clear_session_cookie_matches(
+                    "auth.allr.work",
+                    "allr.work",
+                    google
+                ));
+                assert!(!clear_session_cookie_matches(
+                    "evilallr.work",
+                    "allr.work",
+                    google
+                ));
+                assert!(!clear_session_cookie_matches(
+                    "evilgoogle.com",
+                    "allr.work",
+                    google
+                ));
+                assert!(!clear_session_cookie_matches(
+                    "example.com",
+                    "allr.work",
+                    google
+                ));
+            }
+
+            for domain in [".google.com", "accounts.google.com"] {
+                assert!(!clear_session_cookie_matches(domain, "allr.work", false));
+                assert!(clear_session_cookie_matches(domain, "allr.work", true));
+            }
+        }
+
+        #[test]
+        fn cookie_hosts_add_google_last_only_when_asked() {
+            let workspace = url("https://xm.allr.work");
+            let without = cookie_hosts(&prod(), Some(&workspace), false);
+            let with = cookie_hosts(&prod(), Some(&workspace), true);
+
+            assert!(without.iter().all(|entry| !entry.url.contains("google")));
+            assert_eq!(with.len(), without.len() + 1);
+            assert_eq!(with[..without.len()], without[..]);
+            assert_eq!(
+                with.last().unwrap(),
+                &host(
+                    "https://accounts.google.com/",
+                    &["accounts.google.com", "google.com"]
+                )
+            );
+
+            let mut expected = platform_hosts();
+            expected.push(host(
+                "https://accounts.google.com/",
+                &["accounts.google.com", "google.com"],
+            ));
+            assert_eq!(cookie_hosts(&prod(), None, true), expected);
+        }
+
+        // ── Switch account: Google's account chooser (desktop) ───────────────
+
+        fn pairs(url: &Url) -> Vec<(String, String)> {
+            url.query_pairs().into_owned().collect()
+        }
+
+        fn owned(list: &[(&str, &str)]) -> Vec<(String, String)> {
+            list.iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect()
+        }
+
+        const DEX_QUERY: &str = "client_id=abc.apps.googleusercontent.com\
+            &redirect_uri=https%3A%2F%2Fauth.allr.work%2Fcallback\
+            &response_type=code&scope=openid+profile+email&state=s3cr3t";
+
+        #[test]
+        fn the_chooser_replaces_an_empty_or_other_prompt_in_place_on_both_paths() {
+            for path in ["/o/oauth2/v2/auth", "/o/oauth2/auth"] {
+                for prompt in ["", "consent", "none", "login"] {
+                    let raw = format!(
+                        "https://accounts.google.com{path}?client_id=abc&prompt={prompt}&state=s"
+                    );
+                    let chooser = google_account_chooser(&url(&raw)).expect(&raw);
+
+                    assert_eq!(chooser.path(), path, "{raw}");
+                    assert_eq!(chooser.host_str(), Some("accounts.google.com"));
+                    assert_eq!(
+                        pairs(&chooser),
+                        owned(&[
+                            ("client_id", "abc"),
+                            ("prompt", "select_account"),
+                            ("state", "s")
+                        ]),
+                        "{raw}"
+                    );
+                }
+            }
+        }
+
+        #[test]
+        fn the_chooser_appends_a_missing_prompt_and_keeps_every_other_param_in_order() {
+            let raw = format!("https://accounts.google.com/o/oauth2/v2/auth?{DEX_QUERY}");
+            let chooser = google_account_chooser(&url(&raw)).unwrap();
+            let mut expected = pairs(&url(&raw));
+
+            expected.push(("prompt".into(), "select_account".into()));
+
+            assert_eq!(pairs(&chooser), expected);
+            assert_eq!(
+                expected[1],
+                (
+                    "redirect_uri".to_string(),
+                    "https://auth.allr.work/callback".to_string()
+                )
+            );
+        }
+
+        #[test]
+        fn the_chooser_drops_a_repeated_prompt_and_keeps_a_fragment() {
+            let chooser = google_account_chooser(&url(
+                "https://accounts.google.com/o/oauth2/auth?prompt=&a=1&prompt=consent#frag",
+            ))
+            .unwrap();
+
+            assert_eq!(
+                pairs(&chooser),
+                owned(&[("prompt", "select_account"), ("a", "1")])
+            );
+            assert_eq!(chooser.fragment(), Some("frag"));
+        }
+
+        #[test]
+        fn a_request_already_asking_for_the_chooser_is_left_alone() {
+            // The loop guard: the rewritten URL is itself a Google authorize request.
+            for raw in [
+                "https://accounts.google.com/o/oauth2/v2/auth?prompt=select_account&state=s",
+                "https://accounts.google.com/o/oauth2/auth?state=s&prompt=consent+select_account",
+                "https://accounts.google.com/o/oauth2/v2/auth?prompt=&prompt=select_account",
+            ] {
+                assert_eq!(google_account_chooser(&url(raw)), None, "{raw}");
+            }
+
+            let once = google_account_chooser(&url(
+                "https://accounts.google.com/o/oauth2/v2/auth?prompt=&state=s",
+            ))
+            .unwrap();
+            assert_eq!(google_account_chooser(&once), None);
+        }
+
+        #[test]
+        fn the_chooser_only_rewrites_googles_own_authorize_endpoint() {
+            for raw in [
+                "http://accounts.google.com/o/oauth2/v2/auth?prompt=",
+                "https://accounts.google.com.evil/o/oauth2/v2/auth?prompt=",
+                "https://evil.com/o/oauth2/v2/auth?prompt=",
+                "https://accounts.google.com.evil.com/o/oauth2/auth?prompt=",
+                "https://evilaccounts.google.com/o/oauth2/v2/auth?prompt=",
+                "https://oauth2.googleapis.com/o/oauth2/v2/auth?prompt=",
+                "https://oauth2.googleapis.com/token?prompt=",
+                "https://google.com/o/oauth2/v2/auth?prompt=",
+                "https://accounts.google.com./o/oauth2/v2/auth?prompt=",
+                "https://accounts.google.com:8443/o/oauth2/v2/auth?prompt=",
+                "https://user@accounts.google.com/o/oauth2/v2/auth?prompt=",
+                "https://user:pw@accounts.google.com/o/oauth2/v2/auth?prompt=",
+                "https://accounts.google.com/o/oauth2/v2/auth/?prompt=",
+                "https://accounts.google.com/o/oauth2/v2/authx?prompt=",
+                "https://accounts.google.com/signin/oauth/consent?prompt=",
+                "https://accounts.google.com/o/oauth2/token?prompt=",
+                "https://accounts.google.com/?prompt=",
+                "https://auth.allr.work/auth/google?prompt=",
+                "http://127.0.0.1:4455/workspace?prompt=",
+            ] {
+                assert_eq!(google_account_chooser(&url(raw)), None, "{raw}");
+            }
+
+            // `:443` is https's default port: parsing drops it, so it is the same URL.
+            let explicit_port = url("https://accounts.google.com:443/o/oauth2/v2/auth?prompt=");
+            assert_eq!(explicit_port.port(), None);
+            assert!(google_account_chooser(&explicit_port).is_some());
+            // Host case is normalised by parsing too.
+            assert!(
+                google_account_chooser(&url("https://ACCOUNTS.Google.com/o/oauth2/auth")).is_some()
+            );
+        }
+
+        #[test]
+        fn the_arm_rewrites_the_first_google_request_once_then_passes_everything() {
+            let arm = ChooserArm::armed();
+            let google = url("https://accounts.google.com/o/oauth2/v2/auth?client_id=a&prompt=");
+
+            // Everything before Google leaves it armed.
+            for raw in [
+                "https://app.allr.work/?redirect_uri=http%3A%2F%2F127.0.0.1%3A5%2Fworkspace",
+                "https://authenticate.allr.work/.pomerium/sign_in",
+                "https://auth.allr.work/auth/google?req=x",
+                "https://accounts.google.com.evil/o/oauth2/v2/auth?prompt=",
+                "https://accounts.google.com/ServiceLogin",
+            ] {
+                assert_eq!(arm.decide(&url(raw)), NavDecision::Allow, "{raw}");
+            }
+
+            let NavDecision::RewriteTo(chooser) = arm.decide(&google) else {
+                panic!("the first Google authorize request is rewritten");
+            };
+            assert_eq!(Some(chooser.clone()), google_account_chooser(&google));
+
+            // The chooser URL itself, and hop 2's silent Google request, pass through.
+            assert_eq!(arm.decide(&chooser), NavDecision::Allow);
+            assert_eq!(arm.decide(&google), NavDecision::Allow);
+            assert_eq!(
+                arm.decide(&url("https://accounts.google.com/o/oauth2/auth?prompt=")),
+                NavDecision::Allow
+            );
+        }
+
+        #[test]
+        fn a_first_google_request_already_asking_for_the_chooser_disarms_without_a_rewrite() {
+            let arm = ChooserArm::armed();
+
+            assert_eq!(
+                arm.decide(&url(
+                    "https://accounts.google.com/o/oauth2/v2/auth?prompt=select_account"
+                )),
+                NavDecision::Allow
+            );
+            assert_eq!(
+                arm.decide(&url("https://accounts.google.com/o/oauth2/v2/auth?prompt=")),
+                NavDecision::Allow
+            );
         }
 
         // ── Outcome mailbox ──────────────────────────────────────────────────
@@ -1835,13 +2349,22 @@ pub fn allr_work_take_outcome(allr: State<'_, AllrWorkState>) -> Option<AllrWork
 ///
 /// `busy: true` means another sign-in already owns this webview (or, on desktop, the
 /// shared sign-in window) and this call did nothing.
+///
+/// `switch_account` (optional, JS key `switchAccount`, default `false`): this sign-in follows
+/// a Switch account. On desktop the sign-in window then asks Google for its account chooser
+/// the first time the sign-in reaches Google ([`decide::ChooserArm`]), so the user can pick a
+/// different Google account instead of being signed straight back in as the same one; the
+/// workspace hop after it stays silent. On mobile it is accepted and ignored — there,
+/// `allr_work_clear_session` forgets the Google session instead.
 #[tauri::command]
 pub async fn allr_work_sign_in(
     app: AppHandle,
     webview: WebviewWindow,
     state: State<'_, TransportState>,
     allr: State<'_, AllrWorkState>,
+    switch_account: Option<bool>,
 ) -> Result<AllrWorkSignIn, AllrWorkError> {
+    let switch_account = switch_account.unwrap_or(false);
     let cfg = configured_portal()?;
     let busy = || AllrWorkSignIn {
         busy: true,
@@ -1863,6 +2386,14 @@ pub async fn allr_work_sign_in(
     );
 
     let mut surface = SignInSurface::new(&app, &webview, &surface_lease);
+
+    #[cfg(desktop)]
+    if let Some(rewrite) = account_chooser_rewrite(switch_account) {
+        surface.rewrite_navigation(rewrite);
+    }
+    #[cfg(mobile)]
+    let _ = switch_account;
+
     let result = sign_in_on_surface(&mut surface, state.inner(), &cfg).await;
 
     match &result {
@@ -1890,9 +2421,44 @@ pub async fn allr_work_sign_in(
     command_reply(result)
 }
 
+/// The sign-in window's navigation rewrite for a switch of account (desktop): `None` unless
+/// `switch_account`, so a normal sign-in's window installs no navigation handler at all.
+///
+/// A fresh [`decide::ChooserArm`] per sign-in, so the one-shot never carries over from an
+/// earlier switch.
+#[cfg(desktop)]
+fn account_chooser_rewrite(
+    switch_account: bool,
+) -> Option<std::sync::Arc<oauth::NavigationRewrite>> {
+    if !switch_account {
+        return None;
+    }
+
+    let arm = decide::ChooserArm::armed();
+
+    Some(std::sync::Arc::new(move |url: &Url| {
+        match arm.decide(url) {
+            decide::NavDecision::RewriteTo(chooser) => {
+                // Never the URL: Google's authorize request carries the sign-in's state.
+                log::info!("[allr-work] switch account: asking Google for its account chooser");
+
+                Some(chooser)
+            }
+            decide::NavDecision::Allow => None,
+        }
+    }))
+}
+
 /// Forget the Allr Work browser session: delete the cookies the sign-in pages left under
 /// the portal's parent domain (Pomerium, Dex, the portal), so the next sign-in can pick a
-/// different account. Google's cookies are deliberately left alone.
+/// different account. Google's cookies are left alone — except on a phone's Switch account.
+///
+/// `switch_account` (optional, JS key `switchAccount`, default `false`): the clear is the
+/// first step of a Switch account. On Android and iOS it then ALSO deletes Google's sign-in
+/// cookies ([`decide::clears_google_sign_in`]), because Google otherwise signs the user
+/// straight back in as the same account and a phone's webview has no navigation hook to ask
+/// for Google's account chooser. On desktop it changes nothing: the sign-in window asks for
+/// the chooser instead (see `allr_work_sign_in`), so the Google session is kept.
 ///
 /// `supported: false` on a platform that cannot delete webview cookies — a caller must not
 /// present that as "nothing to clear". Every current target reports `true`.
@@ -1909,8 +2475,10 @@ pub async fn allr_work_clear_session(
     app: AppHandle,
     webview: WebviewWindow,
     workspace: Option<String>,
+    switch_account: Option<bool>,
 ) -> Result<AllrWorkClearReport, AllrWorkError> {
     let cfg = configured_portal()?;
+    let google = decide::clears_google_sign_in(switch_account.unwrap_or(false), cfg!(mobile));
     let workspace = workspace
         .as_deref()
         .map(|raw| decide::validate_workspace(raw, &cfg))
@@ -1925,7 +2493,7 @@ pub async fn allr_work_clear_session(
     #[cfg(target_os = "android")]
     let report = {
         let _ = &webview;
-        let hosts = decide::cookie_hosts(&cfg, workspace.as_ref())
+        let hosts = decide::cookie_hosts(&cfg, workspace.as_ref(), google)
             .into_iter()
             .map(|host| tauri_plugin_cookie_store::ExpireTarget {
                 url: host.url,
@@ -1942,7 +2510,7 @@ pub async fn allr_work_clear_session(
         let parent = cfg.parent.clone();
 
         crate::webview_cookies::delete_matching(&webview, move |domain| {
-            decide::cookie_is_allr_work(domain, &parent)
+            decide::clear_session_cookie_matches(domain, &parent, google)
         })
         .await
     };
@@ -1957,9 +2525,14 @@ pub async fn allr_work_clear_session(
     })?;
 
     log::info!(
-        "[allr-work] cleared {} Allr Work cookie(s) under {} (supported: {})",
+        "[allr-work] cleared {} Allr Work cookie(s) under {}{} (supported: {})",
         report.deleted,
         cfg.parent,
+        if google {
+            " and Google's sign-in cookies"
+        } else {
+            ""
+        },
         report.supported
     );
 
@@ -2515,6 +3088,10 @@ mod tests {
         // login by source: the hand-back's connector is what hop 2's authorize URL carries
         // (`oauth::native::tests` show what that URL then says). Its twin in `oauth.rs`
         // pins the plain gateway sign-in to `None`.
+        //
+        // A source pin: a failure may only mean the pinned call was refactored (renamed,
+        // reformatted, moved). Check hop 2 still passes the hand-back's connector, then update
+        // the function name and the expected argument text below to match.
         let source = include_str!("allr_work.rs");
         let body = &source[source
             .find("async fn sign_in_on_surface(")
@@ -2663,5 +3240,62 @@ mod tests {
 
         assert!(state.take().is_some());
         assert_eq!(state.take(), None);
+    }
+
+    #[cfg(desktop)]
+    #[test]
+    fn only_a_switch_of_account_rewrites_the_sign_in_windows_navigation() {
+        let google = Url::parse("https://accounts.google.com/o/oauth2/v2/auth?prompt=").unwrap();
+
+        // A normal sign-in installs nothing.
+        assert!(account_chooser_rewrite(false).is_none());
+
+        let rewrite = account_chooser_rewrite(true).expect("a switch arms the chooser");
+        let chooser = rewrite(&google).expect("the first Google request is rewritten");
+
+        assert_eq!(Some(chooser), decide::google_account_chooser(&google));
+        assert_eq!(rewrite(&google), None, "one-shot");
+
+        // Every switch gets its own arm.
+        assert!(account_chooser_rewrite(true).unwrap()(&google).is_some());
+    }
+
+    /// The body of `pub async fn <name>(` in this file, whitespace removed.
+    ///
+    /// For source pins: a failing pin may only mean the pinned code was refactored (renamed,
+    /// reworded, moved). Check the command still does what the pin says, then update the
+    /// expected text in the test to the new spelling, whitespace removed.
+    fn command_body(name: &str) -> String {
+        let source = include_str!("allr_work.rs");
+        let body = &source[source
+            .find(&format!("pub async fn {name}("))
+            .expect("the command exists")..];
+
+        body[..body.find("\n}\n").expect("the command ends")]
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .collect()
+    }
+
+    #[test]
+    fn the_switch_flag_reaches_the_sign_in_window_and_the_cookie_clear() {
+        // Both commands are I/O end to end, so their use of the flag is pinned by source;
+        // what the flag then does is `decide`'s, tested above.
+        let sign_in = command_body("allr_work_sign_in");
+
+        assert!(sign_in.contains("switch_account:Option<bool>"));
+        assert!(sign_in.contains("letswitch_account=switch_account.unwrap_or(false);"));
+        assert!(sign_in.contains(
+            "ifletSome(rewrite)=account_chooser_rewrite(switch_account){surface.rewrite_navigation(rewrite);}"
+        ));
+
+        let clear = command_body("allr_work_clear_session");
+
+        assert!(clear.contains("switch_account:Option<bool>"));
+        assert!(clear.contains(
+            "letgoogle=decide::clears_google_sign_in(switch_account.unwrap_or(false),cfg!(mobile));"
+        ));
+        assert!(clear.contains("decide::cookie_hosts(&cfg,workspace.as_ref(),google)"));
+        assert!(clear.contains("decide::clear_session_cookie_matches(domain,&parent,google)"));
     }
 }

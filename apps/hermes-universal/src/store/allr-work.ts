@@ -79,8 +79,10 @@ function reportFailure(error: AllrWorkError, workspace?: null | string): void {
  *    only thing that will finish it after the reload — left alone. If this call parked it,
  *    the owner is some other flow (a remote OAuth sign-in, with its own marker), and ours
  *    would hijack that flow's reload into an Allr Work resume — so it goes.
+ *
+ * `switchAccount` goes to Rust as it is: see {@link allrWorkSignIn}.
  */
-async function runRustSignIn(): Promise<string> {
+async function runRustSignIn(switchAccount: boolean): Promise<string> {
   // Whether the marker is ours to remove. Read before parking it.
   const parkedHere = IS_NATIVE_MOBILE && !hasPendingAllr()
 
@@ -91,7 +93,7 @@ async function runRustSignIn(): Promise<string> {
   let reply
 
   try {
-    reply = await allrWorkSignIn()
+    reply = await allrWorkSignIn({ switchAccount })
   } catch (err) {
     if (IS_NATIVE_MOBILE) {
       if (parkedHere) {
@@ -144,8 +146,11 @@ async function runRustSignIn(): Promise<string> {
  * throws `GatewaySignInBusyError` without touching Rust.
  *
  * On mobile this normally never settles: see `resumeAllrSignIn`.
+ *
+ * `switchAccount` is for {@link switchAllrWorkAccount} only: it asks the desktop sign-in window
+ * for Google's account chooser. The card's own Sign in leaves it off.
  */
-export async function signInToAllrWork(): Promise<void> {
+export async function signInToAllrWork(options: { switchAccount?: boolean } = {}): Promise<void> {
   if ($allrWorkSignInFlight.get() || isAllrWorkSignInInFlight()) {
     throw busy()
   }
@@ -154,7 +159,7 @@ export async function signInToAllrWork(): Promise<void> {
   clearAllrWorkNotices()
 
   try {
-    const workspace = await runRustSignIn()
+    const workspace = await runRustSignIn(options.switchAccount === true)
 
     await connect({ url: workspace, mode: 'allr' })
   } finally {
@@ -166,6 +171,11 @@ export async function signInToAllrWork(): Promise<void> {
  * Sign out of the current Allr Work account and sign in again, so a different one can be
  * picked: revoke the gateway session, forget the browser session (portal / Pomerium / Dex
  * cookies — otherwise hop 1 silently reuses the same account), then sign in.
+ *
+ * Google holds a session of its own, and would sign the same Google account straight back in.
+ * So both Rust calls are told this is a switch (`switchAccount: true`): desktop's sign-in
+ * window asks Google for its account chooser, and on a phone the clear also forgets Google's
+ * sign-in cookies.
  *
  * The first two are best-effort: a user who asked to switch should still reach the sign-in.
  * The workspace comes from `currentAllrWorkspace` (validated); when there is none the
@@ -184,8 +194,8 @@ export async function switchAllrWorkAccount(): Promise<void> {
     await oauthLogout(workspace).catch(() => {})
   }
 
-  await allrWorkClearSession({ workspace }).catch(() => {})
-  await signInToAllrWork()
+  await allrWorkClearSession({ workspace, switchAccount: true }).catch(() => {})
+  await signInToAllrWork({ switchAccount: true })
 }
 
 /**

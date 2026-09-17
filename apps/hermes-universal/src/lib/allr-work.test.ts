@@ -131,8 +131,26 @@ describe('IPC wrappers', () => {
     expect(mockInvoke.mock.calls).toEqual([
       ['allr_work_config'],
       ['allr_work_take_outcome'],
-      ['allr_work_clear_session', { workspace: 'https://xm.allr.work' }],
-      ['allr_work_clear_session', { workspace: null }]
+      ['allr_work_clear_session', { workspace: 'https://xm.allr.work', switchAccount: false }],
+      ['allr_work_clear_session', { workspace: null, switchAccount: false }]
+    ])
+  })
+
+  // `switchAccount` asks Rust for Google's account chooser (desktop sign-in window) or to
+  // forget Google's session (mobile clear). Only an explicit switch may send `true`.
+  it('send switchAccount to both commands, false unless a switch asks for it', async () => {
+    mockInvoke.mockResolvedValue({ busy: false, workspace: 'https://xm.allr.work', cleared: 0, supported: true })
+
+    await allrWorkSignIn()
+    await allrWorkSignIn({ switchAccount: true })
+    await allrWorkClearSession({ workspace: 'https://xm.allr.work', switchAccount: true })
+    await allrWorkClearSession({ switchAccount: false })
+
+    expect(mockInvoke.mock.calls).toEqual([
+      ['allr_work_sign_in', { switchAccount: false }],
+      ['allr_work_sign_in', { switchAccount: true }],
+      ['allr_work_clear_session', { workspace: 'https://xm.allr.work', switchAccount: true }],
+      ['allr_work_clear_session', { workspace: null, switchAccount: false }]
     ])
   })
 
@@ -161,7 +179,10 @@ describe('IPC wrappers', () => {
 
     expect(isAllrWorkSignInInFlight()).toBe(false)
     await allrWorkClearSession({ workspace: 'https://xm.allr.work' })
-    expect(mockInvoke).toHaveBeenCalledWith('allr_work_clear_session', { workspace: 'https://xm.allr.work' })
+    expect(mockInvoke).toHaveBeenCalledWith('allr_work_clear_session', {
+      workspace: 'https://xm.allr.work',
+      switchAccount: false
+    })
   })
 
   // Only the wrappers brand, so only an Allr Work command's rejection can be an Allr Work error.

@@ -91,7 +91,7 @@ describe('AllrWorkPanel — idle', () => {
 
     await waitFor(() => expect(connect).toHaveBeenCalledWith({ url: WORKSPACE, mode: 'allr' }))
     expect(runConnect).toHaveBeenCalledOnce()
-    expect(allrWorkSignIn).toHaveBeenCalledOnce()
+    expect(allrWorkSignIn).toHaveBeenCalledExactlyOnceWith({ switchAccount: false })
   })
 })
 
@@ -175,7 +175,8 @@ describe('AllrWorkPanel — signed in', () => {
 
     await waitFor(() => expect(order).toEqual(['logout', 'clear', 'sign-in', 'connect']))
     expect(oauthLogout).toHaveBeenCalledWith(WORKSPACE)
-    expect(allrWorkClearSession).toHaveBeenCalledWith({ workspace: WORKSPACE })
+    expect(allrWorkClearSession).toHaveBeenCalledWith({ workspace: WORKSPACE, switchAccount: true })
+    expect(allrWorkSignIn).toHaveBeenCalledWith({ switchAccount: true })
     expect(connect).toHaveBeenCalledWith({ url: 'https://other.allr.work', mode: 'allr' })
     expect(runConnect).toHaveBeenCalledOnce()
   })

@@ -1711,11 +1711,22 @@ const SIGN_IN_TIMED_OUT: &str = "Sign-in timed out before completing";
 ///
 /// `_lease` is the proof this flow owns the window: closing "any stale window" is only
 /// safe when no other live flow can be the one that built it. See [`SurfaceLease`].
+///
+/// `rewrite`, when given, is consulted for every navigation the window makes — see
+/// [`NavigationRewrite`] and [`nav_verdict`]. `None` (every caller but an Allr Work switch of
+/// account) installs no navigation handler at all, so the window behaves exactly as it
+/// always has.
+///
+/// The window holds the rewrite only WEAKLY; the flow that asked for it (its
+/// [`SignInSurface`]) holds it strongly. So once that flow is over, its rewrite is gone
+/// with it: the handler lets everything through, and a chooser navigate still queued from
+/// it is dropped rather than landing in some later flow's window — see [`flow_alive`].
 #[cfg(desktop)]
 async fn open_sign_in_window(
     app: &AppHandle,
     url: Url,
     _lease: &SurfaceLease,
+    rewrite: Option<std::sync::Weak<NavigationRewrite>>,
 ) -> Result<(), String> {
     let (build_tx, build_rx) = oneshot::channel::<Result<(), String>>();
     let app_build = app.clone();
@@ -1725,11 +1736,53 @@ async fn open_sign_in_window(
             let _ = existing.close();
         }
 
-        let build =
+        let mut builder =
             WebviewWindowBuilder::new(&app_build, OAUTH_WINDOW_LABEL, WebviewUrl::External(url))
                 .title("Sign in to Allr")
-                .inner_size(520.0, 720.0)
-                .build();
+                .inner_size(520.0, 720.0);
+
+        if let Some(flow) = rewrite {
+            let app_nav = app_build.clone();
+
+            builder = builder.on_navigation(move |url| {
+                let (allow, target) = nav_verdict(&flow, url);
+
+                let Some(target) = target else {
+                    return allow;
+                };
+
+                // Not from inside this handler: it runs on the main thread in the middle of
+                // the webview's policy decision, and `navigate` from the main thread is
+                // handled inline — a new load started before this one has been refused.
+                // Spawned, the navigate is queued to the event loop and lands after it.
+                let app = app_nav.clone();
+                let flow = flow.clone();
+                tauri::async_runtime::spawn(async move {
+                    // The window is found by its shared label, so a flow that ended in
+                    // between must not steer whichever sign-in owns that label now.
+                    if !flow_alive(&flow) {
+                        log::info!("[oauth] sign-in ended before the rewritten page loaded");
+
+                        return;
+                    }
+
+                    let Some(window) = app.get_webview_window(OAUTH_WINDOW_LABEL) else {
+                        return;
+                    };
+
+                    // The target carries the sign-in's state: never logged. A failure leaves
+                    // the window where the cancelled navigation left it (see
+                    // `NavigationRewrite` for what that means for a one-shot rewrite).
+                    if let Err(e) = window.navigate(target) {
+                        log::warn!("[oauth] could not load the rewritten sign-in page: {e}");
+                    }
+                });
+
+                allow
+            });
+        }
+
+        let build = builder.build();
 
         let _ = build_tx.send(
             build
@@ -1742,6 +1795,48 @@ async fn open_sign_in_window(
     build_rx
         .await
         .map_err(|_| "failed to open sign-in window".to_string())?
+}
+
+/// A rewrite of one navigation of the desktop sign-in window: `Some(target)` cancels the
+/// navigation and loads `target` in the same window instead; `None` lets it through.
+///
+/// Consulted for server-side redirects too, not only for navigations a page starts. wry
+/// hands `on_navigation` the engine's own policy hook — WebKitGTK `decide-policy`
+/// (`NAVIGATION_ACTION`), WebView2 `NavigationStarting`, WKWebView
+/// `decidePolicyForNavigationAction` — and each of those is asked again for every redirect
+/// hop (WebKitGTK's `webkit_navigation_action_is_redirect`, WebView2's `IsRedirected`).
+/// Checked on WebKitGTK 2.52 with wry 0.55.1: a 302 to a rewritten URL is reported, a
+/// `false` stops the original request from ever being sent, and the queued load follows.
+///
+/// A rewrite must stop matching its own output, or the window loops.
+///
+/// A rewrite is consulted, and may change its own state (a one-shot disarms), BEFORE the
+/// replacement navigate is attempted, and nothing re-arms it if that navigate then fails.
+/// The window is left where the cancelled navigation left it. For the Allr Work chooser that
+/// is the Dex picker, and a second click on Google there signs in silently, as a normal
+/// sign-in would. Accepted: the navigate only fails when the window is already gone.
+#[cfg(desktop)]
+pub(crate) type NavigationRewrite = dyn Fn(&Url) -> Option<Url> + Send + Sync;
+
+/// The sign-in window's answer to one navigation: whether to let it load, and what to load
+/// in its place.
+///
+/// `(true, None)` lets it through: the rewrite does not want it, or the flow that owns the
+/// rewrite is over. `(false, Some(target))` cancels it, and the caller loads `target`.
+#[cfg(desktop)]
+fn nav_verdict(flow: &std::sync::Weak<NavigationRewrite>, url: &Url) -> (bool, Option<Url>) {
+    match flow.upgrade().and_then(|rewrite| rewrite(url)) {
+        Some(target) => (false, Some(target)),
+        None => (true, None),
+    }
+}
+
+/// Is the flow that asked for a rewrite still running? Checked again just before a deferred
+/// navigate: the rewrite was consulted on an earlier event-loop turn, and the flow may have
+/// finished (and another sign-in built a window under the same label) since.
+#[cfg(desktop)]
+fn flow_alive(flow: &std::sync::Weak<NavigationRewrite>) -> bool {
+    flow.strong_count() > 0
 }
 
 /// Drop the interactive sign-in window if it is still up (desktop).
@@ -2142,6 +2237,10 @@ pub(crate) struct SignInSurface<'a> {
     lease: &'a SurfaceLease,
     #[cfg(desktop)]
     window_open: bool,
+    /// Handed to the window (weakly) when [`Self::show`] builds it, and owned here, so it
+    /// ends with this surface. See [`Self::rewrite_navigation`].
+    #[cfg(desktop)]
+    rewrite: Option<std::sync::Arc<NavigationRewrite>>,
     #[cfg(mobile)]
     webview: &'a WebviewWindow,
     #[cfg(mobile)]
@@ -2167,6 +2266,7 @@ impl<'a> SignInSurface<'a> {
                 app,
                 lease,
                 window_open: false,
+                rewrite: None,
             }
         }
 
@@ -2180,6 +2280,14 @@ impl<'a> SignInSurface<'a> {
                 nav_from: None,
             }
         }
+    }
+
+    /// Have the sign-in window consult `rewrite` for every navigation it makes, across every
+    /// hop (desktop). Takes effect when [`Self::show`] builds the window, so it must be set
+    /// before the first hop; a surface without one installs no navigation handler at all.
+    #[cfg(desktop)]
+    pub(crate) fn rewrite_navigation(&mut self, rewrite: std::sync::Arc<NavigationRewrite>) {
+        self.rewrite = Some(rewrite);
     }
 
     /// How long one hop may wait on its loopback listener on this platform.
@@ -2204,7 +2312,9 @@ impl<'a> SignInSurface<'a> {
         #[cfg(desktop)]
         {
             if !self.window_open {
-                open_sign_in_window(self.app, target.clone(), self.lease)
+                let rewrite = self.rewrite.as_ref().map(std::sync::Arc::downgrade);
+
+                open_sign_in_window(self.app, target.clone(), self.lease, rewrite)
                     .await
                     .map_err(|message| {
                         SurfaceLoginError::new(SurfaceLoginFailure::SurfaceUnavailable, message)
@@ -3130,7 +3240,7 @@ async fn run_oauth_login(
         // cannot drift apart in title, size, or stale-window handling.
         let _ = webview;
 
-        open_sign_in_window(&app, login_url, surface_lease).await?;
+        open_sign_in_window(&app, login_url, surface_lease, None).await?;
 
         log::info!("[oauth] sign-in window opened; polling cookies for base={base}");
 
@@ -3858,12 +3968,73 @@ mod tests {
         assert!(probe.await.unwrap().contains("Sign-in failed"));
     }
 
+    #[cfg(desktop)]
+    fn chooser_rewrite() -> std::sync::Arc<NavigationRewrite> {
+        let arm = crate::allr_work::decide::ChooserArm::armed();
+
+        std::sync::Arc::new(move |url: &Url| match arm.decide(url) {
+            crate::allr_work::decide::NavDecision::RewriteTo(chooser) => Some(chooser),
+            crate::allr_work::decide::NavDecision::Allow => None,
+        })
+    }
+
+    #[cfg(desktop)]
+    #[test]
+    fn the_sign_in_window_lets_everything_through_but_the_first_google_request() {
+        let rewrite = chooser_rewrite();
+        let flow = std::sync::Arc::downgrade(&rewrite);
+        let google =
+            Url::parse("https://accounts.google.com/o/oauth2/v2/auth?state=s&prompt=").unwrap();
+
+        // Pomerium, Dex, the portal and our loopback page all load untouched.
+        for raw in [
+            "https://app.allr.work/?state=s",
+            "https://authenticate.allr.work/.pomerium/sign_in",
+            "https://auth.allr.work/auth/google?req=r",
+            "http://127.0.0.1:4455/workspace?state=s",
+        ] {
+            assert_eq!(
+                nav_verdict(&flow, &Url::parse(raw).unwrap()),
+                (true, None),
+                "{raw}"
+            );
+        }
+
+        let chooser = crate::allr_work::decide::google_account_chooser(&google).unwrap();
+        assert_eq!(nav_verdict(&flow, &google), (false, Some(chooser.clone())));
+
+        // Disarmed: the chooser itself and hop 2's Google request load untouched.
+        assert_eq!(nav_verdict(&flow, &chooser), (true, None));
+        assert_eq!(nav_verdict(&flow, &google), (true, None));
+        assert!(flow_alive(&flow));
+    }
+
+    #[cfg(desktop)]
+    #[test]
+    fn a_finished_flow_neither_rewrites_nor_navigates() {
+        let rewrite = chooser_rewrite();
+        let flow = std::sync::Arc::downgrade(&rewrite);
+        let google = Url::parse("https://accounts.google.com/o/oauth2/auth?prompt=").unwrap();
+
+        assert!(flow_alive(&flow));
+
+        // The surface that owned it is dropped: a still-armed rewrite is gone with it.
+        drop(rewrite);
+
+        assert!(!flow_alive(&flow));
+        assert_eq!(nav_verdict(&flow, &google), (true, None));
+    }
+
     #[test]
     fn the_plain_gateway_sign_in_sends_no_connector_hint() {
         // `run_native_login` (the Remote card's `oauth_login`) is I/O end to end, so this
         // pins its one call into the shared login by source: the connector argument is
         // `None`, which `no_connector_leaves_the_authorize_url_byte_identical` shows is the
         // pre-hint URL. A hint here would skip Dex's picker on a gateway that never asked.
+        //
+        // A source pin: a failure may only mean the pinned call was refactored (renamed,
+        // reformatted, moved). Check the new call still passes `None`, then update the
+        // function name and the expected argument text below to match.
         let source = include_str!("oauth.rs");
         let body_start = source
             .find("async fn run_native_login(")

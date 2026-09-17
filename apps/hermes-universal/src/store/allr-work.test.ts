@@ -88,6 +88,8 @@ describe('signInToAllrWork — desktop', () => {
   it('connects to the workspace Rust signed in to, in allr mode', async () => {
     await signInToAllrWork()
 
+    // The card's own sign-in never asks Google for its account chooser.
+    expect(mockSignIn).toHaveBeenCalledExactlyOnceWith({ switchAccount: false })
     expect(mockConnect).toHaveBeenCalledWith({ url: WORKSPACE, mode: 'allr' })
     // Never the interactive flag: the sign-in already happened, outside connect.
     expect(mockConnect.mock.calls[0][0]).not.toHaveProperty('allowInteractive')
@@ -250,7 +252,9 @@ describe('switchAllrWorkAccount', () => {
 
     expect(order).toEqual(['logout', 'clear', 'sign-in'])
     expect(oauthLogout).toHaveBeenCalledWith(WORKSPACE)
-    expect(mockClear).toHaveBeenCalledWith({ workspace: WORKSPACE })
+    // A switch tells both Rust calls: Google's chooser on desktop, Google's cookies on mobile.
+    expect(mockClear).toHaveBeenCalledExactlyOnceWith({ workspace: WORKSPACE, switchAccount: true })
+    expect(mockSignIn).toHaveBeenCalledExactlyOnceWith({ switchAccount: true })
     expect(mockConnect).toHaveBeenCalledWith({ url: 'https://other.allr.work', mode: 'allr' })
   })
 
@@ -261,8 +265,8 @@ describe('switchAllrWorkAccount', () => {
     await switchAllrWorkAccount()
 
     expect(oauthLogout).toHaveBeenCalledWith(WORKSPACE)
-    expect(mockClear).toHaveBeenCalledWith({ workspace: WORKSPACE })
-    expect(mockSignIn).toHaveBeenCalledOnce()
+    expect(mockClear).toHaveBeenCalledWith({ workspace: WORKSPACE, switchAccount: true })
+    expect(mockSignIn).toHaveBeenCalledExactlyOnceWith({ switchAccount: true })
   })
 
   // Saved by a build pointed at another portal, or tampered: Rust would refuse a clear that
@@ -273,7 +277,7 @@ describe('switchAllrWorkAccount', () => {
     await switchAllrWorkAccount()
 
     expect(oauthLogout).not.toHaveBeenCalled()
-    expect(mockClear).toHaveBeenCalledWith({ workspace: null })
+    expect(mockClear).toHaveBeenCalledWith({ workspace: null, switchAccount: true })
     expect(mockSignIn).toHaveBeenCalledOnce()
     expect(mockConnect).toHaveBeenCalledWith({ url: WORKSPACE, mode: 'allr' })
   })
@@ -285,7 +289,7 @@ describe('switchAllrWorkAccount', () => {
     await switchAllrWorkAccount()
 
     expect(oauthLogout).not.toHaveBeenCalled()
-    expect(mockClear).toHaveBeenCalledWith({ workspace: null })
+    expect(mockClear).toHaveBeenCalledWith({ workspace: null, switchAccount: true })
   })
 
   it('never names a non-allr gateway as the workspace', async () => {
@@ -294,7 +298,7 @@ describe('switchAllrWorkAccount', () => {
     await switchAllrWorkAccount()
 
     expect(oauthLogout).not.toHaveBeenCalled()
-    expect(mockClear).toHaveBeenCalledWith({ workspace: null })
+    expect(mockClear).toHaveBeenCalledWith({ workspace: null, switchAccount: true })
   })
 
   // The cookie clear takes no lease in Rust: never while a sign-in is in flight.
@@ -330,7 +334,8 @@ describe('reconnectAllrWork', () => {
   it('signs in when there is no workspace to re-dial', async () => {
     await reconnectAllrWork()
 
-    expect(mockSignIn).toHaveBeenCalledOnce()
+    // A reconnect is not a switch: no Google account chooser.
+    expect(mockSignIn).toHaveBeenCalledExactlyOnceWith({ switchAccount: false })
     expect(mockConnect).toHaveBeenCalledWith({ url: WORKSPACE, mode: 'allr' })
   })
 
