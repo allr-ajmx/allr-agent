@@ -9,6 +9,7 @@
 //! (Android note: the generated `RustWebView.getCookies` is patched null-safe by
 //! `build.rs` to avoid a wry 0.55 crash on cookie polling — see that file.)
 
+mod allr_work;
 mod app_state;
 mod appearance;
 mod artifact;

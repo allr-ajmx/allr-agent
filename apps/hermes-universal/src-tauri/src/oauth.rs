@@ -139,7 +139,7 @@ const OAUTH_TIMEOUT_SECS: u64 = 300;
 #[cfg(mobile)]
 const OAUTH_TIMEOUT_SECS_MOBILE: u64 = 240;
 
-fn normalize_base(raw: &str) -> String {
+pub(crate) fn normalize_base(raw: &str) -> String {
     raw.trim().trim_end_matches('/').to_string()
 }
 
@@ -578,9 +578,206 @@ pub mod native {
         )
     }
 
+    /// Which provider each flow asks for, given what the caller requested.
+    ///
+    /// Returns `(native, cascade)`. The two flows default differently, and sharing one
+    /// default was a bug: `run_oauth_login` used to turn `None` into `"nous"` for BOTH,
+    /// which sent `&provider=nous` to `/auth/native/authorize` and got `404 Unknown
+    /// provider` from every gateway without a Nous provider. The native route auto-picks
+    /// when the provider is absent and exactly one session provider is registered
+    /// (`routes.py`), so the native flow sends nothing (`""`, which
+    /// [`build_authorize_url`] omits). The cookie cascade has no such fallback on the
+    /// server, so it keeps `"nous"`.
+    ///
+    /// A non-empty request is passed through to both unchanged.
+    // Wired into `run_oauth_login` in U3 (ALLR-51).
+    #[allow(dead_code)]
+    pub fn providers_for_flows(requested: Option<String>) -> (String, String) {
+        match requested.filter(|provider| !provider.is_empty()) {
+            Some(provider) => (provider.clone(), provider),
+            None => (String::new(), "nous".to_string()),
+        }
+    }
+
+    /// What one `/api/auth/me` answer says about the session.
+    // Wired into `oauth_status` in U3 (ALLR-51).
+    #[allow(dead_code)]
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum AuthMeVerdict {
+        /// The gateway answered for a live session.
+        Live,
+        /// No session. `clear_tokens` when the gateway refused a bearer we presented,
+        /// which is therefore dead and must not be presented again.
+        SignedOut { clear_tokens: bool },
+        /// Could not tell (reason attached): the caller retries, never signs in again.
+        Unknown(String),
+    }
+
+    /// Classify `/api/auth/me`, asked with redirects OFF.
+    ///
+    /// | status  | bearer sent | JSON object body | verdict                          |
+    /// |---------|-------------|------------------|----------------------------------|
+    /// | 2xx     | –           | yes              | `Live`                           |
+    /// | 2xx     | –           | no               | `Unknown`                        |
+    /// | 401/403 | yes / no    | –                | `SignedOut { clear_tokens: had }`|
+    /// | 3xx     | no          | –                | `SignedOut { clear_tokens: false }` |
+    /// | 3xx     | yes         | –                | `Unknown`                        |
+    /// | other   | –           | –                | `Unknown`                        |
+    ///
+    /// The 3xx and non-JSON rows are the fix. A gateway's `/api/auth/me` has no
+    /// legitimate redirect, but an EDGE in front of it does: behind Pomerium an
+    /// unauthenticated request is 302'd to sign-in, and the redirect-following client
+    /// used to walk that chain to Dex's HTML login page, read a `200`, parse the body to
+    /// `Null`, and report "signed in (cookie)" for a workspace we hold no credential
+    /// for. Without a bearer, a redirect is the edge saying "not signed in". WITH one it
+    /// is not evidence the bearer is dead (the edge may simply not route bearer
+    /// requests directly), so the token set is kept and the answer is "unknown".
+    // Wired into `oauth_status` in U3 (ALLR-51).
+    #[allow(dead_code)]
+    pub fn classify_auth_me(
+        status: u16,
+        had_bearer: bool,
+        body_is_json_object: bool,
+    ) -> AuthMeVerdict {
+        match status {
+            200..=299 if body_is_json_object => AuthMeVerdict::Live,
+            200..=299 => AuthMeVerdict::Unknown(format!(
+                "auth/me answered HTTP {status} without a JSON body"
+            )),
+            401 | 403 => AuthMeVerdict::SignedOut {
+                clear_tokens: had_bearer,
+            },
+            300..=399 if !had_bearer => AuthMeVerdict::SignedOut {
+                clear_tokens: false,
+            },
+            300..=399 => AuthMeVerdict::Unknown(format!(
+                "auth/me was redirected (HTTP {status}) although a credential was presented"
+            )),
+            _ => AuthMeVerdict::Unknown(format!("auth/me answered HTTP {status}")),
+        }
+    }
+
     #[cfg(test)]
     mod tests {
         use super::*;
+
+        #[test]
+        fn native_provider_is_empty_when_unrequested_cascade_keeps_nous() {
+            // `&provider=nous` on the native route is a 404 from every gateway without a
+            // Nous provider — including every Allr Work workspace.
+            assert_eq!(
+                providers_for_flows(None),
+                (String::new(), "nous".to_string())
+            );
+            assert_eq!(
+                providers_for_flows(Some(String::new())),
+                (String::new(), "nous".to_string())
+            );
+            // An explicit choice is honoured by both flows.
+            assert_eq!(
+                providers_for_flows(Some("self-hosted".to_string())),
+                ("self-hosted".to_string(), "self-hosted".to_string())
+            );
+            assert_eq!(
+                providers_for_flows(Some("nous".to_string())),
+                ("nous".to_string(), "nous".to_string())
+            );
+            // And the empty native provider really is left off the authorize URL.
+            let (native, _) = providers_for_flows(None);
+            assert!(!build_authorize_url(
+                "https://gw",
+                "c",
+                "http://127.0.0.1:1/callback",
+                "s",
+                &native
+            )
+            .contains("provider="));
+        }
+
+        #[test]
+        fn json_200_is_live() {
+            assert_eq!(classify_auth_me(200, true, true), AuthMeVerdict::Live);
+            assert_eq!(classify_auth_me(200, false, true), AuthMeVerdict::Live);
+        }
+
+        #[test]
+        fn html_200_is_unknown_not_live() {
+            // Dex's login page at the end of a followed redirect chain was read as a live
+            // cookie session. A 2xx that is not a JSON object is not the gateway talking.
+            for had_bearer in [true, false] {
+                assert!(
+                    matches!(
+                        classify_auth_me(200, had_bearer, false),
+                        AuthMeVerdict::Unknown(_)
+                    ),
+                    "bearer={had_bearer}"
+                );
+            }
+        }
+
+        #[test]
+        fn redirect_without_bearer_is_signed_out() {
+            for status in [301, 302, 303, 307, 308] {
+                assert_eq!(
+                    classify_auth_me(status, false, false),
+                    AuthMeVerdict::SignedOut {
+                        clear_tokens: false
+                    },
+                    "{status}"
+                );
+            }
+        }
+
+        #[test]
+        fn redirect_with_bearer_is_unknown() {
+            // Not proof the bearer is dead, so it must neither be cleared nor reported as
+            // signed out (which would push the user through an interactive sign-in).
+            for status in [302, 307] {
+                assert!(
+                    matches!(
+                        classify_auth_me(status, true, false),
+                        AuthMeVerdict::Unknown(_)
+                    ),
+                    "{status}"
+                );
+            }
+        }
+
+        #[test]
+        fn status_401_with_bearer_clears() {
+            for status in [401, 403] {
+                assert_eq!(
+                    classify_auth_me(status, true, true),
+                    AuthMeVerdict::SignedOut { clear_tokens: true },
+                    "{status}"
+                );
+                // Nothing presented, nothing to clear.
+                assert_eq!(
+                    classify_auth_me(status, false, true),
+                    AuthMeVerdict::SignedOut {
+                        clear_tokens: false
+                    },
+                    "{status}"
+                );
+            }
+        }
+
+        #[test]
+        fn server_errors_are_unknown_never_signed_out() {
+            // A gateway still booting, a proxy 502, or the gateway's 503 for a bad token
+            // (ALLR-51 §2.2 7d): none of them may cost the user a sign-in.
+            for status in [404, 429, 500, 502, 503, 504] {
+                for had_bearer in [true, false] {
+                    assert!(
+                        matches!(
+                            classify_auth_me(status, had_bearer, true),
+                            AuthMeVerdict::Unknown(_)
+                        ),
+                        "{status} bearer={had_bearer}"
+                    );
+                }
+            }
+        }
 
         #[test]
         fn derives_the_s256_challenge_from_the_verifier() {
