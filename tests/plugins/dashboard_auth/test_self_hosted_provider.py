@@ -332,6 +332,52 @@ class TestStartLogin:
         parts = dict(seg.split("=", 1) for seg in pkce.split(";") if "=" in seg)
         assert parts["state"] == params["state"]
 
+    def test_declares_authorize_hint_support(self, provider):
+        assert provider.supports_authorize_hints is True
+
+    def test_no_hints_leaves_authorize_url_without_connector_id(self, provider):
+        for hints in (None, {}):
+            result = provider.start_login(
+                redirect_uri="https://hermes.example/auth/callback",
+                authorize_hints=hints,
+            )
+            params = dict(
+                urllib.parse.parse_qsl(urllib.parse.urlparse(result.redirect_url).query)
+            )
+            assert "connector_id" not in params
+
+    def test_authorize_hints_merge_only_connector_id(self, provider):
+        result = provider.start_login(
+            redirect_uri="https://hermes.example/auth/callback",
+            authorize_hints={
+                "connector_id": "google",
+                "prompt": "none",
+                "login_hint": "alice@example.com",
+                # Must not be able to override a core authorize param either.
+                "redirect_uri": "https://evil.example/cb",
+                "client_id": "someone-else",
+            },
+        )
+        params = urllib.parse.parse_qs(
+            urllib.parse.urlparse(result.redirect_url).query
+        )
+        assert params["connector_id"] == ["google"]
+        assert "prompt" not in params
+        assert "login_hint" not in params
+        assert params["redirect_uri"] == ["https://hermes.example/auth/callback"]
+        assert params["client_id"] == [_CLIENT_ID]
+
+    @pytest.mark.parametrize("bad", ["Google", "a b", "../x", "a" * 65, "-x", 7])
+    def test_malformed_connector_id_hint_is_dropped(self, provider, bad):
+        result = provider.start_login(
+            redirect_uri="https://hermes.example/auth/callback",
+            authorize_hints={"connector_id": bad},
+        )
+        params = urllib.parse.parse_qs(
+            urllib.parse.urlparse(result.redirect_url).query
+        )
+        assert "connector_id" not in params
+
 
 # ---------------------------------------------------------------------------
 # complete_login
