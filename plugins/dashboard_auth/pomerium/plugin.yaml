@@ -1,0 +1,8 @@
+name: pomerium
+version: 1.0.0
+description: "Dashboard auth provider — trusts the signed X-Pomerium-Jwt-Assertion forwarded by a Pomerium identity-aware proxy in front of the dashboard (the Allr.OS SSO edge). Verifies the ES256 assertion against pinned public key(s), pins aud/iss to the dashboard's public host and admits only the configured owner email(s); anyone else gets the branded 403. Assertion-only: no login-page entry, no cookies, no refresh — the self-hosted OIDC provider keeps serving the desktop app. Activates when ALLR_DASHBOARD_POMERIUM_PUBLIC_KEY and ALLR_DASHBOARD_POMERIUM_ALLOWED_EMAILS are set."
+author: Allr
+kind: backend
+requires_env:
+  - ALLR_DASHBOARD_POMERIUM_PUBLIC_KEY
+  - ALLR_DASHBOARD_POMERIUM_ALLOWED_EMAILS

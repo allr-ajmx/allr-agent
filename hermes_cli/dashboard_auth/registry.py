@@ -75,6 +75,17 @@ def list_session_providers() -> List[DashboardAuthProvider]:
         return [p for p in _providers.values() if getattr(p, "supports_session", True)]
 
 
+def list_assertion_providers() -> List[DashboardAuthProvider]:
+    """Registered providers with supports_assertion True: they verify a signed
+    identity assertion forwarded by a trusted proxy in front of the dashboard.
+    The gate consults these before the bearer and cookie paths; with none
+    registered, assertion headers are ignored entirely. Mirror of
+    list_token_providers.
+    """
+    with _lock:
+        return [p for p in _providers.values() if getattr(p, "supports_assertion", False)]
+
+
 def clear_providers() -> None:
     """Test-only: drop all registrations."""
     with _lock:

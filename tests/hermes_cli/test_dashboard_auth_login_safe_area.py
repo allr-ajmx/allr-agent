@@ -31,26 +31,21 @@ import pytest
 
 from hermes_cli.dashboard_auth.login_page import _EMPTY_HTML, render_login_html
 
-# Both documents are fully rendered pages rather than raw templates. The
-# page was once a single ``str.format`` template whose CSS braces had to be
-# un-doubled here; it is now assembled from ``_SHELL_CSS`` plus a card, so
-# rendering is both simpler and closer to what a phone actually receives.
+# Both documents are fully rendered pages rather than raw templates, rendered
+# without ``ALLR_DASHBOARD_BRAND_CSS`` so the inline stylesheet is in the
+# document (with it set, the same rules come from the linked Allr brand kit,
+# which carries the identical longhands).
 DOCUMENTS = {
     "login_page": render_login_html(),
     "_EMPTY_HTML": _EMPTY_HTML,
 }
 
-# Which rule owns which edge. The page is a flex column — a header strip, then
-# a centred ``main`` — so the insets are split rather than sitting on one
-# centred ``body`` block as they did when this page was a single card:
-#   * the header is the topmost painted thing, so it clears the status bar;
-#   * ``main`` is the bottommost, so it clears the gesture strip;
-#   * both span the full width, so both clear a landscape notch.
-# Keyed by selector so a re-ordered stylesheet cannot point this at the wrong
-# block, which is what the old ``place-items`` lookup was protecting against.
+# Which rule owns which edge. The page follows the Allr sign-in card: one
+# centred ``.allr-main`` block that is both the topmost and the bottommost
+# painted thing and spans the full width, so it owns all four insets. Keyed by
+# selector so a re-ordered stylesheet cannot point this at the wrong block.
 EDGE_OWNERS = {
-    ".site-header": ("top", "left", "right"),
-    "main": ("bottom", "left", "right"),
+    ".allr-main": ("top", "right", "bottom", "left"),
 }
 
 
@@ -85,13 +80,10 @@ class TestLoginPageSafeArea:
         for selector, sides in EDGE_OWNERS.items():
             rule = rule_block(document, selector)
             for side in sides:
-                # `top` has no design padding to preserve, so a bare env() is
-                # correct there; the others must not shrink below their floor.
-                expected = (
-                    rf"padding-{side}:\s*env\(safe-area-inset-{side}\)"
-                    if side == "top"
-                    else rf"padding-{side}:\s*max\([^;]*env\(safe-area-inset-{side}\)"
-                )
+                # Every side has design padding to preserve (the card sits
+                # 64px from the top and bottom, 24px from the sides), so each
+                # must be max(<floor>, env(...)), never smaller than either.
+                expected = rf"padding-{side}:\s*max\([^;]*env\(safe-area-inset-{side}\)"
                 assert re.search(expected, rule), (
                     f"{name}: {selector} padding-{side} does not account for "
                     f"safe-area-inset-{side}"

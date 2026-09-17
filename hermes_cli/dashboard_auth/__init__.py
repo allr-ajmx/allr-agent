@@ -10,6 +10,7 @@ default. Third parties register their own providers via the plugin hook
 ``ctx.register_dashboard_auth_provider``.
 """
 from hermes_cli.dashboard_auth.base import (
+    AccountNotAllowedError,
     DashboardAuthProvider,
     Session,
     TokenPrincipal,
@@ -26,10 +27,12 @@ from hermes_cli.dashboard_auth.registry import (
     list_providers,
     list_token_providers,
     list_session_providers,
+    list_assertion_providers,
     clear_providers,
 )
 
 __all__ = [
+    "AccountNotAllowedError",
     "DashboardAuthProvider",
     "Session",
     "TokenPrincipal",
@@ -44,5 +47,6 @@ __all__ = [
     "list_providers",
     "list_token_providers",
     "list_session_providers",
+    "list_assertion_providers",
     "clear_providers",
 ]

@@ -110,6 +110,13 @@ _LEGACY_ALIASES = {
 # fresh silent attempt rather than a permanently-disabled one.
 SSO_ATTEMPT_COOKIE = "hermes_sso_attempt"  # rebrand:keep
 
+# One-shot marker set by /auth/logout when the request was signed in by a
+# trusted proxy (an assertion provider). The SPA always navigates to /login
+# after logging out; the marker's PRESENCE tells /login to finish the sign-out
+# at the proxy instead of bouncing a still-valid proxy session straight back
+# into the dashboard. Boolean breadcrumb, no secret.
+SIGNED_OUT_COOKIE = "allr_signed_out"
+
 # Possible name variants we may have to read back. Sorted so most-strict
 # wins on iteration when both happen to be present (shouldn't happen in
 # practice — a single request emits exactly one variant).
@@ -131,6 +138,8 @@ _PKCE_MAX_AGE = 10 * 60
 # stuck on /login forever. The marker is also cleared explicitly on a
 # successful callback and whenever the gate falls back to /login.
 _SSO_ATTEMPT_MAX_AGE = 60
+# Signed-out marker TTL: covers the SPA's POST /auth/logout -> /login hop.
+_SIGNED_OUT_MAX_AGE = 60
 
 
 def _resolved_name(bare: str, *, use_https: bool, prefix: str) -> str:
@@ -383,6 +392,33 @@ def clear_sso_attempt_cookie(response: Response, *, prefix: str = "") -> None:
     for variant in _NAME_VARIANTS:
         response.set_cookie(
             f"{variant}{SSO_ATTEMPT_COOKIE}", "", max_age=0,
+            path=path, httponly=True, samesite="lax",
+        )
+
+
+def set_signed_out_cookie(
+    response: Response, *, use_https: bool, prefix: str = "",
+) -> None:
+    """Set the one-shot "just logged out at a proxied dashboard" marker."""
+    response.set_cookie(
+        _resolved_name(SIGNED_OUT_COOKIE, use_https=use_https, prefix=prefix),
+        "1",
+        max_age=_SIGNED_OUT_MAX_AGE,
+        **_common_attrs(use_https=use_https, prefix=prefix),
+    )
+
+
+def read_signed_out_cookie(request: Request) -> Optional[str]:
+    """Return the signed-out marker value if present (any variant), else None."""
+    return _read_with_fallback(request, SIGNED_OUT_COOKIE)
+
+
+def clear_signed_out_cookie(response: Response, *, prefix: str = "") -> None:
+    """Emit Max-Age=0 deletions for the signed-out marker, every name variant."""
+    path = _cookie_path(prefix)
+    for variant in _NAME_VARIANTS:
+        response.set_cookie(
+            f"{variant}{SIGNED_OUT_COOKIE}", "", max_age=0,
             path=path, httponly=True, samesite="lax",
         )
 
