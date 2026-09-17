@@ -67,9 +67,26 @@ pub mod decide {
     use serde::Serialize;
     use tauri::Url;
 
-    /// The production portal. Overridable (see [`resolve_portal`]) so a dev build can
-    /// target `https://app.dev.allr.work`, whose workspaces are `*.dev.allr.work`.
-    pub const DEFAULT_PORTAL: &str = "https://app.allr.work";
+    /// The production portal: what a release build signs in through.
+    pub const PROD_PORTAL: &str = "https://app.allr.work";
+
+    /// The dev stack's portal (workspaces `*.dev.allr.work`, reached over NetBird): what a
+    /// debug build (`tauri dev`, a mobile dev build) signs in through, so running the app
+    /// from source never needs an environment variable to reach the dev system.
+    pub const DEV_PORTAL: &str = "https://app.dev.allr.work";
+
+    /// The portal a build uses when nothing overrides it: [`DEV_PORTAL`] for a debug build,
+    /// [`PROD_PORTAL`] for a release build.
+    pub const DEFAULT_PORTAL: &str = default_portal_for(cfg!(debug_assertions));
+
+    /// [`DEFAULT_PORTAL`]'s rule, as a function so both branches are testable from one build.
+    pub const fn default_portal_for(debug_build: bool) -> &'static str {
+        if debug_build {
+            DEV_PORTAL
+        } else {
+            PROD_PORTAL
+        }
+    }
 
     /// Host labels under the parent domain that belong to the platform, never to a
     /// person. Same list as `allr.os` (`provisioner/allr_provisioner/users.py`,
@@ -262,7 +279,8 @@ pub mod decide {
 
     /// Pick the portal URL: the runtime override (`ALLR_WORK_PORTAL_URL` in the desktop
     /// process environment), then the build-time one (`option_env!`, which is the only
-    /// way an Android/iOS build can carry an override), then [`DEFAULT_PORTAL`].
+    /// way an Android/iOS build can carry an override), then [`DEFAULT_PORTAL`] (the dev
+    /// portal in a debug build, production in a release build).
     ///
     /// A blank candidate counts as unset (`ALLR_WORK_PORTAL_URL=` must not mean "invalid").
     /// A non-blank but INVALID candidate is still returned, not skipped: someone who
@@ -715,7 +733,7 @@ pub mod decide {
         use super::*;
 
         fn prod() -> PortalConfig {
-            portal_config(DEFAULT_PORTAL).expect("the default portal is valid")
+            portal_config(PROD_PORTAL).expect("the production portal is valid")
         }
 
         fn dev() -> PortalConfig {
@@ -775,6 +793,16 @@ pub mod decide {
                     "{bad:?}"
                 );
             }
+        }
+
+        #[test]
+        fn a_debug_build_defaults_to_the_dev_portal_and_a_release_build_to_production() {
+            assert_eq!(default_portal_for(true), "https://app.dev.allr.work");
+            assert_eq!(default_portal_for(false), "https://app.allr.work");
+            assert_eq!(DEFAULT_PORTAL, default_portal_for(cfg!(debug_assertions)));
+            // Both are real portals with the parent domain their workspaces live under.
+            assert_eq!(portal_config(DEV_PORTAL).unwrap().parent, "dev.allr.work");
+            assert_eq!(portal_config(PROD_PORTAL).unwrap().parent, "allr.work");
         }
 
         #[test]
@@ -1591,7 +1619,8 @@ impl AllrWorkState {
 
 /// The portal this process signs in through: `ALLR_WORK_PORTAL_URL` from the environment
 /// (desktop only — nothing sets a phone app's environment), then the same variable at
-/// build time, then the production portal. See [`decide::resolve_portal`].
+/// build time, then the build's default: the dev portal in a debug build, production in a
+/// release build. See [`decide::resolve_portal`].
 fn configured_portal() -> Result<PortalConfig, AllrWorkError> {
     #[cfg(desktop)]
     let runtime = std::env::var("ALLR_WORK_PORTAL_URL").ok();
