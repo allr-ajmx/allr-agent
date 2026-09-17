@@ -13,6 +13,7 @@ import { IS_NATIVE_MOBILE } from '@/lib/platform'
 import {
   $allrWorkError,
   $allrWorkRestoreIssue,
+  $allrWorkResume,
   $allrWorkSignInFlight,
   allrWorkRestoreIssueFor,
   clearAllrWorkNotices
@@ -47,9 +48,11 @@ import { broadcastGatewaySwitch } from '@/store/gateway-switch-broadcast'
 export {
   $allrWorkError,
   $allrWorkRestoreIssue,
+  $allrWorkResume,
   $allrWorkSignInFlight,
   type AllrWorkFailure,
-  type AllrWorkRestoreIssue
+  type AllrWorkRestoreIssue,
+  type AllrWorkResume
 } from '@/store/allr-work-state'
 
 const busy = () => new GatewaySignInBusyError('An Allr Work sign-in is already in progress')
@@ -186,6 +189,42 @@ export async function switchAllrWorkAccount(): Promise<void> {
 }
 
 /**
+ * **Try again** after a restore that could not reach the workspace (`$allrWorkRestoreIssue`
+ * `unreachable`): re-dial the workspace with the credential already in the keyring, once — a
+ * person pressed the button, so no retry ladder.
+ *
+ * The workspace is the one a mobile resume signed in to and then failed to reach, when that is
+ * what the card is about (`$allrWorkResume` `failed` — Rust validated it, and the saved target
+ * is still the gateway from before the sign-in). Otherwise `currentAllrWorkspace`'s
+ * (validated). When there is neither, there is nothing to re-dial, and a sign-in is the only
+ * way back. A failure re-classifies the card's CTA from what it
+ * failed with (a credential refused this time is `session-ended`), then re-throws for the
+ * soft switch. A success clears the notice in `connect`.
+ */
+export async function reconnectAllrWork(): Promise<void> {
+  if ($allrWorkSignInFlight.get() || isAllrWorkSignInInFlight()) {
+    throw busy()
+  }
+
+  const resumed = $allrWorkResume.get()
+  const workspace = resumed?.phase === 'failed' ? resumed.workspace : await currentAllrWorkspace()
+
+  if (!workspace) {
+    await signInToAllrWork()
+
+    return
+  }
+
+  try {
+    await connect({ url: workspace, mode: 'allr' })
+  } catch (err) {
+    $allrWorkRestoreIssue.set(allrWorkRestoreIssueFor(err))
+
+    throw err
+  }
+}
+
+/**
  * Finish a mobile Allr Work sign-in that came back through a page reload. Called by the
  * boot restore (`autoRestoreConnection`) before anything else.
  *
@@ -215,7 +254,14 @@ export async function resumeAllrSignIn(): Promise<boolean> {
     return false
   }
 
+  // Synchronously, with the marker: the connecting screen stops seeing the marker right here.
+  $allrWorkResume.set({ phase: 'pending' })
+
   const outcome = await allrWorkTakeOutcome().catch(() => null)
+
+  if (outcome?.kind !== 'signed-in' || !outcome.workspace) {
+    $allrWorkResume.set(null)
+  }
 
   if (outcome?.kind === 'failed' && outcome.error?.kind !== 'cancelled') {
     $gatewayMode.set('allr')
@@ -246,14 +292,22 @@ export async function resumeAllrSignIn(): Promise<boolean> {
   // The same bounded ladder as any boot restore: the signed-in credential is in the keyring,
   // and the radio / DNS / gateway being slow at launch is no reason to drop it on the card.
   const workspace = outcome.workspace
+
+  $allrWorkResume.set({ phase: 'dialing', workspace })
+
   const lastError = await dialWithRestoreLadder(() => connect({ url: workspace, mode: 'allr' }))
 
   if (lastError !== null) {
-    // connect() already set $connectionError + phase. The card still needs its CTA.
+    // connect() already set $connectionError + phase. The card still needs its CTA, and the
+    // stopped screen the workspace it could not reach.
+    $allrWorkResume.set({ phase: 'failed', workspace })
     $allrWorkRestoreIssue.set(allrWorkRestoreIssueFor(lastError))
 
     return true
   }
+
+  // Resumed. (A successful connect clears it too; this does not depend on that.)
+  $allrWorkResume.set(null)
 
   const target = loadGatewayTarget()
 

@@ -49,7 +49,9 @@ import { broadcastGatewaySwitch } from '@/store/gateway-switch-broadcast'
 import {
   $allrWorkError,
   $allrWorkRestoreIssue,
+  $allrWorkResume,
   $allrWorkSignInFlight,
+  reconnectAllrWork,
   resumeAllrSignIn,
   signInToAllrWork,
   switchAllrWorkAccount
@@ -72,6 +74,7 @@ beforeEach(() => {
   $gatewayMode.set('remote')
   $allrWorkError.set(null)
   $allrWorkRestoreIssue.set(null)
+  $allrWorkResume.set(null)
   $allrWorkSignInFlight.set(false)
   mockSignIn.mockResolvedValue({ busy: false, workspace: WORKSPACE })
   mockTake.mockResolvedValue(null)
@@ -309,6 +312,57 @@ describe('switchAllrWorkAccount', () => {
     expect(mockClear).not.toHaveBeenCalled()
     expect(oauthLogout).not.toHaveBeenCalled()
     expect(mockSignIn).not.toHaveBeenCalled()
+  })
+})
+
+describe('reconnectAllrWork', () => {
+  it('re-dials the live or saved workspace once, without signing in', async () => {
+    saveGatewayTarget({ mode: 'allr', url: WORKSPACE })
+    $allrWorkRestoreIssue.set('unreachable')
+
+    await reconnectAllrWork()
+
+    expect(mockConnect).toHaveBeenCalledOnce()
+    expect(mockConnect).toHaveBeenCalledWith({ url: WORKSPACE, mode: 'allr' })
+    expect(mockSignIn).not.toHaveBeenCalled()
+  })
+
+  it('signs in when there is no workspace to re-dial', async () => {
+    await reconnectAllrWork()
+
+    expect(mockSignIn).toHaveBeenCalledOnce()
+    expect(mockConnect).toHaveBeenCalledWith({ url: WORKSPACE, mode: 'allr' })
+  })
+
+  it('re-classifies the card from the failure and re-throws it', async () => {
+    saveGatewayTarget({ mode: 'allr', url: WORKSPACE })
+    $allrWorkRestoreIssue.set('unreachable')
+    const refused = Object.assign(new Error('Sign in'), { needsInteractiveSignIn: true })
+    mockConnect.mockRejectedValueOnce(refused)
+
+    await expect(reconnectAllrWork()).rejects.toBe(refused)
+
+    expect($allrWorkRestoreIssue.get()).toBe('session-ended')
+  })
+
+  // A resume signed in to B and could not reach it; the saved target is still A, from before.
+  it('re-dials the workspace a failed resume signed in to, not the saved one', async () => {
+    saveGatewayTarget({ mode: 'allr', url: 'https://old.allr.work' })
+    $allrWorkResume.set({ phase: 'failed', workspace: WORKSPACE })
+
+    await reconnectAllrWork()
+
+    expect(mockConnect).toHaveBeenCalledWith({ url: WORKSPACE, mode: 'allr' })
+    expect(mockSignIn).not.toHaveBeenCalled()
+  })
+
+  it('refuses while a sign-in is in flight, without dialling', async () => {
+    saveGatewayTarget({ mode: 'allr', url: WORKSPACE })
+    $allrWorkSignInFlight.set(true)
+
+    await expect(reconnectAllrWork()).rejects.toMatchObject({ signInAlreadyRunning: true })
+
+    expect(mockConnect).not.toHaveBeenCalled()
   })
 })
 
@@ -556,5 +610,76 @@ describe('resumeAllrSignIn', () => {
     expect($allrWorkError.get()).toBeNull()
     expect(mockConnect).not.toHaveBeenCalled()
     expect(localStorage.getItem(PENDING_ALLR_KEY)).toBeNull()
+  })
+})
+
+// What the connecting screen reads to name the workspace a mobile resume is about (ALLR-51 S2).
+describe('resumeAllrSignIn — $allrWorkResume', () => {
+  const pending = () => localStorage.setItem(PENDING_ALLR_KEY, '1')
+
+  it('is pending from the moment the marker is taken, then dialing the signed-in workspace', async () => {
+    pending()
+    let seenWhileTaking: unknown = 'unread'
+    let seenWhileDialing: unknown = 'unread'
+
+    mockTake.mockImplementationOnce(async () => {
+      seenWhileTaking = $allrWorkResume.get()
+
+      return { kind: 'signed-in', workspace: WORKSPACE }
+    })
+    mockConnect.mockImplementationOnce(async () => {
+      seenWhileDialing = $allrWorkResume.get()
+    })
+
+    await expect(resumeAllrSignIn()).resolves.toBe(true)
+
+    expect(seenWhileTaking).toEqual({ phase: 'pending' })
+    expect(seenWhileDialing).toEqual({ phase: 'dialing', workspace: WORKSPACE })
+    expect($allrWorkResume.get()).toBeNull()
+  })
+
+  it('keeps the workspace once the ladder gives up', async () => {
+    pending()
+    mockTake.mockResolvedValueOnce({ kind: 'signed-in', workspace: WORKSPACE })
+    mockConnect.mockRejectedValue(new Error('HTTP 503'))
+
+    await resumeAllrSignIn()
+
+    expect($allrWorkResume.get()).toEqual({ phase: 'failed', workspace: WORKSPACE })
+  })
+
+  it('is cleared for a resume the user backed out of', async () => {
+    saveGatewayTarget({ mode: 'allr', url: 'https://old.allr.work' })
+    pending()
+    mockTake.mockResolvedValueOnce({
+      kind: 'failed',
+      error: new AllrWorkInvokeError('cancelled', 'Backed out.'),
+      workspace: null
+    })
+
+    await expect(resumeAllrSignIn()).resolves.toBe(false)
+
+    expect($allrWorkResume.get()).toBeNull()
+  })
+
+  it('is cleared for a real failure, which the card shows instead', async () => {
+    pending()
+    mockTake.mockResolvedValueOnce({
+      kind: 'failed',
+      error: new AllrWorkInvokeError('no-workspace', 'No workspace.'),
+      workspace: null
+    })
+
+    await resumeAllrSignIn()
+
+    expect($allrWorkResume.get()).toBeNull()
+  })
+
+  it('is forgotten when a new sign-in starts', async () => {
+    $allrWorkResume.set({ phase: 'failed', workspace: WORKSPACE })
+
+    await signInToAllrWork()
+
+    expect($allrWorkResume.get()).toBeNull()
   })
 })

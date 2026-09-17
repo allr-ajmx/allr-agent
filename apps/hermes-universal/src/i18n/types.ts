@@ -762,6 +762,48 @@ export interface Translations {
       connectStoppedTo: (target: string) => string
       useDifferentGateway: string
       startOver: string
+      /** Allr Work (ALLR-51): one sign-in, and the portal finds the workspace. */
+      allrTitle: string
+      allrDesc: string
+      allrIntro: string
+      allrSignIn: string
+      allrSigningIn: string
+      allrSigningInHint: string
+      /** The connecting screen, while a mobile sign-in is collected after the reload. */
+      allrResuming: string
+      allrConnectedTo: (host: string) => string
+      allrSwitchAccount: string
+      /** A restore found no usable credential. */
+      allrSessionEnded: string
+      /** A restore could not tell — offline, or a credential the workspace rejects as 503. */
+      allrUnreachable: string
+      allrTryAgain: string
+      allrSignInAgain: string
+      allrSignedOutMessage: string
+      /** The connecting screen's target, read inside `reconnectingTo` / `connectStoppedTo`. */
+      allrWorkspaceTarget: (host: null | string) => string
+      /** One sentence per `AllrWorkErrorKind` (mapped in app/gateway/allr-work-panel.tsx);
+       *  `cancelled` has none on purpose. Mostly the kind camelCased — but no leaf may share a
+       *  name with another key: the i18n audit matches keys by last segment, so a shared name
+       *  would mark an unrelated dead key as live. `busy` is the neutral "already in progress"
+       *  notice, not an error. */
+      allrError: {
+        invalidPortalConfig: string
+        timedOut: string
+        navigationRefused: string
+        alreadyOnSignInPage: string
+        portalRefused: string
+        noWorkspaceForAccount: string
+        portalOutdated: string
+        stateMismatch: string
+        invalidWorkspace: string
+        workspaceUnsupported: string
+        unreachable: string
+        workspaceRefusedSignIn: string
+        credentialNotSaved: string
+        cookieStoreFailed: string
+        busy: string
+      }
     }
     keys: {
       loading: string

@@ -22,6 +22,7 @@ import { $approvalModes } from '@/store/approval-mode'
 import type * as ChatStoreModule from '@/store/chat'
 import { $messages, $sessionId, resetChat, sendPrompt } from '@/store/chat'
 import { $compactingSessions, sessionCompacting } from '@/store/compaction'
+import { $connection } from '@/store/connection'
 import { requestGateway } from '@/store/gateway'
 import { $modelPickerOpen } from '@/store/model'
 import { $sessions } from '@/store/session'
@@ -230,6 +231,21 @@ describe('useSlashCommand', () => {
 
       expect($approvalModes.get()).toMatchObject({ default: 'manual' })
     })
+  })
+
+  // /browser drives a Chromium on the GATEWAY host. An Allr Work workspace is not this
+  // machine, so it gets the same refusal as every other hosted mode (ALLR-51).
+  it.each(['allr', 'remote', 'cloud', 'ssh'] as const)('refuses /browser on a %s gateway', async mode => {
+    $connection.set({ baseUrl: 'https://xm.allr.work', mode, authMode: 'oauth' })
+
+    try {
+      await run('/browser status')
+    } finally {
+      $connection.set(null)
+    }
+
+    expect(systemLines().join('\n')).toContain('only available when connected to a local gateway')
+    expect(vi.mocked(requestGateway).mock.calls.map(call => call[0])).not.toContain('browser.manage')
   })
 
   it('runs a client action (/new) without touching the gateway', async () => {

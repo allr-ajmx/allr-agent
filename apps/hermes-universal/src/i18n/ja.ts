@@ -868,7 +868,43 @@ export const ja = defineLocale({
       connectStoppedTitle: '接続できませんでした',
       connectStoppedTo: target => `${target} への接続を中止しました。`,
       useDifferentGateway: '別のゲートウェイを使用',
-      startOver: 'やり直す'
+      startOver: 'やり直す',
+      allrTitle: 'Allr Work',
+      allrDesc:
+        'Allr Work アカウントでサインインすると、ワークスペースが自動的に見つかります。URL を貼り付ける必要はありません。',
+      allrIntro: '一度サインインするだけで、Allr がワークスペースを見つけてこのデバイスを接続します。',
+      allrSignIn: 'Allr Work にサインイン',
+      allrSigningIn: 'Allr Work にサインインしています…',
+      allrSigningInHint: '開いたウィンドウで操作を完了してください。キャンセルするにはそのウィンドウを閉じます。',
+      allrResuming: 'Allr Work へのサインインを完了しています…',
+      allrConnectedTo: host => `${host} のワークスペースに接続済み`,
+      allrSwitchAccount: 'アカウントを切り替え',
+      allrSessionEnded: 'Allr Work のセッションが終了しました。再接続するには、もう一度サインインしてください。',
+      allrUnreachable:
+        'Allr Work のワークスペースに接続できませんでした。再試行するか、問題が続く場合はもう一度サインインしてください。',
+      allrTryAgain: '再試行',
+      allrSignInAgain: 'もう一度サインイン',
+      allrSignedOutMessage: 'このデバイスで Allr Work からサインアウトしました。',
+      allrWorkspaceTarget: host => (host ? `${host} の Allr Work ワークスペース` : 'Allr Work ワークスペース'),
+      allrError: {
+        invalidPortalConfig: 'このアプリに設定されている Allr Work のアドレスが無効です。',
+        timedOut: 'サインインに時間がかかりすぎました。もう一度お試しください。',
+        navigationRefused: 'このデバイスではサインインページを開けませんでした。',
+        alreadyOnSignInPage: 'サインインページがすでに開いています。そのページで完了するか、先に戻ってください。',
+        portalRefused: 'Allr Work で本人確認ができませんでした。もう一度お試しください。',
+        noWorkspaceForAccount:
+          'このアカウントには Allr Work のワークスペースがありません。ワークスペースを設定したアカウントに切り替えてください。',
+        portalOutdated:
+          'このサービスでは Allr Work のサインインをまだ利用できません。しばらくしてからもう一度お試しください。',
+        stateMismatch: 'サインインの応答がこのリクエストと一致しませんでした。もう一度お試しください。',
+        invalidWorkspace: 'Allr Work から、このアプリが接続しないアドレスが返されました。',
+        workspaceUnsupported: 'お使いのワークスペースは、まだアプリからのサインインに対応していません。',
+        unreachable: 'Allr Work に接続できませんでした。ネットワーク接続を確認して、もう一度お試しください。',
+        workspaceRefusedSignIn: 'ワークスペースがサインインを拒否しました。もう一度お試しください。',
+        credentialNotSaved: 'サインインしましたが、このデバイスに認証情報を安全に保存できませんでした。',
+        cookieStoreFailed: 'サインアウトしましたが、サインインページにアカウントが記憶されたままの可能性があります。',
+        busy: 'サインインはすでに進行中です。'
+      }
     },
     keys: {
       loading: 'API キーと認証情報を読み込み中...',

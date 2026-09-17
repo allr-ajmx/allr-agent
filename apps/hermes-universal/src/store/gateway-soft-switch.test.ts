@@ -57,6 +57,7 @@ vi.mock('@/store/session', async () => {
   }
 })
 
+import { GatewaySignInBusyError } from '@/gateway'
 import { AllrWorkInvokeError } from '@/lib/allr-work'
 import { resetChat } from '@/store/chat'
 import { resetRepoStatusForBackendSwitch } from '@/store/coding-status'
@@ -336,12 +337,60 @@ describe('gateway soft switch — failed dial', () => {
     expect(notifyError).not.toHaveBeenCalled()
   })
 
-  it('still reports any other Allr Work failure', async () => {
+  // The Allr Work card shows a sign-in failure as translated copy; a toast would repeat it in
+  // Rust's English. Still rolled back, still re-thrown.
+  it('leaves an Allr Work sign-in failure to the card, without a toast', async () => {
     withPrevious()
 
     await expect(
       softSwitchGateway('allr', () => Promise.reject(new AllrWorkInvokeError('no-workspace', 'No workspace.')))
     ).rejects.toMatchObject({ kind: 'no-workspace' })
+
+    expect(dialSavedTarget).toHaveBeenCalledWith(previousTarget)
+    expect(notifyError).not.toHaveBeenCalled()
+  })
+
+  // The sign-in worked and the connect after it failed: not the card's, so still a toast.
+  it('still reports a connect failure in allr mode', async () => {
+    withPrevious()
+
+    await expect(softSwitchGateway('allr', failing)).rejects.toThrow('unreachable')
+
+    expect(notifyError).toHaveBeenCalledOnce()
+  })
+
+  // Same `{ kind, message }` shape outside the Allr Work mode: unchanged.
+  it('still reports an Allr Work-shaped failure on a remote or ssh switch', async () => {
+    withPrevious()
+
+    await expect(
+      softSwitchGateway('remote', () => Promise.reject(new AllrWorkInvokeError('unreachable', 'No route.')))
+    ).rejects.toMatchObject({ kind: 'unreachable' })
+    await expect(
+      softSwitchGateway('ssh', () => Promise.reject(new AllrWorkInvokeError('unreachable', 'No route.')))
+    ).rejects.toMatchObject({ kind: 'unreachable' })
+
+    expect(notifyError).toHaveBeenCalledTimes(2)
+  })
+
+  // Another sign-in already owns the surface. Nothing failed, so no failure toast — the
+  // Allr Work card shows it as a neutral notice. Only for this mode: a remote OAuth sign-in
+  // that is busy keeps the toast it always had.
+  it('rolls back a busy Allr Work sign-in without a failure toast', async () => {
+    withPrevious()
+    const busy = new GatewaySignInBusyError('An Allr Work sign-in is already in progress')
+
+    await expect(softSwitchGateway('allr', () => Promise.reject(busy))).rejects.toBe(busy)
+
+    expect(dialSavedTarget).toHaveBeenCalledWith(previousTarget)
+    expect(notifyError).not.toHaveBeenCalled()
+  })
+
+  it('still reports a busy sign-in on a remote switch', async () => {
+    withPrevious()
+    const busy = new GatewaySignInBusyError('A sign-in is already in progress')
+
+    await expect(softSwitchGateway('remote', () => Promise.reject(busy))).rejects.toBe(busy)
 
     expect(notifyError).toHaveBeenCalledOnce()
   })

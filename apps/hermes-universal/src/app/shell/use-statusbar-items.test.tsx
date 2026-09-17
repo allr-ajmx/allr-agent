@@ -18,6 +18,7 @@ vi.mock('@/store/system-status', async () => {
 
 import { registry } from '@/contrib/registry'
 import { resetChat } from '@/store/chat'
+import { $connection, $status } from '@/store/connection'
 import { $gatewayState } from '@/store/gateway'
 import { $statusbarHiddenIds, STATUSBAR_HIDDEN_BY_DEFAULT } from '@/store/statusbar-prefs'
 import { $statusSnapshot } from '@/store/system-status'
@@ -46,6 +47,8 @@ afterEach(() => {
   $statusbarHiddenIds.set([...STATUSBAR_HIDDEN_BY_DEFAULT])
   $statusSnapshot.set(null)
   $workspaceCwd.set('')
+  $connection.set(null)
+  $status.set(null)
   resetChat()
 })
 
@@ -125,6 +128,24 @@ describe('useStatusbarItems (rendered via <Statusbar/>)', () => {
     renderStatusbar()
 
     expect(screen.getByText('Smart')).toBeInTheDocument()
+  })
+
+  // An Allr Work workspace is a hosted gateway: its backend version is worth showing, exactly
+  // as for remote / cloud / ssh (ALLR-51).
+  it.each(['allr', 'remote'] as const)('shows the backend version for a %s gateway', mode => {
+    $connection.set({ baseUrl: 'https://xm.allr.work', mode, authMode: 'oauth' })
+    $status.set({ version: '9.9.9' })
+    renderStatusbar()
+
+    expect(screen.getByText('backend v9.9.9')).toBeInTheDocument()
+  })
+
+  it('hides the backend version for a local gateway', () => {
+    $connection.set({ baseUrl: 'http://127.0.0.1:9119', mode: 'local', authMode: 'token' })
+    $status.set({ version: '9.9.9' })
+    renderStatusbar()
+
+    expect(screen.queryByText('backend v9.9.9')).not.toBeInTheDocument()
   })
 
   it('reveals the running timer while a turn is in flight', () => {

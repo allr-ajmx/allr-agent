@@ -1,5 +1,6 @@
+import { isGatewaySignInBusy } from '@/gateway'
 import { translateNow } from '@/i18n'
-import { isAllrWorkCancelled } from '@/lib/allr-work'
+import { isAllrWorkCancelled, isAllrWorkError } from '@/lib/allr-work'
 import { queryClient } from '@/lib/query-client'
 import { clearArtifactRegistry } from '@/store/artifacts'
 import { resetChat } from '@/store/chat'
@@ -171,6 +172,16 @@ function warnIfSessionMissingAfterSwitch(previousSessionId: null | string): void
 }
 
 /**
+ * An Allr Work switch failure the Allr Work card already shows, so a toast would say it twice
+ * — and in Rust's untranslated words. A sign-in failure is on the card as translated copy, and
+ * `busy` as a neutral notice (nothing failed). Anything else in this mode — the connect after
+ * a sign-in that worked — is not the card's, and still toasts.
+ */
+function allrWorkCardOwns(mode: GatewayMode, cause: unknown): boolean {
+  return mode === 'allr' && (isGatewaySignInBusy(cause) || isAllrWorkError(cause))
+}
+
+/**
  * Recover from a switch whose dial failed.
  *
  * Rolls back onto the gateway we came from when there is one, leaving the user where
@@ -182,6 +193,7 @@ function warnIfSessionMissingAfterSwitch(previousSessionId: null | string): void
  * its mounted state across the recovery instead of flashing the connecting screen.
  */
 async function rollbackFailedSwitch(
+  mode: GatewayMode,
   cause: unknown,
   previous: Connection | null,
   previousTarget: GatewayTarget | null
@@ -202,7 +214,7 @@ async function rollbackFailedSwitch(
     // Titled for what the user attempted; the body carries why it failed. Except a
     // cancelled Allr Work sign-in: the user closed the window on purpose, and the rollback
     // above is the whole answer to that — a "failed to switch" toast would be a lie.
-    if (!isAllrWorkCancelled(cause)) {
+    if (!isAllrWorkCancelled(cause) && !allrWorkCardOwns(mode, cause)) {
       notifyError(cause, translateNow('settings.gateway.switchFailed'))
     }
   } catch {
@@ -270,7 +282,7 @@ export async function softSwitchGateway(mode: GatewayMode, dial: () => Promise<v
       warnIfSessionMissingAfterSwitch(previousSessionId)
     }
   } catch (err) {
-    await rollbackFailedSwitch(err, previous, previousTarget)
+    await rollbackFailedSwitch(mode, err, previous, previousTarget)
 
     throw err
   } finally {

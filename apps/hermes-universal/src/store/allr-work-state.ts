@@ -45,6 +45,26 @@ export type AllrWorkRestoreIssue = 'session-ended' | 'unreachable'
 
 export const $allrWorkRestoreIssue = atom<AllrWorkRestoreIssue | null>(null)
 
+/**
+ * Where a mobile Allr Work resume (`resumeAllrSignIn`) is, for the connecting screen.
+ *
+ * The saved target cannot say: an Allr Work target is saved only once it connects, so while a
+ * resume dials — and after that dial gives up — the saved target is still the gateway from
+ * BEFORE the sign-in (possibly another Allr Work workspace). This is the one place that knows
+ * which workspace the resume is actually about.
+ *
+ *  - `pending` — the marker was taken; the outcome is being read.
+ *  - `dialing` — the sign-in completed and the ladder is dialling `workspace`.
+ *  - `failed` — that ladder gave up. Kept until a connect lands, a sign-in starts or the user
+ *    signs out, so the stopped screen and **Try again** still name `workspace`.
+ *
+ * `null` otherwise — including a resume the user backed out of, which re-dials the previous
+ * target like any restore.
+ */
+export type AllrWorkResume = { phase: 'pending' } | { phase: 'dialing' | 'failed'; workspace: string }
+
+export const $allrWorkResume = atom<AllrWorkResume | null>(null)
+
 /** Classify the error an `allr` restore ended on. `null` for a sign-in that is already
  *  running elsewhere — that one finishes on its own and needs no CTA. Pure. */
 export function allrWorkRestoreIssueFor(err: unknown): AllrWorkRestoreIssue | null {
@@ -63,4 +83,5 @@ export function allrWorkRestoreIssueFor(err: unknown): AllrWorkRestoreIssue | nu
 export function clearAllrWorkNotices(): void {
   $allrWorkError.set(null)
   $allrWorkRestoreIssue.set(null)
+  $allrWorkResume.set(null)
 }
