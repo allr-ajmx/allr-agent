@@ -1,4 +1,5 @@
 import { translateNow } from '@/i18n'
+import { isAllrWorkCancelled } from '@/lib/allr-work'
 import { queryClient } from '@/lib/query-client'
 import { clearArtifactRegistry } from '@/store/artifacts'
 import { resetChat } from '@/store/chat'
@@ -197,8 +198,13 @@ async function rollbackFailedSwitch(
     await dialSavedTarget(previousTarget)
     // The lists were wiped for a switch that never happened — refill them.
     await Promise.all([refreshSessions().catch(() => {}), refreshMessagingSessions().catch(() => {})])
-    // Titled for what the user attempted; the body carries why it failed.
-    notifyError(cause, translateNow('settings.gateway.switchFailed'))
+
+    // Titled for what the user attempted; the body carries why it failed. Except a
+    // cancelled Allr Work sign-in: the user closed the window on purpose, and the rollback
+    // above is the whole answer to that — a "failed to switch" toast would be a lie.
+    if (!isAllrWorkCancelled(cause)) {
+      notifyError(cause, translateNow('settings.gateway.switchFailed'))
+    }
   } catch {
     // Nothing left to stand on: the old gateway is gone too.
     disconnect()

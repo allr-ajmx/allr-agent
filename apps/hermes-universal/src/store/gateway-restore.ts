@@ -1,9 +1,13 @@
-import { isGatewayReauthRequired, isGatewaySignInBusy, isGatewaySignInRequired } from '@/gateway'
+import { GatewaySignInRequiredError, isGatewayReauthRequired, isGatewaySignInBusy, isGatewaySignInRequired } from '@/gateway'
+import { allrWorkConfig, allrWorkspaceBase } from '@/lib/allr-work'
 import { oauthStatus } from '@/lib/auth'
 import { loadString, removeKey, saveString } from '@/lib/persist'
 import { reconnectBackoffDelayMs } from '@/lib/reconnect-backoff'
+import { resumeAllrSignIn } from '@/store/allr-work'
+import { $allrWorkRestoreIssue, allrWorkRestoreIssueFor } from '@/store/allr-work-state'
 import { atom } from '@/store/atom'
 import {
+  $connection,
   connect,
   connectCloud,
   connectLocal,
@@ -44,7 +48,8 @@ const MAX_RESTORE_ATTEMPTS = 3
  *  token/password live in the OS keyring, the session cookie jar in Rust. */
 export interface GatewayTarget {
   mode: GatewayMode
-  /** remote: the backend URL + (optional) username for the password path. */
+  /** remote: the backend URL + (optional) username for the password path.
+   *  allr: the workspace base (`https://<user>.<parent>`) — re-validated before dialling. */
   url?: string
   username?: string
   /** local: the profile the backend was spawned with. */
@@ -62,7 +67,7 @@ export interface GatewayTarget {
 // not listed here is rejected as malformed, and the auto-reconnect silently
 // does not happen.
 function isMode(value: unknown): value is GatewayMode {
-  return value === 'local' || value === 'remote' || value === 'cloud' || value === 'ssh'
+  return value === 'local' || value === 'remote' || value === 'cloud' || value === 'ssh' || value === 'allr'
 }
 
 /** Persist the target of a just-established connection (best-effort). */
@@ -188,6 +193,42 @@ export function clearPendingPortal(): void {
   removeKey(PENDING_PORTAL_KEY)
 }
 
+// The Allr Work equivalent (ALLR-51). Payload-free like the portal marker, and for a
+// sharper reason: on mobile the JS context dies the moment hop 1 STARTS, before the
+// workspace is known, so there is nothing to write. The result lives in Rust's take-once
+// outcome mailbox (`allr_work_take_outcome`) and the reload collects it — this marker only
+// says "a sign-in was started from here, go and look". Consumed by `resumeAllrSignIn`
+// (store/allr-work.ts).
+const PENDING_ALLR_KEY = 'hermes.allr.pending'
+
+/** Queue an Allr Work resume for the next boot (best-effort). Mobile only, and BEFORE the
+ *  sign-in is invoked — on a real device there is no "after". */
+export function savePendingAllr(): void {
+  try {
+    saveString(PENDING_ALLR_KEY, '1')
+  } catch {
+    // storage disabled — the reload lands on the picker; the credential is still stored.
+  }
+}
+
+/** Read AND clear the Allr Work marker (one-shot). */
+export function takePendingAllr(): boolean {
+  const raw = loadString(PENDING_ALLR_KEY)
+  removeKey(PENDING_ALLR_KEY)
+
+  return Boolean(raw)
+}
+
+/** Whether an Allr Work resume is queued — read synchronously to seed `$restoring`. */
+export function hasPendingAllr(): boolean {
+  return Boolean(loadString(PENDING_ALLR_KEY))
+}
+
+/** Discard a queued Allr Work resume. See {@link clearPendingOAuth}. */
+export function clearPendingAllr(): void {
+  removeKey(PENDING_ALLR_KEY)
+}
+
 /** Whether a restorable connection exists — read synchronously at module load so
  *  the very first paint can show the connecting screen instead of the picker. */
 export function hasSavedTarget(): boolean {
@@ -196,10 +237,11 @@ export function hasSavedTarget(): boolean {
 
 /**
  * True while the boot-time auto-connect is dialing. Seeded synchronously from the saved
- * target — or a pending mobile OAuth resume — so `MobileController` shows the connecting
- * screen (not the connect picker) on the very first render when a restore is pending.
+ * target — or a pending mobile OAuth / Allr Work resume — so `MobileController` shows the
+ * connecting screen (not the connect picker) on the very first render when a restore is
+ * pending.
  */
-export const $restoring = atom(hasSavedTarget() || hasPendingOAuth())
+export const $restoring = atom(hasSavedTarget() || hasPendingOAuth() || hasPendingAllr())
 
 /**
  * "Use a different gateway": abandon the restore and land on the connect picker.
@@ -217,7 +259,7 @@ export function cancelRestore(): void {
  * Dial a saved `GatewayTarget`, pulling any secret it needs from the keyring.
  *
  * The one place that knows how to turn a persisted target back into a live
- * connection, for all four modes. Three callers share it: the boot restore below,
+ * connection, for all five modes. Three callers share it: the boot restore below,
  * the rollback of a failed gateway switch, and a follower WebView re-homing onto
  * the gateway another WebView just switched to (store/gateway-switch-sync.ts).
  *
@@ -248,6 +290,8 @@ export async function dialSavedTarget(target: GatewayTarget, interactive = false
     }
 
     await connectCloud(target.cloudBaseUrl, target.profile ?? null)
+  } else if (target.mode === 'allr') {
+    await connect({ url: await savedAllrWorkspace(target), mode: 'allr', allowInteractive: false })
   } else {
     if (!target.url?.trim()) {
       throw new Error('No saved gateway URL to reconnect to')
@@ -269,6 +313,116 @@ export async function dialSavedTarget(target: GatewayTarget, interactive = false
   }
 }
 
+/** A saved target's Allr Work workspace base if it is one AND it passes this build's host
+ *  rule, else `null`. Never throws: a portal config that cannot be read fails closed. */
+async function validSavedAllrWorkspace(target: GatewayTarget | null): Promise<null | string> {
+  const raw = target?.mode === 'allr' ? target.url?.trim() : undefined
+
+  if (!raw) {
+    return null
+  }
+
+  const config = await allrWorkConfig().catch(() => null)
+
+  return config ? allrWorkspaceBase(raw, config.parentDomain) : null
+}
+
+/**
+ * The Allr Work workspace this app is on, or was last on — for sign-out and switch account,
+ * which must revoke and forget THAT session.
+ *
+ * The live `allr` connection's base when there is one (it passed the host rule to get
+ * there). Otherwise the saved `allr` target, but only if it still passes the rule for this
+ * build's portal: after a restore that failed, `$connection` is null and the saved target is
+ * all there is, and Rust refuses an invalid `workspace` outright (`invalid-workspace`,
+ * nothing cleared). `null` otherwise — callers still clear the parent-domain cookies with
+ * `workspace: null`.
+ */
+export async function currentAllrWorkspace(): Promise<null | string> {
+  const conn = $connection.get()
+
+  if (conn?.mode === 'allr') {
+    return conn.baseUrl
+  }
+
+  return validSavedAllrWorkspace(loadGatewayTarget())
+}
+
+/**
+ * The saved Allr Work target's workspace base, re-validated against THIS build's portal.
+ *
+ * The saved target is only localStorage, so it is the one workspace URL that reaches a
+ * connect without having passed Rust's host rule (`decide::validate_workspace`). A value
+ * that fails it — tampered, or saved by a build pointed at another portal (dev vs prod) —
+ * is not something to dial with a bearer, and waiting cannot fix it: sign-in-required, so
+ * the restore ladder stops and the card offers a fresh sign-in.
+ *
+ * `interactive` is irrelevant for `allr` and ignored on purpose: the Allr Work sign-in
+ * runs BEFORE a connect (store/allr-work.ts), never inside one.
+ */
+async function savedAllrWorkspace(target: GatewayTarget): Promise<string> {
+  const base = await validSavedAllrWorkspace(target)
+
+  if (!base) {
+    throw new GatewaySignInRequiredError('Sign in to Allr Work to reconnect')
+  }
+
+  return base
+}
+
+/**
+ * Run a boot-time dial on the restore ladder: up to {@link MAX_RESTORE_ATTEMPTS} attempts with
+ * full-jitter backoff, stopping at once on a failure retrying cannot fix. Resolves `null` on
+ * success, or the error the ladder ended on. Shared by the saved-target restore and the
+ * Allr Work resume's connect (store/allr-work.ts), so both launch-time dials get one policy.
+ *
+ * Bounded ladder rather than a single shot. One transient failure at launch used
+ * to be terminal: the dial's catch nulls `$connection`, so the reconnect
+ * supervisor (which requires a live connection) never armed, and with
+ * `$hasConnected` false on a fresh process MobileController fell through to the
+ * CONNECT screen — indistinguishable from being signed out, even though tapping
+ * Connect immediately afterwards worked. A phone has plenty of ways to fail the
+ * first dial and none of them mean the session is gone: the radio may not be up
+ * microseconds after launch, DNS may not have settled, the gateway may be mid
+ * restart.
+ */
+export async function dialWithRestoreLadder(dial: () => Promise<void>): Promise<unknown> {
+  let lastError: unknown = null
+
+  for (let attempt = 0; attempt < MAX_RESTORE_ATTEMPTS; attempt++) {
+    if (attempt > 0) {
+      await new Promise(resolve => setTimeout(resolve, reconnectBackoffDelayMs(attempt - 1)))
+    }
+
+    try {
+      await dial()
+
+      return null
+    } catch (err) {
+      // Never `null`, so a success cannot be confused with a thrown null.
+      lastError = err ?? new Error('Restore dial failed')
+
+      // A refused CREDENTIAL is not transient — asking again cannot change the
+      // answer — so it spends the ladder immediately rather than sitting behind
+      // three backoffs the user has to watch. Everything else (refused, timeout,
+      // DNS, a gateway still coming up) is exactly what the retries are for.
+      //
+      // `isGatewaySignInRequired` joins it for the same reason and one more: it
+      // means we deliberately declined to open a login page, and retrying would
+      // just decline twice more. Before this, a signed-out restore fell into the
+      // generic arm and drove THREE interactive sign-ins inside one second —
+      // which is what the device log shows as "refusing a second sign-in".
+      if (isGatewayReauthRequired(err) || isGatewaySignInRequired(err) || isGatewaySignInBusy(err)) {
+        break
+      }
+      // connect*/connectLocal/connectCloud already set $connectionError + phase; the
+      // connect screen takes over once $restoring clears.
+    }
+  }
+
+  return lastError
+}
+
 /**
  * Re-dial the last successful connection on app launch. Reads the saved target,
  * pulls secrets from the keyring (the cookie jar is already rehydrated by
@@ -278,6 +432,17 @@ export async function dialSavedTarget(target: GatewayTarget, interactive = false
  * there is no saved target — a genuine first run.
  */
 export async function autoRestoreConnection(): Promise<void> {
+  // Mobile Allr Work resume (ALLR-51). First, because a marker here means the user's last
+  // act was starting an Allr Work sign-in. A sign-in that connected or really failed decides
+  // where they land; one they backed out of returns `false` and falls through to the
+  // ordinary restore below, which re-dials the gateway saved before it (`$restoring` stays
+  // up across that dial, as for the OAuth resume's fallback).
+  if (await resumeAllrSignIn()) {
+    $restoring.set(false)
+
+    return
+  }
+
   // Mobile OAuth resume: the sign-in navigated the calling webview away and back,
   // reloading us here. Rust now holds the session — either the RFC 8252 bearer in the OS
   // keyring, or the gateway cookies in the in-memory reqwest jar, depending on which flow
@@ -328,46 +493,24 @@ export async function autoRestoreConnection(): Promise<void> {
   // Reopen into the saved mode so a failed restore lands on the right connect
   // surface — dialSavedTarget commits it.
   //
-  // Bounded ladder rather than a single shot. One transient failure at launch used
-  // to be terminal: the dial's catch nulls `$connection`, so the reconnect
-  // supervisor (which requires a live connection) never armed, and with
-  // `$hasConnected` false on a fresh process MobileController fell through to the
-  // CONNECT screen — indistinguishable from being signed out, even though tapping
-  // Connect immediately afterwards worked. A phone has plenty of ways to fail the
-  // first dial and none of them mean the session is gone: the radio may not be up
-  // microseconds after launch, DNS may not have settled, the gateway may be mid
-  // restart.
-  //
   // `$restoring` is held true across the whole ladder so the user watches the
   // connecting screen — which reveals the inline configurator once
   // `$connectionError` is published — instead of the connect picker.
-  for (let attempt = 0; attempt < MAX_RESTORE_ATTEMPTS; attempt++) {
-    if (attempt > 0) {
-      await new Promise(resolve => setTimeout(resolve, reconnectBackoffDelayMs(attempt - 1)))
-    }
+  const lastError = await dialWithRestoreLadder(() => dialSavedTarget(target))
 
-    try {
-      await dialSavedTarget(target)
-      $restoring.set(false)
+  if (lastError === null) {
+    $restoring.set(false)
 
-      return
-    } catch (err) {
-      // A refused CREDENTIAL is not transient — asking again cannot change the
-      // answer — so it spends the ladder immediately rather than sitting behind
-      // three backoffs the user has to watch. Everything else (refused, timeout,
-      // DNS, a gateway still coming up) is exactly what the retries are for.
-      //
-      // `isGatewaySignInRequired` joins it for the same reason and one more: it
-      // means we deliberately declined to open a login page, and retrying would
-      // just decline twice more. Before this, a signed-out restore fell into the
-      // generic arm and drove THREE interactive sign-ins inside one second —
-      // which is what the device log shows as "refusing a second sign-in".
-      if (isGatewayReauthRequired(err) || isGatewaySignInRequired(err) || isGatewaySignInBusy(err)) {
-        break
-      }
-      // connect*/connectLocal/connectCloud already set $connectionError + phase; the
-      // connect screen takes over once $restoring clears below.
-    }
+    return
+  }
+
+  // An Allr Work restore that gave up tells the card which CTA to show (design §5.6):
+  // "session ended" for a missing credential, and Sign in again beside Try again for one
+  // that kept failing as unknown — which on an Allr workspace includes an invalid bearer
+  // the gateway answers with 503. Derived from the error the ladder ended on; nothing
+  // about the connection itself changes.
+  if (target.mode === 'allr') {
+    $allrWorkRestoreIssue.set(allrWorkRestoreIssueFor(lastError))
   }
 
   $restoring.set(false)

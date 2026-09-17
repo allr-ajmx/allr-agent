@@ -225,6 +225,10 @@ export function GatewayConfigurator({
   }
 
   const MODE_TITLES: Record<GatewayMode, string> = {
+    // TODO(ALLR-51 U5): g.allrTitle once the i18n key exists. Remote's title until then —
+    // there is no Allr Work card yet, so this only shows when a restore or resume has
+    // already put `$gatewayMode` on 'allr'.
+    allr: g.remoteTitle,
     cloud: g.cloudTitle,
     local: g.localTitle,
     remote: g.remoteTitle,

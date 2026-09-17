@@ -57,6 +57,7 @@ vi.mock('@/store/session', async () => {
   }
 })
 
+import { AllrWorkInvokeError } from '@/lib/allr-work'
 import { resetChat } from '@/store/chat'
 import { resetRepoStatusForBackendSwitch } from '@/store/coding-status'
 import { $connection, beginGatewaySwitch, disconnect, endGatewaySwitch } from '@/store/connection'
@@ -321,6 +322,40 @@ describe('gateway soft switch — failed dial', () => {
     const [cause, title] = vi.mocked(notifyError).mock.calls[0]
     expect((cause as Error).message).toBe('unreachable')
     expect(title).toBe('Failed to switch gateway')
+  })
+
+  // The user closed the Allr Work sign-in window on purpose. Going back to where they
+  // were is the whole answer; a "failed to switch" toast would report a choice as a fault.
+  it('rolls back a cancelled Allr Work sign-in without a failure toast', async () => {
+    withPrevious()
+    const cancelled = new AllrWorkInvokeError('cancelled', 'The sign-in window was closed.')
+
+    await expect(softSwitchGateway('allr', () => Promise.reject(cancelled))).rejects.toBe(cancelled)
+
+    expect(dialSavedTarget).toHaveBeenCalledWith(previousTarget)
+    expect(notifyError).not.toHaveBeenCalled()
+  })
+
+  it('still reports any other Allr Work failure', async () => {
+    withPrevious()
+
+    await expect(
+      softSwitchGateway('allr', () => Promise.reject(new AllrWorkInvokeError('no-workspace', 'No workspace.')))
+    ).rejects.toMatchObject({ kind: 'no-workspace' })
+
+    expect(notifyError).toHaveBeenCalledOnce()
+  })
+
+  // SshError serialises `cancelled` too. Declining an SSH host-key prompt is a failed switch
+  // the user must be told about, not an Allr Work cancellation.
+  it('still reports an SSH switch cancelled at the host-key prompt', async () => {
+    withPrevious()
+    const declined = { kind: 'cancelled', message: 'Host key was not accepted.' }
+
+    await expect(softSwitchGateway('ssh', () => Promise.reject(declined))).rejects.toBe(declined)
+
+    expect(dialSavedTarget).toHaveBeenCalledWith(previousTarget)
+    expect(notifyError).toHaveBeenCalledOnce()
   })
 
   it('refills the lists it wiped for a switch that never happened', async () => {

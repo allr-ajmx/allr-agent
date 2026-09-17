@@ -2,9 +2,9 @@ import { type Codec, persistentAtom } from '@/lib/persisted'
 import { atom } from '@/store/atom'
 import type { GatewayMode } from '@/store/gateway-config'
 
-// Gateway-mode switching (E1). The app talks to a backend in one of four modes —
+// Gateway-mode switching (E1). The app talks to a backend in one of five modes —
 // local (spawned), remote (URL), cloud (portal-discovered), ssh (tunnelled to a
-// backend on a remote host). This holds the chosen mode (persisted). Two ways to
+// backend on a remote host), allr (an Allr Work workspace the portal found). This holds the chosen mode (persisted). Two ways to
 // change it:
 //   • setGatewayMode — mode-only, no teardown. Used by "Save for next restart":
 //     persist the choice without dialling anything.
@@ -18,7 +18,7 @@ import type { GatewayMode } from '@/store/gateway-config'
 // than being trusted. Every new mode MUST be added here: a missing entry does not
 // fail loudly, it silently reopens the app in 'remote'.
 const modeCodec: Codec<GatewayMode> = {
-  decode: raw => (raw === 'local' || raw === 'cloud' || raw === 'ssh' ? raw : 'remote'),
+  decode: raw => (raw === 'local' || raw === 'cloud' || raw === 'ssh' || raw === 'allr' ? raw : 'remote'),
   encode: value => value
 }
 

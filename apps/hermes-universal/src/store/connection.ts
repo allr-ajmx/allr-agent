@@ -1,4 +1,5 @@
 import { GatewaySignInBusyError, GatewaySignInRequiredError, isGatewayReauthRequired } from '@/gateway'
+import { allrWorkClearSession, isAllrWorkSignInInFlight } from '@/lib/allr-work'
 import {
   fetchAuthProviders,
   oauthLogin,
@@ -24,14 +25,17 @@ import {
   resumeSessionCookiePersistence,
   suspendSessionCookiePersistence
 } from '@/lib/session-persist'
+import { clearAllrWorkNotices } from '@/store/allr-work-state'
 import { onBackground, onForeground } from '@/store/app-lifecycle'
 import { atom } from '@/store/atom'
 import { $gatewayState, closeGateway, connectGateway, lastGatewayCloseCode } from '@/store/gateway'
 import { chooseGatedAuth, type Connection } from '@/store/gateway-config'
 import {
   clearGatewayTarget,
+  clearPendingAllr,
   clearPendingOAuth,
   clearPendingPortal,
+  currentAllrWorkspace,
   loadGatewayTarget,
   saveGatewayTarget,
   savePendingOAuth,
@@ -100,6 +104,17 @@ export interface ConnectInput {
    * {@link GatewaySignInRequiredError} it can surface as a CTA instead.
    */
   allowInteractive?: boolean
+  /**
+   * Which remote-shaped gateway this is. Defaults to `'remote'`.
+   *
+   * `'allr'` is an Allr Work workspace (ALLR-51) and connects differently, because every
+   * request to it without a bearer is answered by Pomerium, not the agent: the session is
+   * checked BEFORE the first probe, a missing one is always sign-in-required (the Allr Work
+   * sign-in runs before a connect, in store/allr-work.ts — never inside one, and never
+   * through `beginOAuthLogin`'s cookie cascade, which cannot complete behind Pomerium), and
+   * `allowInteractive`, `token`, `username` and `password` are ignored.
+   */
+  mode?: 'allr' | 'remote'
 }
 
 // Non-secret conveniences live in localStorage for a synchronous prefill; the
@@ -245,6 +260,10 @@ function requireInteractive(input: ConnectInput, base: string): void {
 }
 
 export async function connect(input: ConnectInput): Promise<void> {
+  if (input.mode === 'allr') {
+    return connectAllrWorkspace(input.url)
+  }
+
   const base = normalizeBaseUrl(input.url)
   armReconnect()
   $connectionError.set(null)
@@ -334,6 +353,70 @@ export async function connect(input: ConnectInput): Promise<void> {
     await persistSessionCookies()
     // Remember this target so the next launch auto-reconnects (D8).
     saveGatewayTarget({ mode: 'remote', url: input.url.trim(), username: input.username || undefined })
+  } catch (err) {
+    $connectionError.set(errorText(err))
+    $connectionPhase.set('error')
+    $connection.set(null)
+    throw err
+  }
+}
+
+/**
+ * `connect({ mode: 'allr' })`: dial an Allr Work workspace with the bearer Rust holds.
+ *
+ * The ordering is the point. The remote path probes `/api/status` unauthenticated first,
+ * and on an Allr workspace that request is routed to Pomerium (only bearer-carrying
+ * `/api/*` reaches the agent directly). So the session is checked FIRST — `oauth_status`
+ * loads the keyring bearer, refreshing it if it must, and reports a Pomerium redirect with
+ * no bearer as signed out — and every request after it carries the bearer.
+ *
+ *  - "could not tell" is a network fault (a plain Error), so a retry ladder retries it;
+ *  - signed out is sign-in-required, whoever asked: nothing here may open a login page;
+ *  - a ws-ticket mint refused mid-dial is sign-in-required as well — the remote path
+ *    re-runs sign-in there, and for this mode that sign-in does not exist inside connect.
+ *
+ * The remote card's prefill (`hermes.url`, `hermes.username`) and its keyring token /
+ * password are left alone: none of them belong to this mode, and `saveSecrets` would
+ * overwrite them with nothing.
+ */
+async function connectAllrWorkspace(url: string): Promise<void> {
+  const base = normalizeBaseUrl(url)
+  armReconnect()
+  $connectionError.set(null)
+  $connectionPhase.set('probing')
+
+  try {
+    const live = await oauthStatus(base).catch(() => unknownOauthStatus())
+
+    if (oauthStatusIsUnknown(live)) {
+      throw new Error(live.error || 'Could not reach your Allr Work workspace')
+    }
+
+    if (!live.signedIn) {
+      throw new GatewaySignInRequiredError('Sign in to Allr Work to continue')
+    }
+
+    $status.set(await probeStatus(base))
+
+    const conn: Connection = { baseUrl: base, mode: 'allr', authMode: 'oauth' }
+
+    $connection.set(conn)
+    $connectionPhase.set('connecting')
+
+    try {
+      await dial(conn)
+    } catch (err) {
+      if (isGatewayReauthRequired(err)) {
+        throw new GatewaySignInRequiredError('Your Allr Work session ended — sign in again', { cause: err })
+      }
+
+      throw err
+    }
+
+    $connectionPhase.set('ready')
+    clearAllrWorkNotices()
+    // Remember this target so the next launch auto-reconnects (D8).
+    saveGatewayTarget({ mode: 'allr', url: base })
   } catch (err) {
     $connectionError.set(errorText(err))
     $connectionPhase.set('error')
@@ -596,6 +679,25 @@ export async function signOut(): Promise<void> {
     await portalLogout().catch(() => {})
   }
 
+  // Allr Work — live, OR the saved target of a restore that failed (then `$connection` is
+  // null, and the keyring bearer and the portal / Pomerium / Dex cookies are all still
+  // there). Revoke that workspace's gateway session if the live branch above did not, then
+  // forget the BROWSER session so the next sign-in can pick another account. The workspace
+  // is only named when it passes the host rule; otherwise the parent-domain cookies are
+  // still cleared (`workspace: null`). Best-effort — a sign-out must complete offline — and
+  // never while a sign-in is running: the clear takes no lease, and mid-flow it breaks hop 2.
+  if (conn?.mode === 'allr' || (!conn && loadGatewayTarget()?.mode === 'allr')) {
+    const workspace = await currentAllrWorkspace()
+
+    if (!conn && workspace) {
+      await oauthLogout(workspace).catch(() => {})
+    }
+
+    if (!isAllrWorkSignInInFlight()) {
+      await allrWorkClearSession({ workspace }).catch(() => {})
+    }
+  }
+
   await clearSessionJar()
   await forgetSavedLogin().catch(() => {})
 
@@ -603,6 +705,8 @@ export async function signOut(): Promise<void> {
   clearGatewayTarget()
   clearPendingOAuth()
   clearPendingPortal()
+  clearPendingAllr()
+  clearAllrWorkNotices()
 
   disconnect()
 }
@@ -808,6 +912,10 @@ function sleep(ms: number): Promise<void> {
 }
 
 // DESKTOP ONLY — see the reauth branch in the loop for why mobile must never reach here.
+//
+// `allr` takes the throw below like `remote` (and never reaches here from the loop, which
+// stands down for every mode but cloud): its sign-in is two interactive hops through the
+// Allr Work portal, which only a person may start.
 //
 // Unreachable for `ssh`: that mode is always authMode 'token', and the loop only
 // calls this on a GatewayReauthRequiredError, which the ticket/oauth paths raise.

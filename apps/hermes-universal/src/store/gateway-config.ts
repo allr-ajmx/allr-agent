@@ -16,8 +16,13 @@ import { type AuthProvider, mintWsTicket } from '@/lib/auth'
  *  - `ssh` is a token-authed backend on 127.0.0.1 reached through an SSH tunnel.
  *    Rust spawns (or reattaches to) `allr serve` on the remote host and
  *    forwards a loopback port to it, so from here it behaves like `local`, not
- *    like `remote`. */
-export type GatewayMode = 'local' | 'remote' | 'cloud' | 'ssh'
+ *    like `remote`.
+ *  - `allr` is an Allr Work workspace (`https://<user>.<parent>`) whose baseUrl the
+ *    Allr Work portal found (src-tauri/src/allr_work.rs). Remote-shaped, but it
+ *    authenticates ONLY with the RFC 8252 bearer and connects session-check-first,
+ *    because every unauthenticated request to the workspace lands on Pomerium — see
+ *    `connect` in store/connection.ts. */
+export type GatewayMode = 'local' | 'remote' | 'cloud' | 'ssh' | 'allr'
 
 /** How the WS handshake authenticates.
  *  - `none`   — ungated backend, no auth param.
@@ -50,17 +55,22 @@ export interface Connection {
  *  in how `baseUrl` was obtained (portal discovery) and which settings card shows.
  *  Ported from desktop `electron/connection-config.ts` `modeIsRemoteLike`.
  *
+ *  `allr` is remote-like too: its gateway is a remote host reached over https, so
+ *  everything that asks "is the backend on this machine?" must answer no.
+ *
  *  `ssh` is deliberately NOT remote-like, matching desktop: the tunnel terminates
  *  at a loopback backend that authenticates with a static token, so it takes the
  *  same path as `local`, not the probe/OAuth path a real remote URL needs. */
 export function modeIsRemoteLike(mode: GatewayMode | undefined): boolean {
-  return mode === 'remote' || mode === 'cloud' || mode === undefined
+  return mode === 'remote' || mode === 'cloud' || mode === 'allr' || mode === undefined
 }
 
 /**
  * A stable identity for caches keyed on "which backend am I talking to".
  *
- * For every mode but `ssh` the baseUrl is that identity. An ssh connection's
+ * For every mode but `ssh` the baseUrl is that identity. The mode is part of the key
+ * too, so an `allr` connection never shares a cache with a `remote` one that
+ * happens to name the same URL. An ssh connection's
  * baseUrl carries a fresh ephemeral port on every re-tunnel, so keying on it
  * throws away the file tree and directory listings on each reconnect even though
  * the backend is literally the same process. Desktop hit this and fixed it the
