@@ -1,0 +1,5 @@
+{
+  "android": {
+    "kotlin": "work.allr.plugin.cookiestore.CookieStorePlugin"
+  }
+}

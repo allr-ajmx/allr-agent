@@ -226,6 +226,9 @@ pub fn run() {
     builder
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_mic::init())
+        // Android CookieManager access for the Allr Work sign-out (webview_cookies.rs).
+        // Rust-only; registered everywhere so the chain keeps one shape.
+        .plugin(tauri_plugin_cookie_store::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_haptics::init())
         .plugin(tauri_plugin_dialog::init())

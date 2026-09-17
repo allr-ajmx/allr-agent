@@ -642,6 +642,74 @@ pub mod decide {
         !parent.is_empty() && (domain == parent || domain.ends_with(&format!(".{parent}")))
     }
 
+    /// One host whose Allr Work cookies a store without a cookie listing (Android's
+    /// `CookieManager`) must expire by name.
+    #[cfg_attr(
+        not(target_os = "android"),
+        allow(dead_code, reason = "only Android's CookieManager is scrubbed by host")
+    )]
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct CookieHost {
+        /// `https://<host>/`. The `/` path is deliberate: it is the only cookie `Path` the
+        /// store reads back for this URL, and so the only one expired.
+        pub url: String,
+        /// The `Domain=` values each cookie name is expired under besides host-only: the
+        /// host itself, then the parent (once, for the parent host).
+        pub domains: Vec<String>,
+    }
+
+    /// The hosts to scrub on sign-out where the store cannot enumerate its cookies: the
+    /// parent domain, every platform host under it ([`RESERVED_LABELS`] — the portal on
+    /// `app.`, Dex on `auth.`, Pomerium on `authenticate.`, and the admin hosts), and the
+    /// signed-in workspace when the caller knows it.
+    ///
+    /// A cookie is visible on a host when it is host-only there or scoped to one of the
+    /// host's parent domains, so expiring each name host-only, under `Domain=<host>` and
+    /// under `Domain=<parent>` covers every cookie of ours on that host.
+    ///
+    /// Never outside the parent: every host is checked with [`cookie_is_allr_work`], so a
+    /// workspace from somewhere else is dropped rather than scrubbed, whatever the caller
+    /// validated. The single-label rule is [`validate_workspace`]'s job, not this one's.
+    /// Duplicates (a workspace that names a platform host) are dropped, first one kept.
+    #[cfg_attr(
+        not(target_os = "android"),
+        allow(dead_code, reason = "only Android's CookieManager is scrubbed by host")
+    )]
+    pub fn cookie_hosts(cfg: &PortalConfig, workspace: Option<&Url>) -> Vec<CookieHost> {
+        let parent = cfg.parent.to_ascii_lowercase();
+        let candidates = std::iter::once(parent.clone())
+            .chain(
+                RESERVED_LABELS
+                    .iter()
+                    .map(|label| format!("{label}.{parent}")),
+            )
+            .chain(workspace.and_then(Url::domain).map(str::to_ascii_lowercase));
+
+        let mut hosts: Vec<String> = Vec::new();
+
+        for host in candidates {
+            if cookie_is_allr_work(&host, &parent) && !hosts.contains(&host) {
+                hosts.push(host);
+            }
+        }
+
+        hosts
+            .into_iter()
+            .map(|host| {
+                let mut domains = vec![host.clone()];
+
+                if host != parent {
+                    domains.push(parent.clone());
+                }
+
+                CookieHost {
+                    url: format!("https://{host}/"),
+                    domains,
+                }
+            })
+            .collect()
+    }
+
     #[cfg(test)]
     mod tests {
         use super::*;
@@ -1167,6 +1235,115 @@ pub mod decide {
             assert!(!cookie_is_allr_work(".", ""));
         }
 
+        // ── Cookie hosts (Android sign-out) ──────────────────────────────────
+
+        fn host(url: &str, domains: &[&str]) -> CookieHost {
+            CookieHost {
+                url: url.into(),
+                domains: domains.iter().map(|d| d.to_string()).collect(),
+            }
+        }
+
+        fn platform_hosts() -> Vec<CookieHost> {
+            vec![
+                host("https://allr.work/", &["allr.work"]),
+                host("https://app.allr.work/", &["app.allr.work", "allr.work"]),
+                host("https://auth.allr.work/", &["auth.allr.work", "allr.work"]),
+                host(
+                    "https://authenticate.allr.work/",
+                    &["authenticate.allr.work", "allr.work"],
+                ),
+                host(
+                    "https://admin.allr.work/",
+                    &["admin.allr.work", "allr.work"],
+                ),
+                host(
+                    "https://pgadmin.allr.work/",
+                    &["pgadmin.allr.work", "allr.work"],
+                ),
+            ]
+        }
+
+        #[test]
+        fn cookie_hosts_without_a_workspace_are_the_parent_and_platform_hosts() {
+            assert_eq!(cookie_hosts(&prod(), None), platform_hosts());
+        }
+
+        #[test]
+        fn cookie_hosts_add_the_signed_in_workspace_last() {
+            let workspace = validate_workspace("https://XM.allr.work/", &prod()).unwrap();
+            let mut expected = platform_hosts();
+            expected.push(host(
+                "https://xm.allr.work/",
+                &["xm.allr.work", "allr.work"],
+            ));
+
+            assert_eq!(cookie_hosts(&prod(), Some(&workspace)), expected);
+        }
+
+        #[test]
+        fn cookie_hosts_follow_a_dev_parent() {
+            let workspace = url("https://xm.dev.allr.work");
+            let hosts = cookie_hosts(&dev(), Some(&workspace));
+
+            assert_eq!(hosts[0], host("https://dev.allr.work/", &["dev.allr.work"]));
+            assert_eq!(
+                hosts.last().unwrap(),
+                &host(
+                    "https://xm.dev.allr.work/",
+                    &["xm.dev.allr.work", "dev.allr.work"]
+                )
+            );
+            assert_eq!(hosts.len(), 1 + RESERVED_LABELS.len() + 1);
+        }
+
+        #[test]
+        fn cookie_hosts_never_leave_the_parent_or_repeat() {
+            // Unvalidated on purpose: the guard must hold whatever the caller checked.
+            for raw in [
+                "https://evil.example.test",
+                "https://xmallr.work",
+                "https://allr.work.evil",
+                "https://google.com",
+                "https://127.0.0.1",
+                "https://app.allr.work",
+                "https://allr.work",
+            ] {
+                assert_eq!(
+                    cookie_hosts(&prod(), Some(&url(raw))),
+                    platform_hosts(),
+                    "{raw}"
+                );
+            }
+
+            for workspace in [None, Some(url("https://xm.allr.work"))] {
+                let hosts = cookie_hosts(&prod(), workspace.as_ref());
+
+                for (i, entry) in hosts.iter().enumerate() {
+                    let parsed = url(&entry.url);
+
+                    assert_eq!(parsed.path(), "/", "{}", entry.url);
+                    assert!(
+                        cookie_is_allr_work(parsed.domain().unwrap(), "allr.work"),
+                        "{}",
+                        entry.url
+                    );
+                    assert!(
+                        entry
+                            .domains
+                            .iter()
+                            .all(|d| cookie_is_allr_work(d, "allr.work")),
+                        "{entry:?}"
+                    );
+                    assert!(
+                        hosts[..i].iter().all(|earlier| earlier.url != entry.url),
+                        "{} repeated",
+                        entry.url
+                    );
+                }
+            }
+        }
+
         // ── Outcome mailbox ──────────────────────────────────────────────────
 
         fn signed_in() -> AllrWorkOutcome {
@@ -1513,22 +1690,60 @@ pub async fn allr_work_sign_in(
 /// the portal's parent domain (Pomerium, Dex, the portal), so the next sign-in can pick a
 /// different account. Google's cookies are deliberately left alone.
 ///
-/// `supported: false` on a platform that cannot delete webview cookies (Android, until
-/// U3b) — a caller must not present that as "nothing to clear".
+/// `supported: false` on a platform that cannot delete webview cookies — a caller must not
+/// present that as "nothing to clear". Every current target reports `true`.
+///
+/// `workspace` (optional, JS key `workspace`): the signed-in workspace base
+/// (`https://<user>.<DOMAIN>`), when the caller has one. Android's `CookieManager` cannot
+/// list its cookies, so there the command scrubs a fixed set of hosts
+/// ([`decide::cookie_hosts`]) and a workspace's own cookies are only reached when it is
+/// named here. Desktop and iOS enumerate the store and do not need it. It is validated
+/// with [`decide::validate_workspace`] on every platform, before anything is deleted, so
+/// the argument means the same thing everywhere; an invalid one is `invalid-workspace`.
 #[tauri::command]
 pub async fn allr_work_clear_session(
     app: AppHandle,
     webview: WebviewWindow,
+    workspace: Option<String>,
 ) -> Result<AllrWorkClearReport, AllrWorkError> {
-    let _ = &app;
     let cfg = configured_portal()?;
-    let parent = cfg.parent.clone();
+    let workspace = workspace
+        .as_deref()
+        .map(|raw| decide::validate_workspace(raw, &cfg))
+        .transpose()
+        .map_err(|_| {
+            AllrWorkError::new(
+                AllrWorkErrorKind::InvalidWorkspace,
+                "That is not an Allr Work workspace address, so no sign-in cookies were cleared.",
+            )
+        })?;
 
-    let report = crate::webview_cookies::delete_matching(&webview, move |domain| {
-        decide::cookie_is_allr_work(domain, &parent)
-    })
-    .await
-    .map_err(|detail| {
+    #[cfg(target_os = "android")]
+    let report = {
+        let _ = &webview;
+        let hosts = decide::cookie_hosts(&cfg, workspace.as_ref())
+            .into_iter()
+            .map(|host| tauri_plugin_cookie_store::ExpireTarget {
+                url: host.url,
+                domains: host.domains,
+            })
+            .collect();
+
+        crate::webview_cookies::expire_on_hosts(&app, hosts).await
+    };
+
+    #[cfg(not(target_os = "android"))]
+    let report = {
+        let _ = (&app, &workspace);
+        let parent = cfg.parent.clone();
+
+        crate::webview_cookies::delete_matching(&webview, move |domain| {
+            decide::cookie_is_allr_work(domain, &parent)
+        })
+        .await
+    };
+
+    let report = report.map_err(|detail| {
         log::warn!("[allr-work] could not clear the Allr Work cookies: {detail}");
 
         AllrWorkError::new(

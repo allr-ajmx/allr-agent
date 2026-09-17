@@ -1,0 +1,32 @@
+# Local (in-tree) Tauri v2 plugin: expire cookies in Android's app-global
+# `android.webkit.CookieManager` (ALLR-51 U3b, Allr Work sign-out).
+#
+# Why a plugin: wry's Android `delete_cookie` is a no-op and its
+# `clearAllBrowsingData` never touches `CookieManager`, so Rust cannot delete a
+# webview cookie on Android at all. `CookieManager` itself has no "list cookies
+# with attributes" call either — only `getCookie(url)`, which yields `name=value`
+# pairs — so the caller names the exact hosts to scrub and the Kotlin side
+# expires every cookie name it finds there (android/src/main/java/CookieStorePlugin.kt).
+#
+# Rust-only: the plugin exposes NO webview commands and no permissions, so the
+# webview cannot reach it (Tauri's ACL rejects `plugin:cookie-store|…` without a
+# granted permission). Desktop and iOS compile a stub that reports `Unsupported`;
+# they delete cookies through wry / WKHTTPCookieStore instead (src/webview_cookies.rs).
+[package]
+name = "tauri-plugin-cookie-store"
+version = "0.1.0"
+description = "Expire named cookies in Android's CookieManager for a list of hosts. Rust-only; desktop/iOS stub."
+authors = ["Allr Universal"]
+edition = "2021"
+rust-version = "1.77.2"
+# REQUIRED: must match build.rs's plugin name; Tauri keys plugin discovery + the
+# generated Android subproject wiring on this value.
+links = "tauri-plugin-cookie-store"
+
+[dependencies]
+tauri = { version = "2" }
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+
+[build-dependencies]
+tauri-plugin = { version = "2.4.0", features = ["build"] }

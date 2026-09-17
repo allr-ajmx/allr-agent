@@ -147,6 +147,10 @@ pub struct DeleteReport {
 /// `deleted` counts cookies whose deletion was QUEUED. Neither wry (desktop) nor WebKit
 /// (iOS) reports a per-cookie result back to this call, so a count is the most a caller
 /// can be told.
+///
+/// Not on Android: `CookieManager` cannot list cookies with their domains, so there is
+/// nothing to run `matches` against — see [`expire_on_hosts`].
+#[cfg(not(target_os = "android"))]
 pub async fn delete_matching<F>(webview: &WebviewWindow, matches: F) -> Result<DeleteReport, String>
 where
     F: Fn(&str) -> bool + Send + 'static,
@@ -159,19 +163,6 @@ where
                 deleted,
                 supported: true,
             })
-    }
-
-    // U3b (ALLR-51): wry's Android `delete_cookie` is a no-op and `clearAllBrowsingData`
-    // never touches `CookieManager`, so this needs a small Kotlin plugin. Until then the
-    // answer is an honest "cannot", not a silent zero.
-    #[cfg(target_os = "android")]
-    {
-        let _ = (webview, matches);
-
-        Ok(DeleteReport {
-            deleted: 0,
-            supported: false,
-        })
     }
 
     // Linux (WebKitGTK), Windows (WebView2), macOS (WKWebView) through wry. Both calls are
@@ -221,6 +212,47 @@ where
     }
 }
 
+/// Expire every cookie Android's app-global `CookieManager` holds for each target's
+/// `https://<host>/`, host-only and under each of the target's `Domain=` values
+/// (ALLR-51 U3b, through `tauri-plugin-cookie-store`).
+///
+/// Android has to be told WHERE to look. wry's Android `delete_cookie` is a no-op and
+/// `clearAllBrowsingData` never touches `CookieManager`, and `CookieManager` itself only
+/// answers `getCookie(url)` with `name=value` pairs — no domain, no path. So the caller
+/// names the hosts (for Allr Work, `allr_work::decide::cookie_hosts`) and the plugin
+/// overwrites each name it finds there with an expired cookie.
+///
+/// Limits, all from that API: only `Path=/` cookies are seen or expired; a cookie on a
+/// host not listed is untouched; and `deleted` counts (host, name) pairs expired, so one
+/// parent-domain cookie seen from two hosts can count twice. The plugin re-reads after
+/// `flush()`, and survivors are logged as a count — never a name or value.
+#[cfg(target_os = "android")]
+pub async fn expire_on_hosts(
+    app: &tauri::AppHandle,
+    targets: Vec<tauri_plugin_cookie_store::ExpireTarget>,
+) -> Result<DeleteReport, String> {
+    use tauri_plugin_cookie_store::CookieStoreExt;
+
+    let report = app
+        .cookie_store()
+        .expire(&targets)
+        .await
+        .map_err(|e| format!("CookieManager did not expire the cookies: {e}"))?;
+
+    if report.remaining > 0 {
+        log::warn!(
+            "[cookies] {} of {} expired cookie(s) were still readable after the flush",
+            report.remaining,
+            report.cleared
+        );
+    }
+
+    Ok(DeleteReport {
+        deleted: report.cleared,
+        supported: true,
+    })
+}
+
 /// The cookies to hand wry's `delete_cookie` so that `cookie` — as `cookies()` returned
 /// it — is really deleted, whether the store holds it host-only or as a domain cookie.
 ///
@@ -244,7 +276,7 @@ where
     any(target_os = "ios", target_os = "android"),
     allow(
         dead_code,
-        reason = "iOS deletes the NSHTTPCookie itself; Android cannot delete"
+        reason = "iOS deletes the NSHTTPCookie itself; Android expires by name in CookieManager"
     )
 )]
 fn deletion_candidates(cookie: &Cookie<'static>) -> Vec<Cookie<'static>> {
