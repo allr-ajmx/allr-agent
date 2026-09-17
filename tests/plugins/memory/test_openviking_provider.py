@@ -708,6 +708,23 @@ def test_get_tool_schemas_omits_profile_and_keeps_narrow_forget_tools():
     assert "viking_forget" in names
 
 
+@pytest.mark.parametrize("uri", [
+    "viking://~/peers/hermes/memories/preferences/mem_abc123.md",   # what viking_remember writes
+    "viking://~/memories/preferences/mem_abc123.md",
+    "viking://user/alice/peers/hermes/memories/preferences/mem_abc123.md",  # canonical, from the server
+])
+def test_forget_accepts_home_alias_and_canonical_memory_uris(uri):
+    assert openviking_module._validate_forget_memory_uri(uri) == (uri, None)
+
+
+@pytest.mark.parametrize("uri", [
+    "viking://~/resources/notes.md",
+    "viking://resources/allr/handbook.md",
+])
+def test_forget_rejects_non_memory_uris(uri):
+    assert openviking_module._validate_forget_memory_uri(uri)[0] is None
+
+
 def test_viking_client_delete_uses_identity_headers(monkeypatch):
     client = _VikingClient(
         "https://example.com",
@@ -1249,10 +1266,10 @@ def test_prefetch_prepends_session_start_memory_context_once_per_session():
     calls = _mock_session_start_reads(
         provider,
         {
-            ("/api/v1/content/read", "viking://user/memories/profile.md"): (
+            ("/api/v1/content/read", "viking://~/memories/profile.md"): (
                 "User prefers concise answers."
             ),
-            ("/api/v1/fs/ls", "viking://user/memories/preferences"): _memory_listing(
+            ("/api/v1/fs/ls", "viking://~/memories/preferences"): _memory_listing(
                 {"isDir": True, "rel_path": "owner"},
                 {
                     "isDir": False,
@@ -1266,7 +1283,7 @@ def test_prefetch_prepends_session_start_memory_context_once_per_session():
                 },
                 {"isDir": False, "rel_path": "owner/ignored.txt", "abstract": "ignore"},
             ),
-            ("/api/v1/fs/ls", "viking://user/memories/entities"): _memory_listing(
+            ("/api/v1/fs/ls", "viking://~/memories/entities"): _memory_listing(
                 {
                     "isDir": False,
                     "rel_path": "people/ada.md",
@@ -1280,13 +1297,13 @@ def test_prefetch_prepends_session_start_memory_context_once_per_session():
     first = provider.prefetch("What should we recall?", session_id="sid-123")
     second = provider.prefetch("What should we recall?", session_id="sid-123")
 
-    assert '<user-profile uri="viking://user/memories/profile.md">' in first
+    assert '<user-profile uri="viking://~/memories/profile.md">' in first
     assert "User prefers concise answers." in first
     assert "<available-memories>" in first
-    assert "viking://user/memories/preferences/" in first
+    assert "viking://~/memories/preferences/" in first
     assert "owner/z-last.md — Keep replies compact." in first
     assert first.index("owner/a-first.md") < first.index("owner/z-last.md")
-    assert "viking://user/memories/entities/" in first
+    assert "viking://~/memories/entities/" in first
     assert "people/ada.md — Ada Lovelace is a collaborator." in first
     assert "owner/ignored.txt" not in first
     assert "<preferences" not in first
@@ -1295,14 +1312,14 @@ def test_prefetch_prepends_session_start_memory_context_once_per_session():
     assert "<user-profile" not in second
     assert "recalled context" in second
     assert [(path, params) for path, params, _timeout in calls] == [
-        ("/api/v1/content/read", {"uri": "viking://user/memories/profile.md"}),
+        ("/api/v1/content/read", {"uri": "viking://~/memories/profile.md"}),
         (
             "/api/v1/fs/ls",
-            {"uri": "viking://user/memories/preferences", **_SESSION_START_LIST_PARAMS},
+            {"uri": "viking://~/memories/preferences", **_SESSION_START_LIST_PARAMS},
         ),
         (
             "/api/v1/fs/ls",
-            {"uri": "viking://user/memories/entities", **_SESSION_START_LIST_PARAMS},
+            {"uri": "viking://~/memories/entities", **_SESSION_START_LIST_PARAMS},
         ),
     ]
     assert provider._search_prefetch_context.call_count == 2
@@ -1315,7 +1332,7 @@ def test_prefetch_reinjects_after_in_place_compression_same_session():
 
     def fake_get(path, params=None, **kwargs):
         uri = (params or {}).get("uri", "")
-        if uri == "viking://user/memories/profile.md":
+        if uri == "viking://~/memories/profile.md":
             return {"result": next(profiles)}
         return {"result": []}
 
