@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Empty on purpose: CookieManager needs no permission, and the plugin makes no
+  network calls. Present because every Tauri plugin library module ships one.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+</manifest>

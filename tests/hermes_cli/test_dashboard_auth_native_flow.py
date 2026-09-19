@@ -244,3 +244,153 @@ def test_native_refresh_dead_token_returns_401(gated_client):
     )
     assert r.status_code == 401
     assert r.json()["error"] == "session_expired"
+
+
+# ---------------------------------------------------------------------------
+# connector_id authorize hint (ALLR-51 fork divergence)
+# ---------------------------------------------------------------------------
+
+
+class _RecordingStubProvider(StubAuthProvider):
+    """Stub that records every ``start_login`` call's kwargs.
+
+    ``supports_authorize_hints`` defaults to the base (absent ⇒ False) so it
+    stands in for an upstream provider whose ``start_login`` only accepts
+    ``redirect_uri``; the ``_HintingStubProvider`` subclass opts in.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.start_login_calls: list[dict] = []
+
+    def start_login(self, **kwargs):
+        self.start_login_calls.append(dict(kwargs))
+        return super().start_login(redirect_uri=kwargs["redirect_uri"])
+
+
+class _HintingStubProvider(_RecordingStubProvider):
+    supports_authorize_hints = True
+
+
+def _self_hosted_dex_provider():
+    """A real SelfHostedOIDCProvider pointed at a Dex-shaped issuer, with the
+    discovery doc pre-seeded so nothing touches the network."""
+    import plugins.dashboard_auth.self_hosted as oidc_plugin
+
+    issuer = "https://dex.example.test/dex"
+    p = oidc_plugin.SelfHostedOIDCProvider(issuer=issuer, client_id="allr-gateway")
+    p._discovery = {
+        "issuer": issuer,
+        "authorization_endpoint": f"{issuer}/auth",
+        "token_endpoint": f"{issuer}/token",
+        "jwks_uri": f"{issuer}/keys",
+    }
+    p._discovery_fetched_at = time.time()
+    return p
+
+
+def _native_authorize(client, provider_name, **extra):
+    _verifier, challenge = _make_pkce()
+    params = {
+        "provider": provider_name,
+        "code_challenge": challenge,
+        "code_challenge_method": "S256",
+        "redirect_uri": "http://127.0.0.1:53999/callback",
+        "state": "cli-state",
+    }
+    params.update(extra)
+    return client.get("/auth/native/authorize", params=params)
+
+
+def _location_params(resp) -> dict:
+    return parse_qs(urlparse(resp.headers["location"]).query)
+
+
+def test_native_authorize_forwards_connector_id_to_dex(gated_client):
+    clear_providers()
+    register_provider(_self_hosted_dex_provider())
+    r = _native_authorize(gated_client, "self-hosted", connector_id="google")
+    assert r.status_code == 302, r.text
+    loc = urlparse(r.headers["location"])
+    assert f"{loc.scheme}://{loc.netloc}{loc.path}" == "https://dex.example.test/dex/auth"
+    assert _location_params(r)["connector_id"] == ["google"]
+
+
+def test_native_authorize_without_connector_id_sends_no_hint(gated_client):
+    clear_providers()
+    register_provider(_self_hosted_dex_provider())
+    r = _native_authorize(gated_client, "self-hosted")
+    assert r.status_code == 302, r.text
+    assert "connector_id" not in _location_params(r)
+
+
+def test_browser_login_route_never_forwards_connector_id(gated_client):
+    """The cookie ``/auth/login`` flow is untouched: a stray ``connector_id``
+    query param is not plumbed through to the IDP there."""
+    clear_providers()
+    register_provider(_self_hosted_dex_provider())
+    r = gated_client.get(
+        "/auth/login",
+        params={"provider": "self-hosted", "connector_id": "google"},
+    )
+    assert r.status_code == 302, r.text
+    assert "connector_id" not in _location_params(r)
+
+
+@pytest.mark.parametrize(
+    "bad",
+    ["Google", "a b", "../x", "a" * 65, "-x", "_x", "google\n", "goo.gle"],
+)
+def test_native_authorize_rejects_invalid_connector_id_before_side_effects(
+    gated_client, bad,
+):
+    provider = _HintingStubProvider()
+    clear_providers()
+    register_provider(provider)
+    r = _native_authorize(gated_client, "stub", connector_id=bad)
+    assert r.status_code == 400, r.text
+    assert r.json() == {"detail": "connector_id is invalid"}
+    # Rejected before register_pending and before the IDP round trip starts.
+    assert native_flow._pending == {}
+    assert provider.start_login_calls == []
+    assert "set-cookie" not in r.headers
+
+
+def test_native_authorize_accepts_max_length_connector_id(gated_client):
+    provider = _HintingStubProvider()
+    clear_providers()
+    register_provider(provider)
+    ok = "a" + "b" * 62 + "-"  # 64 chars, the upper bound
+    r = _native_authorize(gated_client, "stub", connector_id=ok)
+    assert r.status_code == 302, r.text
+    assert provider.start_login_calls[0]["authorize_hints"] == {"connector_id": ok}
+
+
+def test_native_authorize_passes_hints_only_to_opted_in_provider(gated_client):
+    provider = _HintingStubProvider()
+    clear_providers()
+    register_provider(provider)
+    r = _native_authorize(gated_client, "stub", connector_id="google")
+    assert r.status_code == 302, r.text
+    assert provider.start_login_calls == [
+        {
+            "redirect_uri": "https://fly-app.fly.dev/auth/callback",
+            "authorize_hints": {"connector_id": "google"},
+        }
+    ]
+
+
+def test_native_authorize_gives_no_hints_to_provider_without_support(gated_client):
+    """A provider that doesn't declare ``supports_authorize_hints`` gets the
+    upstream call shape even when the client sends a valid connector_id —
+    no 400, the hint is just unused."""
+    provider = _RecordingStubProvider()
+    assert getattr(provider, "supports_authorize_hints", False) is False
+    clear_providers()
+    register_provider(provider)
+    r = _native_authorize(gated_client, "stub", connector_id="google")
+    assert r.status_code == 302, r.text
+    assert provider.start_login_calls == [
+        {"redirect_uri": "https://fly-app.fly.dev/auth/callback"}
+    ]
+    assert len(native_flow._pending) == 1

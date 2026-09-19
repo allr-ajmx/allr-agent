@@ -50,6 +50,13 @@ describe('modeIsRemoteLike', () => {
     expect(modeIsRemoteLike(undefined)).toBe(true)
     expect(modeIsRemoteLike('local')).toBe(false)
   })
+
+  // An Allr Work workspace is a remote host: nothing that means "the backend is on this
+  // machine" may apply to it.
+  it('treats allr as remote-like and ssh as not', () => {
+    expect(modeIsRemoteLike('allr')).toBe(true)
+    expect(modeIsRemoteLike('ssh')).toBe(false)
+  })
 })
 
 describe('chooseGatedAuth', () => {
@@ -154,6 +161,14 @@ describe('ssh mode', () => {
 })
 
 describe('connectionCacheKey', () => {
+  it('allr cache key differs from remote for same URL', () => {
+    const url = 'https://xm.allr.work'
+    const allr = connectionCacheKey({ authMode: 'oauth', baseUrl: url, mode: 'allr' })
+
+    expect(allr).not.toBe(connectionCacheKey({ authMode: 'oauth', baseUrl: url, mode: 'remote' }))
+    expect(allr).toBe(`allr::${url}`)
+  })
+
   const sshConn = (baseUrl: string) => ({
     authMode: 'token' as const,
     baseUrl,

@@ -16,6 +16,7 @@ The routes:
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 from collections import defaultdict, deque
@@ -363,6 +364,16 @@ def _validate_loopback_redirect_uri(raw: str) -> str:
     return raw
 
 
+# FORK DIVERGENCE (ALLR-51): the Allr desktop app learns which upstream
+# connector (e.g. Dex ``google``) the user picked in its first sign-in hop and
+# passes it here so the IDP can skip its own connector picker. Stock clients
+# never send it, and it is forwarded only to providers that declare
+# ``supports_authorize_hints`` — every other provider sees today's call.
+# The shape is a conservative slug (Dex connector ids are operator-chosen
+# identifiers); anything else is rejected before any side effect.
+_CONNECTOR_ID_RE = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")
+
+
 @router.get("/auth/native/authorize", name="auth_native_authorize")
 async def auth_native_authorize(
     request: Request,
@@ -371,6 +382,7 @@ async def auth_native_authorize(
     code_challenge_method: str = "",
     redirect_uri: str = "",
     state: str = "",
+    connector_id: str = "",
 ):
     """Begin an RFC 8252 native-app login for the desktop app.
 
@@ -381,6 +393,10 @@ async def auth_native_authorize(
     ``/auth/callback``), carrying the broker_state in the same PKCE cookie the
     cookie flow uses. On the callback we mint a loopback code (see
     ``auth_callback``); no browser session cookie is ever set for the desktop.
+
+    ``connector_id`` (optional, ALLR-51) is an upstream-connector hint handed to
+    providers that declare ``supports_authorize_hints``; it is validated for
+    every provider but silently unused by the rest.
     """
     # PKCE method must be S256 (RFC 7636 — plain is disallowed for native apps).
     if code_challenge_method.upper() != "S256":
@@ -391,6 +407,8 @@ async def auth_native_authorize(
     if not code_challenge:
         raise HTTPException(status_code=400, detail="code_challenge required")
     _validate_loopback_redirect_uri(redirect_uri)
+    if connector_id and not _CONNECTOR_ID_RE.fullmatch(connector_id):
+        raise HTTPException(status_code=400, detail="connector_id is invalid")
 
     # Resolve the provider. With exactly one session provider registered
     # (the common hosted case) an empty ``provider`` selects it, mirroring
@@ -426,8 +444,14 @@ async def auth_native_authorize(
     except native_flow.NativeFlowError as e:
         raise HTTPException(status_code=503, detail=str(e))
 
+    login_kwargs: Dict[str, Any] = {"redirect_uri": _redirect_uri(request)}
+    # FORK DIVERGENCE (ALLR-51): only a provider that opts in receives the
+    # hint, so providers whose ``start_login`` takes just ``redirect_uri``
+    # (the upstream ABC signature) keep working with the same client.
+    if connector_id and getattr(p, "supports_authorize_hints", False):
+        login_kwargs["authorize_hints"] = {"connector_id": connector_id}
     try:
-        ls = p.start_login(redirect_uri=_redirect_uri(request))
+        ls = p.start_login(**login_kwargs)
     except ProviderError as e:
         raise HTTPException(status_code=503, detail=f"Provider unreachable: {e}")
 

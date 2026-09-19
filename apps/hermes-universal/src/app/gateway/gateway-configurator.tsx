@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
+import { AllrWorkPanel } from '@/app/gateway/allr-work-panel'
 import { GatewayDiagnostics } from '@/app/gateway/gateway-diagnostics'
 import { LocalInstallPanel } from '@/app/gateway/local-install-panel'
 import { sshErrorMessage, sshStepLabel } from '@/app/gateway/ssh-copy'
@@ -30,12 +31,14 @@ import {
   LogIn,
   Monitor,
   RefreshCw,
+  Sparkles,
   Terminal
 } from '@/lib/icons'
 import { LOCAL_MODE_SUPPORTED } from '@/lib/platform'
 import { loadSshSecrets, mergeSshSecrets, saveSecrets } from '@/lib/secure-store'
 import { selectableCardClass } from '@/lib/selectable-card'
 import { cn } from '@/lib/utils'
+import { $allrWorkError, $allrWorkRestoreIssue } from '@/store/allr-work-state'
 import { useStore } from '@/store/atom'
 import {
   $cloudAgents,
@@ -209,7 +212,36 @@ export function GatewayConfigurator({
   // step at a time: pick a gateway, then configure only that one. Settings and
   // embedded keep showing the grid and the panel together on one page.
   const isOnboarding = variant === 'onboarding'
-  const [onboardingStep, setOnboardingStep] = useState<'configure' | 'select'>('select')
+
+  // The Allr Work card has something to say — a sign-in that failed, or a restore that gave
+  // up (ALLR-51). A mobile resume, or a failed first connect with nothing to roll back to,
+  // lands on this first-run wizard, and its 'select' step would bury that behind "Choose a
+  // gateway". So the wizard opens on the Allr Work step instead — like the Nous Cloud portal
+  // resume above selects its card — and moves there if the notice arrives after mount.
+  const allrWorkError = useStore($allrWorkError)
+  const allrWorkRestoreIssue = useStore($allrWorkRestoreIssue)
+  const allrWorkNotice = Boolean(allrWorkError || allrWorkRestoreIssue)
+  const onAllrWork = useStore($gatewayMode) === 'allr'
+
+  const [onboardingStep, setOnboardingStep] = useState<'configure' | 'select'>(() =>
+    isOnboarding && onAllrWork && allrWorkNotice ? 'configure' : 'select'
+  )
+
+  // After mount, on the EDGE only — the notice appearing while on Allr Work, or the mode
+  // becoming Allr Work with one showing. Mount is the seed's job; and a re-render must not
+  // undo Back, which still lets the user choose another gateway.
+  const allrWorkNeedsStep = isOnboarding && allrWorkNotice && onAllrWork
+  const allrWorkNeededStep = useRef(allrWorkNeedsStep)
+
+  useEffect(() => {
+    const was = allrWorkNeededStep.current
+    allrWorkNeededStep.current = allrWorkNeedsStep
+
+    if (allrWorkNeedsStep && !was) {
+      setPendingMode('allr')
+      setOnboardingStep('configure')
+    }
+  }, [allrWorkNeedsStep])
   const showModes = !isOnboarding || onboardingStep === 'select'
   const showPanels = !isOnboarding || onboardingStep === 'configure'
   const showLocalInstall = isOnboarding && showPanels && pendingMode === 'local'
@@ -225,6 +257,7 @@ export function GatewayConfigurator({
   }
 
   const MODE_TITLES: Record<GatewayMode, string> = {
+    allr: g.allrTitle,
     cloud: g.cloudTitle,
     local: g.localTitle,
     remote: g.remoteTitle,
@@ -684,12 +717,12 @@ export function GatewayConfigurator({
     }
   }
 
-  const doSignOut = async () => {
+  const doSignOut = async (message: string = g.signedOutMessage) => {
     setBusy(true)
 
     try {
       await signOut()
-      notify({ kind: 'success', title: g.signedOutTitle, message: g.signedOutMessage })
+      notify({ kind: 'success', title: g.signedOutTitle, message })
     } catch (err) {
       notifyError(err, g.signOutFailed)
     } finally {
@@ -748,7 +781,7 @@ export function GatewayConfigurator({
             </div>
           )}
           {/* Tailwind cannot see a computed class name, so the column count is
-              picked from literals: four cards on desktop, three when Local is
+              picked from literals: five cards on desktop, four when Local is
               hidden (mobile cannot spawn a backend, but it CAN dial SSH). The
               breakpoint is a VIEWPORT media query, so in a narrow host (a ~350px
               popover, the 420px connect card) it would crush the cards into the
@@ -757,9 +790,18 @@ export function GatewayConfigurator({
           <div
             className={cn(
               'grid auto-rows-fr grid-cols-1 gap-2',
-              isSettings && (LOCAL_MODE_SUPPORTED ? 'min-[42rem]:grid-cols-4' : 'min-[42rem]:grid-cols-3')
+              isSettings && (LOCAL_MODE_SUPPORTED ? 'min-[42rem]:grid-cols-5' : 'min-[42rem]:grid-cols-4')
             )}
           >
+            {/* Allr Work first, in every variant (ALLR-51): it is the one mode with nothing
+                to type — sign in, and the portal finds the workspace. */}
+            <ModeCard
+              active={pendingMode === 'allr'}
+              description={g.allrDesc}
+              icon={Sparkles}
+              onSelect={() => selectMode('allr')}
+              title={g.allrTitle}
+            />
             {LOCAL_MODE_SUPPORTED ? (
               <ModeCard
                 active={pendingMode === 'local'}
@@ -776,19 +818,6 @@ export function GatewayConfigurator({
               onSelect={() => selectMode('cloud')}
               title={g.cloudTitle}
             />
-            {/* Allr's own hosted gateway is not live yet. Until it ships, the card
-                stays out of the build. When it lands: bump the grid literals above
-                to grid-cols-5 / grid-cols-4, add `settings.gateway.allrTitle`
-                ('Allr') / `allrDesc` ('One workspace, finished work. Opens
-                allr.work.') to i18n, import Sparkles + BRAND_HOME_URL, and render:
-            <ModeCard
-              active={false}
-              description={g.allrDesc}
-              icon={Sparkles}
-              onSelect={() => void openExternalLink(BRAND_HOME_URL)}
-              title={g.allrTitle}
-            />
-            */}
             <ModeCard
               active={pendingMode === 'remote'}
               description={g.remoteDesc}
@@ -843,6 +872,16 @@ export function GatewayConfigurator({
           embedded recovery card keep the plain action bar: they are for a user
           who already has a working install and wants to switch back to it. */}
       {showLocalInstall ? <LocalInstallPanel onContinue={() => void doConnectLocal()} /> : null}
+
+      {/* Allr Work panel — owns its buttons, like Nous Cloud's. */}
+      {showPanels && pendingMode === 'allr' ? (
+        <AllrWorkPanel
+          busy={busy}
+          embedded={isEmbedded}
+          onSignOut={() => doSignOut(g.allrSignedOutMessage)}
+          runConnect={runConnect}
+        />
+      ) : null}
 
       {/* Nous Cloud panel */}
       {showPanels && pendingMode === 'cloud' ? (
@@ -958,9 +997,10 @@ export function GatewayConfigurator({
 
       {showPanels && lastTest ? <div className="mt-4 text-xs text-primary">{lastTest}</div> : null}
 
-      {/* Action bar (local + remote). Cloud connects via the agent picker above,
-          and the first-run local panel owns its own Continue/Install actions. */}
-      {showPanels && pendingMode !== 'cloud' && !showLocalInstall ? (
+      {/* Action bar (local + remote + ssh). Cloud connects via the agent picker above,
+          Allr Work via its sign-in, and the first-run local panel owns its own
+          Continue/Install actions. */}
+      {showPanels && pendingMode !== 'cloud' && pendingMode !== 'allr' && !showLocalInstall ? (
         <div className={cn('flex flex-wrap items-center justify-end gap-4', isEmbedded ? 'mt-4' : 'mt-6')}>
           {pendingMode === 'remote' ? (
             <Button

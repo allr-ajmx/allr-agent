@@ -95,6 +95,11 @@ keyring-core = "1.0"
 # the webview (getUserMedia); desktop is a no-op. See plugins/tauri-plugin-mic.
 tauri-plugin-mic = { path = "plugins/tauri-plugin-mic" }
 
+# Expiring cookies in Android's CookieManager (ALLR-51 U3b, Allr Work sign-out), which
+# wry cannot do. In-tree plugin, Rust-only (no webview commands); desktop/iOS get a
+# stub and keep deleting through wry / WKHTTPCookieStore. See plugins/tauri-plugin-cookie-store.
+tauri-plugin-cookie-store = { path = "plugins/tauri-plugin-cookie-store" }
+
 # Open external links in the system browser (Gc6/R11).
 tauri-plugin-opener = "2"
 

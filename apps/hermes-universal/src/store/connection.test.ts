@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import type * as AllrWorkLib from '@/lib/allr-work'
+
 vi.mock('@/transport/http', () => ({ httpRequest: vi.fn() }))
 vi.mock('@/lib/auth', () => ({
   passwordLogin: vi.fn().mockResolvedValue(undefined),
@@ -38,7 +40,14 @@ vi.mock('@/store/local-backend', () => ({
   spawnLocalBackend: vi.fn(),
   stopLocalBackend: vi.fn().mockResolvedValue(undefined)
 }))
+vi.mock('@/lib/allr-work', async importOriginal => ({
+  ...(await importOriginal<typeof AllrWorkLib>()),
+  allrWorkClearSession: vi.fn().mockResolvedValue({ cleared: 2, supported: true }),
+  allrWorkConfig: vi.fn().mockResolvedValue({ portalUrl: 'https://app.allr.work', parentDomain: 'allr.work' }),
+  isAllrWorkSignInInFlight: vi.fn(() => false)
+}))
 
+import { allrWorkClearSession, allrWorkConfig, AllrWorkInvokeError, isAllrWorkSignInInFlight } from '@/lib/allr-work'
 import {
   fetchAuthProviders,
   oauthLogin,
@@ -50,6 +59,7 @@ import {
 } from '@/lib/auth'
 import { clearSecrets, saveSecrets } from '@/lib/secure-store'
 import { clearSessionJar, suspendSessionCookiePersistence } from '@/lib/session-persist'
+import { $allrWorkError, $allrWorkRestoreIssue } from '@/store/allr-work-state'
 import { $gatewayState, connectGateway } from '@/store/gateway'
 import { spawnLocalBackend, stopLocalBackend } from '@/store/local-backend'
 import { httpRequest } from '@/transport/http'
@@ -57,6 +67,7 @@ import { httpRequest } from '@/transport/http'
 import {
   $connection,
   $connectionError,
+  $connectionPhase,
   beginGatewaySwitch,
   connect,
   connectCloud,
@@ -512,5 +523,215 @@ describe('beginOAuthLogin — the mobile resume marker', () => {
     await conn.connect({ url: 'gw.example.com', allowInteractive: true })
 
     expect(localStorage.getItem(PENDING_OAUTH_KEY)).toBeNull()
+  })
+})
+
+// ── Allr Work (ALLR-51) ───────────────────────────────────────────────────────
+//
+// Every request to an Allr workspace WITHOUT a bearer is answered by Pomerium, not the
+// agent. So the allr path checks the session before it probes anything, and it has no
+// sign-in of its own to fall back on: the Allr Work sign-in runs before a connect.
+describe('connect — allr', () => {
+  const WORKSPACE = 'https://xm.allr.work'
+
+  beforeEach(() => {
+    status({ auth_required: true, auth_flows: ['cookie', 'native_pkce'] })
+    mockProviders.mockResolvedValue([oauthProvider])
+    vi.mocked(connectGateway).mockResolvedValue(undefined)
+  })
+
+  it('allr connect calls oauthStatus before /api/status', async () => {
+    const order: string[] = []
+
+    mockOauthStatus.mockImplementation(async () => {
+      order.push('oauth_status')
+
+      return { signedIn: true, reachable: true, sessionKind: 'native' }
+    })
+    mockHttp.mockImplementation(async (_method, url) => {
+      order.push(String(url))
+
+      return { status: 200, headers: {}, body: JSON.stringify({ auth_required: true }) }
+    })
+
+    await connect({ url: WORKSPACE, mode: 'allr' })
+
+    expect(order[0]).toBe('oauth_status')
+    expect(order).toContain(`${WORKSPACE}/api/status`)
+    expect(mockOauthStatus).toHaveBeenCalledWith(WORKSPACE)
+  })
+
+  it('signed-out allr connect throws sign-in-required without invoking oauth_login even when interactive', async () => {
+    mockOauthStatus.mockResolvedValue({ signedIn: false, reachable: true })
+
+    await expect(connect({ url: WORKSPACE, mode: 'allr', allowInteractive: true })).rejects.toMatchObject({
+      needsInteractiveSignIn: true
+    })
+
+    expect(mockOauthLogin).not.toHaveBeenCalled()
+    // Nothing unauthenticated went out after the verdict either.
+    expect(mockHttp).not.toHaveBeenCalled()
+    expect(mockProviders).not.toHaveBeenCalled()
+    expect($connection.get()).toBeNull()
+    expect($connectionPhase.get()).toBe('error')
+  })
+
+  // "Could not tell" — including the 503 an Allr workspace answers an invalid bearer with —
+  // must stay retryable, never become "sign in".
+  it('an unknown session is a network error for the retry ladder', async () => {
+    mockOauthStatus.mockResolvedValue({ signedIn: false, reachable: false, error: 'HTTP 503' })
+
+    const err = await connect({ url: WORKSPACE, mode: 'allr' }).catch((e: unknown) => e)
+
+    expect(err).toBeInstanceOf(Error)
+    expect(err).not.toHaveProperty('needsInteractiveSignIn')
+    expect((err as Error).message).toBe('HTTP 503')
+    expect(mockHttp).not.toHaveBeenCalled()
+    expect(mockOauthLogin).not.toHaveBeenCalled()
+  })
+
+  it('an oauth_status that throws is unknown too, not signed out', async () => {
+    mockOauthStatus.mockRejectedValue(new Error('ipc'))
+
+    await expect(connect({ url: WORKSPACE, mode: 'allr' })).rejects.not.toHaveProperty('needsInteractiveSignIn')
+  })
+
+  it('successful allr connect saves mode allr', async () => {
+    localStorage.setItem('hermes.url', 'https://my-remote.example.com')
+    $allrWorkError.set({ kind: 'timed-out', message: 'old' })
+    $allrWorkRestoreIssue.set('unreachable')
+    mockOauthStatus.mockResolvedValue({ signedIn: true, reachable: true, sessionKind: 'native' })
+
+    await connect({ url: WORKSPACE, mode: 'allr' })
+
+    expect(JSON.parse(localStorage.getItem('hermes.connection.last') ?? 'null')).toEqual({
+      mode: 'allr',
+      url: WORKSPACE
+    })
+    expect($connection.get()).toEqual({ baseUrl: WORKSPACE, mode: 'allr', authMode: 'oauth' })
+    expect(connectGateway).toHaveBeenCalledWith({ baseUrl: WORKSPACE, mode: 'allr', authMode: 'oauth' })
+    expect($connectionPhase.get()).toBe('ready')
+    // The remote card's prefill and keyring login are not this mode's to overwrite.
+    expect(localStorage.getItem('hermes.url')).toBe('https://my-remote.example.com')
+    expect(saveSecrets).not.toHaveBeenCalled()
+    expect(mockOauthLogin).not.toHaveBeenCalled()
+    // A landed connect is the end of whatever the card was warning about.
+    expect($allrWorkError.get()).toBeNull()
+    expect($allrWorkRestoreIssue.get()).toBeNull()
+  })
+
+  it('leaves the remote path untouched when mode is omitted', async () => {
+    mockOauthStatus.mockResolvedValue({ signedIn: true, reachable: true })
+
+    await connect({ url: 'gw.example.com' })
+
+    expect(mockHttp.mock.invocationCallOrder[0]).toBeLessThan(mockOauthStatus.mock.invocationCallOrder[0])
+    expect(JSON.parse(localStorage.getItem('hermes.connection.last') ?? 'null')).toMatchObject({ mode: 'remote' })
+  })
+})
+
+describe('signOut — allr', () => {
+  const WORKSPACE = 'https://xm.allr.work'
+
+  it('allr sign-out logs out, clears browser session, clears pending', async () => {
+    const order: string[] = []
+
+    vi.mocked(oauthLogout).mockImplementationOnce(async () => void order.push('logout'))
+    vi.mocked(allrWorkClearSession).mockImplementationOnce(async () => {
+      order.push('clear')
+
+      return { cleared: 2, supported: true }
+    })
+    localStorage.setItem('hermes.allr.pending', '1')
+    $allrWorkError.set({ kind: 'no-workspace', message: 'x' })
+    $allrWorkRestoreIssue.set('session-ended')
+    $connection.set({ baseUrl: WORKSPACE, mode: 'allr', authMode: 'oauth' })
+
+    await signOut()
+
+    expect(order).toEqual(['logout', 'clear'])
+    expect(oauthLogout).toHaveBeenCalledWith(WORKSPACE)
+    expect(allrWorkClearSession).toHaveBeenCalledWith({ workspace: WORKSPACE })
+    expect(localStorage.getItem('hermes.allr.pending')).toBeNull()
+    expect(localStorage.getItem('hermes.connection.last')).toBeNull()
+    expect($allrWorkError.get()).toBeNull()
+    expect($allrWorkRestoreIssue.get()).toBeNull()
+    expect($connection.get()).toBeNull()
+  })
+
+  it('still signs out when the browser session cannot be cleared', async () => {
+    vi.mocked(allrWorkClearSession).mockRejectedValueOnce(new AllrWorkInvokeError('cookie-store-failed', 'x'))
+    $connection.set({ baseUrl: WORKSPACE, mode: 'allr', authMode: 'oauth' })
+
+    await signOut()
+
+    expect(clearSessionJar).toHaveBeenCalled()
+    expect($connection.get()).toBeNull()
+  })
+
+  // `allr_work_clear_session` takes no lease: deleting the portal / Dex cookies mid-flow
+  // would break the sign-in that is running.
+  it('never clears the browser session while a sign-in is in flight', async () => {
+    vi.mocked(isAllrWorkSignInInFlight).mockReturnValueOnce(true)
+    $connection.set({ baseUrl: WORKSPACE, mode: 'allr', authMode: 'oauth' })
+
+    await signOut()
+
+    expect(allrWorkClearSession).not.toHaveBeenCalled()
+    expect(oauthLogout).toHaveBeenCalledWith(WORKSPACE)
+    expect($connection.get()).toBeNull()
+  })
+
+  // After a restore that gave up, `$connection` is null — but the keyring bearer and the
+  // portal / Pomerium / Dex cookies are all still there. Sign out from that state must still
+  // revoke and forget them.
+  it('sign out after a failed restore still revokes and clears the saved workspace', async () => {
+    localStorage.setItem('hermes.connection.last', JSON.stringify({ mode: 'allr', url: WORKSPACE }))
+    localStorage.setItem('hermes.allr.pending', '1')
+
+    await signOut()
+
+    expect(oauthLogout).toHaveBeenCalledWith(WORKSPACE)
+    expect(allrWorkClearSession).toHaveBeenCalledWith({ workspace: WORKSPACE })
+    expect(localStorage.getItem('hermes.connection.last')).toBeNull()
+    expect(localStorage.getItem('hermes.allr.pending')).toBeNull()
+  })
+
+  it('sign out with an invalid saved workspace still clears the parent-domain cookies', async () => {
+    localStorage.setItem('hermes.connection.last', JSON.stringify({ mode: 'allr', url: 'https://auth.allr.work' }))
+
+    await signOut()
+
+    expect(oauthLogout).not.toHaveBeenCalled()
+    expect(allrWorkClearSession).toHaveBeenCalledWith({ workspace: null })
+  })
+
+  it('sign out fails closed when the portal config cannot be read', async () => {
+    localStorage.setItem('hermes.connection.last', JSON.stringify({ mode: 'allr', url: WORKSPACE }))
+    vi.mocked(allrWorkConfig).mockRejectedValueOnce(new AllrWorkInvokeError('invalid-portal-config', 'Bad.'))
+
+    await signOut()
+
+    expect(oauthLogout).not.toHaveBeenCalled()
+    expect(allrWorkClearSession).toHaveBeenCalledWith({ workspace: null })
+  })
+
+  it('a live non-allr connection never reaches for a saved allr target', async () => {
+    localStorage.setItem('hermes.connection.last', JSON.stringify({ mode: 'allr', url: WORKSPACE }))
+    $connection.set({ baseUrl: 'https://gw', mode: 'remote', authMode: 'oauth' })
+
+    await signOut()
+
+    expect(oauthLogout).toHaveBeenCalledOnce()
+    expect(oauthLogout).toHaveBeenCalledWith('https://gw')
+    expect(allrWorkClearSession).not.toHaveBeenCalled()
+  })
+
+  it('does not touch the Allr Work browser session for other modes', async () => {
+    $connection.set({ baseUrl: 'https://gw', mode: 'remote', authMode: 'oauth' })
+
+    await signOut()
+
+    expect(allrWorkClearSession).not.toHaveBeenCalled()
   })
 })

@@ -1,16 +1,19 @@
 import { useEffect, useState } from 'react'
 
 import { GatewayConfigurator } from '@/app/gateway/gateway-configurator'
+import { gatewayHostOf } from '@/app/gateway/gateway-host'
 import { sshStepLabel } from '@/app/gateway/ssh-copy'
 import { BRAND, HOSTED_CLOUD } from '@/brand'
 import { Wordmark } from '@/components/brand/wordmark'
 import { Button } from '@/components/ui/button'
-import { useI18n } from '@/i18n'
+import { type Translations, useI18n } from '@/i18n'
 import { Loader2 } from '@/lib/icons'
 import { cn } from '@/lib/utils'
+import { $allrWorkResume } from '@/store/allr-work-state'
 import { useStore } from '@/store/atom'
 import { $connectionError, $connectionPhase } from '@/store/connection'
-import { cancelRestore, loadGatewayTarget } from '@/store/gateway-restore'
+import { $restoring, cancelRestore, hasPendingAllr, loadGatewayTarget } from '@/store/gateway-restore'
+import { $gatewayMode } from '@/store/gateway-switch'
 import { $sshStep } from '@/store/ssh-backend'
 
 // Full-screen "reconnecting to the last gateway" screen (D8). Shown by
@@ -21,7 +24,7 @@ import { $sshStep } from '@/store/ssh-backend'
 // the connect picker.
 
 /** Human label for the gateway being (re)connected to, for the status line. */
-function targetLabel(): string {
+function targetLabel(g: Translations['settings']['gateway']): string {
   const target = loadGatewayTarget()
 
   if (!target) {
@@ -43,22 +46,14 @@ function targetLabel(): string {
       return target.cloudAgentName
     }
 
-    return hostOf(target.cloudBaseUrl) ?? HOSTED_CLOUD
+    return gatewayHostOf(target.cloudBaseUrl) ?? HOSTED_CLOUD
   }
 
-  return hostOf(target.url) ?? 'the remote gateway'
-}
-
-function hostOf(url?: string): null | string {
-  if (!url) {
-    return null
+  if (target.mode === 'allr') {
+    return g.allrWorkspaceTarget(gatewayHostOf(target.url))
   }
 
-  try {
-    return new URL(/^https?:\/\//i.test(url) ? url : `http://${url}`).host
-  } catch {
-    return url.replace(/^https?:\/\//i, '').replace(/\/.*$/, '') || null
-  }
+  return gatewayHostOf(target.url) ?? 'the remote gateway'
 }
 
 export function GatewayConnectingScreen() {
@@ -75,6 +70,28 @@ export function GatewayConnectingScreen() {
   // can take 45-90s. Without the step the screen is a motionless spinner for long
   // enough to read as a hang.
   const sshStep = useStore($sshStep)
+  const restoring = useStore($restoring)
+  const gatewayMode = useStore($gatewayMode)
+  const allrResume = useStore($allrWorkResume)
+
+  // A mobile Allr Work sign-in being finished after the reload (ALLR-51). The saved target is
+  // still the gateway from BEFORE the sign-in — an Allr Work target is saved only once it
+  // connects — so "Reconnecting to <that>" would name the wrong place. Until the boot restore
+  // takes the marker, the marker itself says so (read live: it is gone the moment the resume
+  // starts); from then on the resume's own state does. A resume the user backed out of clears
+  // that state and re-dials the previous target under its ordinary label, even when that
+  // target is itself an Allr Work workspace.
+  const resumingAllr =
+    !stopped &&
+    (allrResume?.phase === 'pending' ||
+      allrResume?.phase === 'dialing' ||
+      (allrResume === null && restoring && hasPendingAllr()))
+
+  // Given up on that resume: name the workspace it signed in to, not the saved target.
+  const stoppedLabel =
+    allrResume?.phase === 'failed' && gatewayMode === 'allr'
+      ? g.allrWorkspaceTarget(gatewayHostOf(allrResume.workspace))
+      : targetLabel(g)
 
   // Recovery in place (desktop's boot-failure card): rather than only offering the
   // hard "give up → connect picker" exit, re-home from right here with the embedded
@@ -98,7 +115,11 @@ export function GatewayConnectingScreen() {
           {/* No spinner once we have stopped: it is the part that reads as
               "still working on it", and it is the part that was lying. */}
           {stopped ? null : <Loader2 className="size-4 animate-spin" />}
-          {stopped ? g.connectStoppedTo(targetLabel()) : g.reconnectingTo(targetLabel())}
+          {stopped
+            ? g.connectStoppedTo(stoppedLabel)
+            : resumingAllr
+              ? g.allrResuming
+              : g.reconnectingTo(targetLabel(g))}
         </div>
 
         {sshStep ? (

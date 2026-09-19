@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import type * as AllrWorkLib from '@/lib/allr-work'
+
 // Observe which connect path the boot restore dials, without real networking.
 vi.mock('@/store/connection', () => ({
   connect: vi.fn().mockResolvedValue(undefined),
@@ -15,23 +17,39 @@ vi.mock('@/lib/auth', () => ({
   oauthStatusIsUnknown: (s: { reachable?: boolean }) => s?.reachable === false
 }))
 vi.mock('@/store/gateway-switch-broadcast', () => ({ broadcastGatewaySwitch: vi.fn() }))
+// The Rust side of Allr Work. The pure host rule stays real — it is what decides whether a
+// saved target may be dialled at all.
+vi.mock('@/lib/allr-work', async importOriginal => ({
+  ...(await importOriginal<typeof AllrWorkLib>()),
+  allrWorkConfig: vi.fn().mockResolvedValue({ portalUrl: 'https://app.allr.work', parentDomain: 'allr.work' }),
+  allrWorkTakeOutcome: vi.fn().mockResolvedValue(null)
+}))
 
+import { allrWorkConfig, AllrWorkInvokeError, allrWorkTakeOutcome } from '@/lib/allr-work'
 import { oauthStatus } from '@/lib/auth'
-import { connect, connectCloud, connectLocal, connectSsh } from '@/store/connection'
+import { $allrWorkError, $allrWorkRestoreIssue } from '@/store/allr-work-state'
+import { connect, connectCloud, connectLocal, connectSsh, loadSavedLogin } from '@/store/connection'
+import { $gatewayMode } from '@/store/gateway-switch'
 import { broadcastGatewaySwitch } from '@/store/gateway-switch-broadcast'
 
 import {
   $restoring,
   autoRestoreConnection,
   clearGatewayTarget,
+  clearPendingAllr,
+  hasPendingAllr,
   loadGatewayTarget,
   saveGatewayTarget,
-  savePendingOAuth
+  savePendingAllr,
+  savePendingOAuth,
+  takePendingAllr
 } from './gateway-restore'
 
 beforeEach(() => {
   localStorage.clear()
   vi.clearAllMocks()
+  $allrWorkError.set(null)
+  $allrWorkRestoreIssue.set(null)
 })
 
 describe('gateway target persistence', () => {
@@ -263,5 +281,297 @@ describe('ssh restore', () => {
 
     expect(connect).toHaveBeenCalledTimes(1)
     expect($restoring.get()).toBe(false)
+  })
+})
+
+// ── Allr Work (ALLR-51) ───────────────────────────────────────────────────────
+
+// Earlier suites leave rejecting implementations behind (`clearAllMocks` keeps them).
+const resetDial = () => {
+  vi.mocked(connect).mockReset()
+  vi.mocked(connect).mockResolvedValue(undefined)
+}
+
+describe('allr restore', () => {
+  const WORKSPACE = 'https://xm.allr.work'
+
+  beforeEach(resetDial)
+  const signInRequired = () => Object.assign(new Error('Sign in to Allr Work'), { needsInteractiveSignIn: true })
+
+  it('accepts an allr target', () => {
+    // Without 'allr' in the isMode whitelist this returns null and the auto-reconnect
+    // silently never happens.
+    saveGatewayTarget({ mode: 'allr', url: WORKSPACE })
+    expect(loadGatewayTarget()).toEqual({ mode: 'allr', url: WORKSPACE })
+  })
+
+  it('dials allr non-interactively', async () => {
+    saveGatewayTarget({ mode: 'allr', url: `${WORKSPACE}/` })
+
+    await autoRestoreConnection()
+
+    // Exactly this: the normalised base, the allr path, never interactive, and none of the
+    // remote card's keyring secrets.
+    expect(connect).toHaveBeenCalledWith({ url: WORKSPACE, mode: 'allr', allowInteractive: false })
+    expect(loadSavedLogin).not.toHaveBeenCalled()
+    expect($gatewayMode.get()).toBe('allr')
+    expect($restoring.get()).toBe(false)
+    expect($allrWorkRestoreIssue.get()).toBeNull()
+  })
+
+  // localStorage is not Rust's host rule. A saved target that fails it is never dialled.
+  it.each([
+    ['another domain', 'https://xm.evil.test'],
+    ['a reserved label', 'https://auth.allr.work'],
+    ['a nested host', 'https://a.b.allr.work'],
+    ['plain http', 'http://xm.allr.work'],
+    ['a missing url', undefined]
+  ])('refuses to dial a saved workspace on %s and asks for a sign-in', async (_label, url) => {
+    saveGatewayTarget({ mode: 'allr', url })
+
+    await autoRestoreConnection()
+
+    expect(connect).not.toHaveBeenCalled()
+    expect($allrWorkRestoreIssue.get()).toBe('session-ended')
+    expect($restoring.get()).toBe(false)
+  })
+
+  it('validates against the configured parent, not a hard-coded one', async () => {
+    vi.mocked(allrWorkConfig).mockResolvedValueOnce({
+      portalUrl: 'https://app.dev.allr.work',
+      parentDomain: 'dev.allr.work'
+    })
+    saveGatewayTarget({ mode: 'allr', url: WORKSPACE })
+
+    await autoRestoreConnection()
+
+    expect(connect).not.toHaveBeenCalled()
+    expect($allrWorkRestoreIssue.get()).toBe('session-ended')
+  })
+
+  it('fails closed when the portal config cannot be read', async () => {
+    vi.mocked(allrWorkConfig).mockRejectedValueOnce(new AllrWorkInvokeError('invalid-portal-config', 'Bad portal.'))
+    saveGatewayTarget({ mode: 'allr', url: WORKSPACE })
+
+    await autoRestoreConnection()
+
+    expect(connect).not.toHaveBeenCalled()
+  })
+
+  it('a refused refresh token ends the ladder at once and says the session ended', async () => {
+    vi.mocked(connect).mockRejectedValue(signInRequired())
+    saveGatewayTarget({ mode: 'allr', url: WORKSPACE })
+
+    await autoRestoreConnection()
+
+    expect(connect).toHaveBeenCalledTimes(1)
+    expect($allrWorkRestoreIssue.get()).toBe('session-ended')
+  })
+
+  // An invalid-but-unexpired bearer comes back from an Allr workspace as 503 — "unknown",
+  // retried like a network fault. Once the ladder is spent the card must offer Sign in
+  // again, or the user retries a dead credential forever.
+  it('an exhausted ladder of unknown failures offers sign in again', async () => {
+    vi.mocked(connect).mockRejectedValue(new Error('Auth provider unreachable (HTTP 503)'))
+    saveGatewayTarget({ mode: 'allr', url: WORKSPACE })
+
+    await autoRestoreConnection()
+
+    expect(connect).toHaveBeenCalledTimes(3)
+    expect($allrWorkRestoreIssue.get()).toBe('unreachable')
+    expect($restoring.get()).toBe(false)
+  })
+
+  it('never marks the allr card for a restore of another mode', async () => {
+    vi.mocked(connect).mockRejectedValue(signInRequired())
+    saveGatewayTarget({ mode: 'remote', url: 'https://gw.example.com' })
+
+    await autoRestoreConnection()
+
+    expect($allrWorkRestoreIssue.get()).toBeNull()
+  })
+})
+
+describe('allr pending marker', () => {
+  it('is one-shot', () => {
+    expect(hasPendingAllr()).toBe(false)
+    savePendingAllr()
+    expect(hasPendingAllr()).toBe(true)
+    expect(takePendingAllr()).toBe(true)
+    expect(takePendingAllr()).toBe(false)
+    savePendingAllr()
+    clearPendingAllr()
+    expect(hasPendingAllr()).toBe(false)
+  })
+
+  it('$restoring seeds from pending allr', async () => {
+    localStorage.setItem('hermes.allr.pending', '1')
+    vi.resetModules()
+
+    const fresh = await import('./gateway-restore')
+
+    expect(fresh.$restoring.get()).toBe(true)
+  })
+})
+
+// On mobile the sign-in reloads the SPA; the boot restore finishes it from Rust's mailbox.
+describe('mobile allr resume', () => {
+  const WORKSPACE = 'https://xm.allr.work'
+
+  beforeEach(resetDial)
+
+  it('resume signed-in connects allr and broadcasts', async () => {
+    savePendingAllr()
+    vi.mocked(allrWorkTakeOutcome).mockResolvedValueOnce({ kind: 'signed-in', workspace: WORKSPACE })
+    vi.mocked(connect).mockImplementationOnce(async () => saveGatewayTarget({ mode: 'allr', url: WORKSPACE }))
+
+    await autoRestoreConnection()
+
+    expect(connect).toHaveBeenCalledOnce()
+    expect(connect).toHaveBeenCalledWith({ url: WORKSPACE, mode: 'allr' })
+    expect(broadcastGatewaySwitch).toHaveBeenCalledWith('allr', { mode: 'allr', url: WORKSPACE })
+    expect($gatewayMode.get()).toBe('allr')
+    expect($restoring.get()).toBe(false)
+  })
+
+  // A REAL failure: land on the Allr Work card with it, not back on the gateway saved
+  // before the attempt.
+  it('resume failed sets error and does not connect', async () => {
+    saveGatewayTarget({ mode: 'remote', url: 'https://gw.example.com' })
+    savePendingAllr()
+    vi.mocked(allrWorkTakeOutcome).mockResolvedValueOnce({
+      kind: 'failed',
+      error: new AllrWorkInvokeError('timed-out', 'Too long.'),
+      workspace: null
+    })
+
+    await autoRestoreConnection()
+
+    expect(connect).not.toHaveBeenCalled()
+    expect(broadcastGatewaySwitch).not.toHaveBeenCalled()
+    expect($allrWorkError.get()).toMatchObject({ kind: 'timed-out' })
+    expect($gatewayMode.get()).toBe('allr')
+    expect($restoring.get()).toBe(false)
+  })
+
+  // Backing out is not a failure. Like the OAuth resume's fallback: re-dial the gateway the
+  // user was on before the attempt, through the ordinary non-interactive restore, holding
+  // `$restoring` (the connecting screen) up across that dial.
+  it('cancelled re-dials the previous target with its mode, silently', async () => {
+    saveGatewayTarget({ mode: 'remote', url: 'https://gw.example.com', username: 'admin' })
+    savePendingAllr()
+    $restoring.set(true)
+    vi.mocked(allrWorkTakeOutcome).mockResolvedValueOnce({
+      kind: 'failed',
+      error: new AllrWorkInvokeError('cancelled', 'Backed out.'),
+      workspace: null
+    })
+    let restoringDuringDial: boolean | null = null
+
+    vi.mocked(connect).mockImplementationOnce(async () => {
+      restoringDuringDial = $restoring.get()
+    })
+
+    await autoRestoreConnection()
+
+    expect(connect).toHaveBeenCalledOnce()
+    expect(connect).toHaveBeenCalledWith(
+      expect.objectContaining({ url: 'https://gw.example.com', username: 'admin', allowInteractive: false })
+    )
+    expect(connect).not.toHaveBeenCalledWith(expect.objectContaining({ mode: 'allr' }))
+    expect($gatewayMode.get()).toBe('remote')
+    expect(restoringDuringDial).toBe(true)
+    expect($restoring.get()).toBe(false)
+    expect($allrWorkError.get()).toBeNull()
+    expect($allrWorkRestoreIssue.get()).toBeNull()
+    expect(broadcastGatewaySwitch).not.toHaveBeenCalled()
+    expect(hasPendingAllr()).toBe(false)
+  })
+
+  it('an empty mailbox re-dials the previous target with its mode', async () => {
+    saveGatewayTarget({ mode: 'local', profile: 'dev' })
+    savePendingAllr()
+
+    await autoRestoreConnection()
+
+    expect(connectLocal).toHaveBeenCalledWith('dev')
+    expect(connect).not.toHaveBeenCalled()
+    expect($gatewayMode.get()).toBe('local')
+    expect($allrWorkError.get()).toBeNull()
+    expect($restoring.get()).toBe(false)
+    expect(hasPendingAllr()).toBe(false)
+  })
+
+  // Retrying after backing out of a switch-account / sign-in-again on an Allr workspace: the
+  // previous target is that workspace, and it comes back the same silent way.
+  it('an empty mailbox re-dials a previous allr workspace too', async () => {
+    saveGatewayTarget({ mode: 'allr', url: WORKSPACE })
+    savePendingAllr()
+
+    await autoRestoreConnection()
+
+    expect(connect).toHaveBeenCalledWith({ url: WORKSPACE, mode: 'allr', allowInteractive: false })
+    expect($gatewayMode.get()).toBe('allr')
+    expect($allrWorkError.get()).toBeNull()
+  })
+
+  it('an empty mailbox with no previous target lands idle on the allr card', async () => {
+    savePendingAllr()
+    $restoring.set(true)
+
+    await autoRestoreConnection()
+
+    expect(connect).not.toHaveBeenCalled()
+    expect(connectLocal).not.toHaveBeenCalled()
+    expect(connectCloud).not.toHaveBeenCalled()
+    expect(connectSsh).not.toHaveBeenCalled()
+    expect($gatewayMode.get()).toBe('allr')
+    expect($allrWorkError.get()).toBeNull()
+    expect($allrWorkRestoreIssue.get()).toBeNull()
+    expect($restoring.get()).toBe(false)
+  })
+
+  it('resume is one-shot', async () => {
+    savePendingAllr()
+    vi.mocked(allrWorkTakeOutcome).mockResolvedValue({ kind: 'signed-in', workspace: WORKSPACE })
+
+    await autoRestoreConnection()
+    await autoRestoreConnection()
+
+    expect(allrWorkTakeOutcome).toHaveBeenCalledOnce()
+    expect(connect).toHaveBeenCalledOnce()
+    vi.mocked(allrWorkTakeOutcome).mockResolvedValue(null)
+  })
+
+  // Both markers: the Allr Work sign-in got `busy` behind a remote OAuth sign-in that owned
+  // the surface, and that OAuth sign-in completed. With nothing in the Allr mailbox and no
+  // saved target, the OAuth resume must still run — not be skipped for an idle Allr card
+  // with its marker left to fire on some later boot.
+  it('an empty allr resume still lets a completed OAuth sign-in resume', async () => {
+    savePendingAllr()
+    savePendingOAuth({ base: 'https://gw.b', username: 'admin' })
+    vi.mocked(oauthStatus).mockResolvedValueOnce({ signedIn: true })
+    vi.mocked(connect).mockImplementationOnce(async () => saveGatewayTarget({ mode: 'remote', url: 'https://gw.b' }))
+
+    await autoRestoreConnection()
+
+    expect(oauthStatus).toHaveBeenCalledWith('https://gw.b')
+    expect(connect).toHaveBeenCalledWith({ url: 'https://gw.b', username: 'admin' })
+    expect(broadcastGatewaySwitch).toHaveBeenCalledWith('remote', expect.objectContaining({ url: 'https://gw.b' }))
+    expect($gatewayMode.get()).toBe('remote')
+    expect(localStorage.getItem('hermes.oauth.pending')).toBeNull()
+    expect(hasPendingAllr()).toBe(false)
+    expect($restoring.get()).toBe(false)
+  })
+
+  it('with no marker, a signed-in outcome in the mailbox is never read', async () => {
+    vi.mocked(allrWorkTakeOutcome).mockResolvedValueOnce({ kind: 'signed-in', workspace: WORKSPACE })
+
+    await autoRestoreConnection()
+
+    expect(allrWorkTakeOutcome).not.toHaveBeenCalled()
+    expect(connect).not.toHaveBeenCalled()
+    vi.mocked(allrWorkTakeOutcome).mockReset()
+    vi.mocked(allrWorkTakeOutcome).mockResolvedValue(null)
   })
 })

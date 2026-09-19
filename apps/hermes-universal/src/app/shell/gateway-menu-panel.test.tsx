@@ -75,6 +75,20 @@ describe('GatewayMenuPanel — gateway switch affordance', () => {
     expect(screen.getByRole('button', { name: /hide gateway settings/i })).toBeInTheDocument()
   })
 
+  // The inline configurator is the embedded variant: Allr Work leads there too (ALLR-51).
+  it('leads the inline configurator with the Allr Work card', () => {
+    renderPanel('embedded')
+
+    fireEvent.click(screen.getByRole('button', { name: /change gateway/i }))
+
+    const cards = [...(document.querySelector('.auto-rows-fr')?.children ?? [])]
+
+    expect(cards[0]?.textContent).toMatch(/^Allr Work/)
+    fireEvent.click(screen.getByRole('button', { name: /^Allr Work/ }))
+    expect(screen.getByRole('button', { name: 'Sign in to Allr Work' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Save and reconnect' })).not.toBeInTheDocument()
+  })
+
   it('offers nothing in `none` mode', () => {
     renderPanel('none')
 

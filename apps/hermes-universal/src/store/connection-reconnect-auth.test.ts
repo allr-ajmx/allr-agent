@@ -112,6 +112,7 @@ describe('auto-reconnect — who may drive an interactive sign-in', () => {
   }
 
   const remote = (conn: typeof ConnectionStore) => conn.connect({ url: 'gw.example.com' })
+  const allr = (conn: typeof ConnectionStore) => conn.connect({ url: 'https://xm.allr.work', mode: 'allr' })
   const cloud = (conn: typeof ConnectionStore) => conn.connectCloud('https://gw')
 
   /** Drop the socket and let the supervisor's first backoff elapse. */
@@ -157,6 +158,23 @@ describe('auto-reconnect — who may drive an interactive sign-in', () => {
 
     expect(auth.oauthLogin).not.toHaveBeenCalled()
     expect(conn.$connectionError.get()).toContain('Session expired')
+  })
+
+  // Allr Work (ALLR-51). Its sign-in is two interactive hops through the portal, so the
+  // supervisor has even less business starting one than for `remote`: it stands down, and
+  // the card offers the sign-in.
+  it.each([
+    ['mobile', true],
+    ['desktop', false]
+  ])('stands down for an allr workspace on %s without any sign-in', async (_label, nativeMobile) => {
+    const { auth, conn, gateway } = await arrange(nativeMobile, allr)
+
+    await dropSocket(gateway)
+
+    expect(auth.oauthLogin).not.toHaveBeenCalled()
+    expect(auth.portalAgentSignIn).not.toHaveBeenCalled()
+    expect(conn.$connectionError.get()).toContain('Session expired')
+    expect(conn.$connection.get()).toMatchObject({ mode: 'allr' })
   })
 
   // Cloud re-auths through `portalAgentSignIn`, which on mobile is the silent reqwest
@@ -238,5 +256,49 @@ describe('auto-reconnect — who may drive an interactive sign-in', () => {
     await runLadder()
 
     expect(vi.mocked(gateway.connectGateway).mock.calls.length).toBeGreaterThan(settled)
+  })
+})
+
+// The same rule inside a connect: a ws-ticket mint refused between the session check and
+// the dial re-runs sign-in on the remote path (for a user-driven connect). An Allr Work
+// connect has no sign-in to re-run — it happens before connect, through the portal — so the
+// refusal must surface as sign-in-required, whoever asked.
+describe('connect — allr reauth', () => {
+  const reauthRequired = () =>
+    Object.assign(new Error('Session expired — sign in again'), { needsOauthLogin: true })
+
+  afterEach(() => {
+    vi.doUnmock('@/lib/platform')
+    vi.resetModules()
+    vi.clearAllMocks()
+  })
+
+  it.each([
+    ['mobile', true],
+    ['desktop', false]
+  ])('allr reauth failure surfaces sign-in-required on %s', async (_label, nativeMobile) => {
+    localStorage.clear()
+    vi.resetModules()
+    vi.doMock('@/lib/platform', () => ({ IS_NATIVE_MOBILE: nativeMobile }))
+
+    const auth = await import('@/lib/auth')
+    const { httpRequest } = await import('@/transport/http')
+    const gateway = await import('@/store/gateway')
+    const conn = await import('./connection')
+
+    vi.mocked(httpRequest).mockResolvedValue({ status: 200, headers: {}, body: JSON.stringify({ auth_required: true }) })
+    vi.mocked(auth.oauthStatus).mockResolvedValue({ signedIn: true, reachable: true })
+    vi.mocked(gateway.connectGateway).mockRejectedValue(reauthRequired())
+
+    await expect(
+      conn.connect({ url: 'https://xm.allr.work', mode: 'allr', allowInteractive: true })
+    ).rejects.toMatchObject({ needsInteractiveSignIn: true })
+
+    expect(auth.oauthLogin).not.toHaveBeenCalled()
+    expect(localStorage.getItem('hermes.oauth.pending')).toBeNull()
+    // Once: no retry of a refused credential.
+    expect(gateway.connectGateway).toHaveBeenCalledOnce()
+    expect(conn.$connection.get()).toBeNull()
+    expect(localStorage.getItem('hermes.connection.last')).toBeNull()
   })
 })

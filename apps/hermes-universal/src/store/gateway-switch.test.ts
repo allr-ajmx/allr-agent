@@ -18,6 +18,11 @@ describe('gateway-switch', () => {
     expect(localStorage.getItem('hermes.gateway.mode')).toBe('local')
   })
 
+  it('persists allr', () => {
+    setGatewayMode('allr')
+    expect(localStorage.getItem('hermes.gateway.mode')).toBe('allr')
+  })
+
   it('persists ssh', () => {
     setGatewayMode('ssh')
     expect($gatewayMode.get()).toBe('ssh')
@@ -40,6 +45,11 @@ describe('persisted-mode whitelist (fresh module, as on app launch)', () => {
 
   it('reopens into ssh', async () => {
     await expect(reopenWith('ssh')).resolves.toBe('ssh')
+  })
+
+  // A missing codec entry reopens an Allr Work user on the Remote card after every restart.
+  it('decodes allr', async () => {
+    await expect(reopenWith('allr')).resolves.toBe('allr')
   })
 
   it('still reopens into the other known modes', async () => {

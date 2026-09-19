@@ -81,6 +81,7 @@ import base64
 import hashlib
 import logging
 import os
+import re
 import secrets
 import threading
 import time
@@ -128,6 +129,13 @@ _DISCOVERY_CACHE_TTL_SEC = 3600
 # JWKS cache (PyJWKClient handles its own caching; this mirrors the nous
 # provider's 5-minute lifespan so key rotation is picked up promptly).
 _JWKS_CACHE_SECONDS = 300
+
+# FORK DIVERGENCE (ALLR-51): the only authorize-request hint this provider
+# forwards. Dex honours ``connector_id`` on ``/auth`` to skip its connector
+# picker, which lets the Allr desktop app carry the user's first-hop choice
+# through. Same slug shape the native-authorize route enforces; re-checked
+# here so a direct caller can't smuggle arbitrary query params to the IDP.
+_CONNECTOR_ID_RE = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")
 
 
 # ---------------------------------------------------------------------------
@@ -179,6 +187,9 @@ class SelfHostedOIDCProvider(DashboardAuthProvider):
 
     name = "self-hosted"
     display_name = "Self-Hosted OIDC"
+    # FORK DIVERGENCE (ALLR-51): opt in to the native-authorize route passing
+    # ``authorize_hints`` to ``start_login``.
+    supports_authorize_hints = True
 
     def __init__(
         self,
@@ -222,7 +233,12 @@ class SelfHostedOIDCProvider(DashboardAuthProvider):
 
     # ---- public API (DashboardAuthProvider) -------------------------------
 
-    def start_login(self, *, redirect_uri: str) -> LoginStart:
+    def start_login(
+        self,
+        *,
+        redirect_uri: str,
+        authorize_hints: dict[str, str] | None = None,
+    ) -> LoginStart:
         self._validate_redirect_uri(redirect_uri)
         disco = self._get_discovery()
 
@@ -241,6 +257,13 @@ class SelfHostedOIDCProvider(DashboardAuthProvider):
             "code_challenge": code_challenge,
             "code_challenge_method": "S256",
         }
+        # FORK DIVERGENCE (ALLR-51): merge only whitelisted, well-formed hints;
+        # anything else in ``authorize_hints`` is dropped, never forwarded.
+        connector_id = (authorize_hints or {}).get("connector_id")
+        if isinstance(connector_id, str) and _CONNECTOR_ID_RE.fullmatch(
+            connector_id
+        ):
+            params["connector_id"] = connector_id
         redirect_url = (
             f"{disco['authorization_endpoint']}?{urllib.parse.urlencode(params)}"
         )

@@ -231,7 +231,11 @@ export function useStatusbarItems(opts?: {
     [gatewayState, inferenceStatus, rich, statusSnapshot]
   )
 
-  const isRemoteBackend = connection?.mode === 'remote' || connection?.mode === 'cloud' || connection?.mode === 'ssh'
+  const isRemoteBackend =
+    connection?.mode === 'remote' ||
+    connection?.mode === 'cloud' ||
+    connection?.mode === 'ssh' ||
+    connection?.mode === 'allr'
 
   const backendVersion = status?.version
 
