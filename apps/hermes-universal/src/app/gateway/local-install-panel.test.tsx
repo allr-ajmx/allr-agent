@@ -51,9 +51,7 @@ beforeEach(() => {
 
 describe('when Allr is already installed', () => {
   beforeEach(() => {
-    invokeMock.mockResolvedValue(
-      detected('path', { command: '/usr/local/bin/allr', version: 'hermes 1.4.0' })
-    )
+    invokeMock.mockResolvedValue(detected('path', { command: '/usr/local/bin/allr', version: 'hermes 1.4.0' }))
   })
 
   it('shows the install and offers Continue', async () => {

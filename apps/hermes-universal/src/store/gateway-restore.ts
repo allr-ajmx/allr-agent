@@ -1,4 +1,9 @@
-import { GatewaySignInRequiredError, isGatewayReauthRequired, isGatewaySignInBusy, isGatewaySignInRequired } from '@/gateway'
+import {
+  GatewaySignInRequiredError,
+  isGatewayReauthRequired,
+  isGatewaySignInBusy,
+  isGatewaySignInRequired
+} from '@/gateway'
 import { allrWorkConfig, allrWorkspaceBase } from '@/lib/allr-work'
 import { oauthStatus } from '@/lib/auth'
 import { loadString, removeKey, saveString } from '@/lib/persist'

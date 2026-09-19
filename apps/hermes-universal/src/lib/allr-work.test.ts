@@ -65,9 +65,7 @@ describe('allrWorkspaceBase', () => {
     expect(allrWorkspaceBase('https://xm.allr.work/', parent)).toBe('https://xm.allr.work')
     expect(allrWorkspaceBase('https://XM.Allr.Work', parent)).toBe('https://xm.allr.work')
     expect(allrWorkspaceBase('https://a-1.allr.work', parent)).toBe('https://a-1.allr.work')
-    expect(allrWorkspaceBase(`https://${'a'.repeat(31)}.allr.work`, parent)).toBe(
-      `https://${'a'.repeat(31)}.allr.work`
-    )
+    expect(allrWorkspaceBase(`https://${'a'.repeat(31)}.allr.work`, parent)).toBe(`https://${'a'.repeat(31)}.allr.work`)
   })
 
   it('accepts a dev parent', () => {

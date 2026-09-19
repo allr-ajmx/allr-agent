@@ -136,7 +136,9 @@ function DrawerSub({ children }: MenuSectionProps) {
 
 function DrawerLabel({ children, className }: MenuSectionProps) {
   return (
-    <p className={cn('px-4 pt-3 pb-1 text-xs font-medium tracking-wide text-(--ui-text-tertiary) uppercase', className)}>
+    <p
+      className={cn('px-4 pt-3 pb-1 text-xs font-medium tracking-wide text-(--ui-text-tertiary) uppercase', className)}
+    >
       {children}
     </p>
   )

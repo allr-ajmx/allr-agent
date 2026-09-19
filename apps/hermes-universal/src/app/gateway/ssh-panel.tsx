@@ -432,7 +432,6 @@ export function SshPanel({
           <span>{progress}</span>
         </div>
       ) : null}
-
     </div>
   )
 }

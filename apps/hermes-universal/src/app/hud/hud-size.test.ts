@@ -85,9 +85,13 @@ describe('hudWindowHeight', () => {
 
   it('expands to fit the attachment dropdown menu and restores when closed', () => {
     // Collapsed bar with attachment menu open: 88 + 360 = 448
-    expect(hudWindowHeight({ attachmentMenuOpen: true, bandMaxPx: 336, barPx: 88, contentPx: 0, open: false })).toBe(448)
+    expect(hudWindowHeight({ attachmentMenuOpen: true, bandMaxPx: 336, barPx: 88, contentPx: 0, open: false })).toBe(
+      448
+    )
     // Same as above: back to the measured 88, not the floor.
-    expect(hudWindowHeight({ attachmentMenuOpen: false, bandMaxPx: 336, barPx: 88, contentPx: 0, open: false })).toBe(88)
+    expect(hudWindowHeight({ attachmentMenuOpen: false, bandMaxPx: 336, barPx: 88, contentPx: 0, open: false })).toBe(
+      88
+    )
   })
 
   // A card that has not been laid out reports 0 for every box, and arithmetic

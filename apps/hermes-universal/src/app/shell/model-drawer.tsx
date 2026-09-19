@@ -264,7 +264,14 @@ function EffortHeader({ model, onBack, onClose }: { model: string; onBack: () =>
         <ChevronLeft className="size-5" />
       </Button>
       <SheetTitle className="min-w-0 flex-1 truncate text-sm font-medium">{model}</SheetTitle>
-      <Button aria-label={common.close} className="shrink-0" onClick={onClose} size="icon" type="button" variant="ghost">
+      <Button
+        aria-label={common.close}
+        className="shrink-0"
+        onClick={onClose}
+        size="icon"
+        type="button"
+        variant="ghost"
+      >
         <X className="size-5" />
       </Button>
     </div>
@@ -333,7 +340,11 @@ function ModelList({
                     so a tap that means "change the thinking level" cannot also
                     switch the model out from under you — on a pointer those are
                     click vs hover, and touch has only the one gesture. */}
-                <button className={cn(ROW, 'min-w-0 flex-1')} onClick={() => onSelect(family, group.provider)} type="button">
+                <button
+                  className={cn(ROW, 'min-w-0 flex-1')}
+                  onClick={() => onSelect(family, group.provider)}
+                  type="button"
+                >
                   <span className="w-4 shrink-0">
                     {isCurrent ? <Codicon className="text-foreground" name="check" size="0.875rem" /> : null}
                   </span>

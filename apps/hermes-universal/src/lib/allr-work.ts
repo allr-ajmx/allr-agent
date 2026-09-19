@@ -99,9 +99,7 @@ function brand(raw: unknown): unknown {
 
   const { kind, message } = raw as { kind?: unknown; message?: unknown }
 
-  return isKind(kind) && typeof message === 'string'
-    ? new AllrWorkInvokeError(kind, message)
-    : raw
+  return isKind(kind) && typeof message === 'string' ? new AllrWorkInvokeError(kind, message) : raw
 }
 
 /** Invoke an Allr Work command, branding its rejection. */
@@ -130,10 +128,10 @@ export interface AllrWorkSignIn {
 
 /** A finished MOBILE sign-in parked for the next boot (`allr_work_take_outcome`). */
 export type AllrWorkOutcome =
-  | { kind: 'signed-in'; workspace: string }
-  | { kind: 'failed'; error: AllrWorkError; workspace: null | string }
+  { kind: 'signed-in'; workspace: string } | { kind: 'failed'; error: AllrWorkError; workspace: null | string }
 
-type RawAllrWorkOutcome = { kind: 'signed-in'; workspace: string } | { kind: 'failed'; error: unknown; workspace: null | string }
+type RawAllrWorkOutcome =
+  { kind: 'signed-in'; workspace: string } | { kind: 'failed'; error: unknown; workspace: null | string }
 
 /** `allr_work_clear_session`'s reply. `supported: false` means this platform could not
  *  touch the sign-in page's cookies at all — not "there was nothing to clear". */

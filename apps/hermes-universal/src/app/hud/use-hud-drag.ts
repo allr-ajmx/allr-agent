@@ -55,7 +55,6 @@ export function useHudDrag(): {
     if (!IS_TAURI) {
       return
     }
-
     void (async () => {
       try {
         const win = getCurrentWebviewWindow()
@@ -63,8 +62,10 @@ export function useHudDrag(): {
         // Restore saved position if available
         try {
           const saved = window.localStorage.getItem(HUD_POSITION_STORAGE_KEY)
+
           if (saved) {
             const parsed = JSON.parse(saved) as HudWindowPosition
+
             if (
               typeof parsed?.x === 'number' &&
               typeof parsed?.y === 'number' &&
@@ -88,6 +89,7 @@ export function useHudDrag(): {
   const onPointerDown = useCallback((event: React.PointerEvent) => {
     if (event.metaKey || event.ctrlKey) {
       event.preventDefault()
+
       if (IS_TAURI) {
         try {
           const win = getCurrentWebviewWindow()
@@ -100,11 +102,9 @@ export function useHudDrag(): {
             void (async () => {
               try {
                 const pos = await win.outerPosition()
+
                 if (pos && typeof pos.x === 'number' && typeof pos.y === 'number') {
-                  window.localStorage.setItem(
-                    HUD_POSITION_STORAGE_KEY,
-                    JSON.stringify({ x: pos.x, y: pos.y })
-                  )
+                  window.localStorage.setItem(HUD_POSITION_STORAGE_KEY, JSON.stringify({ x: pos.x, y: pos.y }))
                 }
               } catch {
                 // Ignore

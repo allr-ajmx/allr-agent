@@ -110,9 +110,11 @@ export function ContextMenu({
       <DropdownMenu
         onOpenChange={isOpen => {
           setOpen(isOpen)
+
           if (!isOpen) {
             setView('root')
           }
+
           setAttachmentMenuDropdownOpen(isOpen)
         }}
         open={open}

@@ -87,10 +87,7 @@ describe('downloadGatewayMediaFile on Tauri', () => {
     await downloadGatewayMediaFile('file:///work/out/q3%20report.pdf')
     await settle()
 
-    expect(invoke).toHaveBeenCalledWith(
-      'download_file',
-      expect.objectContaining({ path: '/work/out/q3 report.pdf' })
-    )
+    expect(invoke).toHaveBeenCalledWith('download_file', expect.objectContaining({ path: '/work/out/q3 report.pdf' }))
   })
 
   /**

@@ -59,8 +59,7 @@ const oauthProvider = { name: 'nous', display_name: 'Nous', supports_password: f
 // whichever finishes last strands the user there. That is a real device failure (two
 // `oauth_login` calls 122 ms apart), not a theoretical race.
 describe('auto-reconnect — who may drive an interactive sign-in', () => {
-  const reauthRequired = () =>
-    Object.assign(new Error('Session expired — sign in again'), { needsOauthLogin: true })
+  const reauthRequired = () => Object.assign(new Error('Session expired — sign in again'), { needsOauthLogin: true })
 
   // The store instance the current test is driving, so afterEach can stand its supervisor
   // down. `vi.resetModules()` hands the NEXT test a fresh store but neither stops the
@@ -264,8 +263,7 @@ describe('auto-reconnect — who may drive an interactive sign-in', () => {
 // connect has no sign-in to re-run — it happens before connect, through the portal — so the
 // refusal must surface as sign-in-required, whoever asked.
 describe('connect — allr reauth', () => {
-  const reauthRequired = () =>
-    Object.assign(new Error('Session expired — sign in again'), { needsOauthLogin: true })
+  const reauthRequired = () => Object.assign(new Error('Session expired — sign in again'), { needsOauthLogin: true })
 
   afterEach(() => {
     vi.doUnmock('@/lib/platform')
@@ -286,7 +284,11 @@ describe('connect — allr reauth', () => {
     const gateway = await import('@/store/gateway')
     const conn = await import('./connection')
 
-    vi.mocked(httpRequest).mockResolvedValue({ status: 200, headers: {}, body: JSON.stringify({ auth_required: true }) })
+    vi.mocked(httpRequest).mockResolvedValue({
+      status: 200,
+      headers: {},
+      body: JSON.stringify({ auth_required: true })
+    })
     vi.mocked(auth.oauthStatus).mockResolvedValue({ signedIn: true, reachable: true })
     vi.mocked(gateway.connectGateway).mockRejectedValue(reauthRequired())
 

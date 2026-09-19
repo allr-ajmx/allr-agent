@@ -61,9 +61,7 @@ describe('moveSessionToProject', () => {
 
     await expect(moveSessionToProject('root', '/moved/app')).resolves.toBe(true)
 
-    expect(moveSessionWorkspace).toHaveBeenCalledWith(
-      expect.objectContaining({ cwd: '/moved/app', sessionKey: 'tip' })
-    )
+    expect(moveSessionWorkspace).toHaveBeenCalledWith(expect.objectContaining({ cwd: '/moved/app', sessionKey: 'tip' }))
   })
 
   // Captured from the frame the optimistic write publishes: `refreshSessions`

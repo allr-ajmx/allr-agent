@@ -206,17 +206,10 @@ function statusGlyph(status: ToolStatus, copy: ToolStatusCopy): ReactNode {
   }
 
   if (status === 'warning') {
-    return (
-      <AlertCircle aria-label={copy.statusRecovered} className="size-3.5 shrink-0 text-(--ui-yellow)" />
-    )
+    return <AlertCircle aria-label={copy.statusRecovered} className="size-3.5 shrink-0 text-(--ui-yellow)" />
   }
 
-  return (
-    <CheckCircle2
-      aria-label={copy.statusDone}
-      className="size-3.5 shrink-0 text-(--ui-green)/85"
-    />
-  )
+  return <CheckCircle2 aria-label={copy.statusDone} className="size-3.5 shrink-0 text-(--ui-green)/85" />
 }
 
 // Leading glyph for any tool-row header. Status (running/error/warning)
@@ -563,12 +556,8 @@ function ToolEntry({ part }: ToolEntryProps) {
             {!isPending && view.countLabel && <span className={TOOL_HEADER_DURATION_CLASS}>{view.countLabel}</span>}
             {showDiffStats && diffStats && (
               <span className="flex shrink-0 items-center gap-1 font-mono text-[0.625rem] tabular-nums">
-                {diffStats.added > 0 && (
-                  <span className="text-(--ui-green)">+{diffStats.added}</span>
-                )}
-                {diffStats.removed > 0 && (
-                  <span className="text-(--ui-red)">−{diffStats.removed}</span>
-                )}
+                {diffStats.added > 0 && <span className="text-(--ui-green)">+{diffStats.added}</span>}
+                {diffStats.removed > 0 && <span className="text-(--ui-red)">−{diffStats.removed}</span>}
               </span>
             )}
             {!isFileEdit && !isPending && view.durationLabel && (

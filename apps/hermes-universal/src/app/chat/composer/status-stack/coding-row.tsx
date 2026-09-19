@@ -332,7 +332,9 @@ export const CodingStatusRow = memo(function CodingStatusRow({
               removed={status.removed}
             />
           ) : untrackedOnly ? (
-            <span className={`shrink-0 text-[0.72rem] leading-4 text-(--ui-yellow)/90 ${noTrackingDelta ? 'ms-auto' : ''}`}>
+            <span
+              className={`shrink-0 text-[0.72rem] leading-4 text-(--ui-yellow)/90 ${noTrackingDelta ? 'ms-auto' : ''}`}
+            >
               {s.changed(status.untracked)}
             </span>
           ) : null}
